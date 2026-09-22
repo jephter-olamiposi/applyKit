@@ -1,0 +1,27 @@
+{
+  "name": "@applykit/domain",
+  "version": "0.1.0",
+  "description": "Domain entities, candidate profile model, evidence system, and action protocols for ApplyKit",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "applykit",
+    "domain",
+    "job-search",
+    "browser-automation"
+  ],
+  "author": "",
+  "license": "MIT"
+}
