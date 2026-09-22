@@ -45,16 +45,23 @@ export function findMatchingAdapter(url: URL, doc: Document): JobSiteAdapter {
 
 /**
  * Extracts a complete, strongly-typed JobPosting from the provided document and URL.
+ *
+ * A real document location is required; fabricating one would attach a forged
+ * origin to the recorded JobPosting.
  */
 export function extractStructuredJob(
   doc: Document = document,
-  urlString: string = typeof window !== 'undefined' ? window.location.href : 'https://example.com'
+  urlString?: string
 ): JobPosting {
+  const resolvedUrl = urlString ?? (typeof window !== 'undefined' ? window.location.href : undefined);
+  if (!resolvedUrl) {
+    throw new Error('Cannot extract a job posting without a document URL.');
+  }
   let url: URL;
   try {
-    url = new URL(urlString);
+    url = new URL(resolvedUrl);
   } catch {
-    url = new URL('https://example.com');
+    throw new Error(`Cannot extract a job posting: "${resolvedUrl}" is not a valid URL.`);
   }
 
   const adapter = findMatchingAdapter(url, doc);

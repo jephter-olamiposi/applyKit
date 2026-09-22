@@ -9,14 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import {
-  createEmptyProfile,
-  createProfileId,
-  createSkillId,
-  normalizeSkillName,
-  type CandidateProfile,
-  type AIProviderName,
-} from '@applykit/domain';
+import { createEmptyProfile, createProfileId, type CandidateProfile, type AIProviderName } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
 import type {
   SaveCandidateProfileRequest,
@@ -24,6 +17,7 @@ import type {
   IngestResumeRequest,
   IngestResumeResponse,
   SetApiKeyResponse,
+  GetCandidateProfileResponse,
 } from '../../messages/contracts.js';
 
 interface OnboardingWizardProps {
@@ -154,14 +148,29 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setErrorMsg(null);
 
     try {
-      // 1. Build and save the CandidateProfile aggregate
-      const profileId = createProfileId('default_candidate');
-      const base = createEmptyProfile(profileId);
+      // 1. Retrieve the resume-derived profile (if step 2 ingested evidence) so
+      // the parsed experiences, skills, and claims are preserved, not overwritten.
+      let baseProfile: CandidateProfile | null = null;
+      try {
+        const fetched = await sendToBackground<
+          { type: 'GET_CANDIDATE_PROFILE' },
+          GetCandidateProfileResponse
+        >({ type: 'GET_CANDIDATE_PROFILE' });
+        baseProfile = fetched?.profile ?? null;
+      } catch {
+        baseProfile = null;
+      }
+
+      const existingProfile = baseProfile && baseProfile.id
+        ? baseProfile
+        : createEmptyProfile(createProfileId('default_candidate'));
 
       const customProfile: CandidateProfile = {
-        ...base,
+        ...existingProfile,
+        // Only the identity fields typed by the candidate in step 1 are authoritative;
+        // experience, skills, education, projects, and claims remain evidence-derived.
         identity: {
-          ...base.identity,
+          ...existingProfile.identity,
           legalFirstName: firstName.trim(),
           legalLastName: lastName.trim(),
           preferredName: firstName.trim(),
@@ -178,27 +187,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           },
         },
         professional: {
-          ...base.professional,
-          headline: headline.trim() || 'Software Engineer',
+          ...existingProfile.professional,
+          headline: headline.trim(),
         },
-        skills: [
-          {
-            id: createSkillId(),
-            name: 'TypeScript',
-            normalizedName: normalizeSkillName('TypeScript'),
-            category: 'language',
-            proficiency: 'expert',
-            evidenceRefs: [],
-          },
-          {
-            id: createSkillId(),
-            name: 'React',
-            normalizedName: normalizeSkillName('React'),
-            category: 'framework',
-            proficiency: 'expert',
-            evidenceRefs: [],
-          },
-        ],
       };
 
       const res = await sendToBackground<

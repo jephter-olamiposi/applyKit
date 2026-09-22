@@ -258,12 +258,18 @@ describe('ATS Job Site Adapters & Normalization Suite', () => {
       expect(selected.id).toBe('generic');
     });
 
-    it('handles invalid URL strings safely in extractStructuredJob', () => {
+    it('rejects invalid or missing document URLs instead of fabricating one', () => {
       const doc = new DOMParser().parseFromString('<html><body><h1>Fallback Title</h1></body></html>', 'text/html');
-      const job = extractStructuredJob(doc, 'not-a-valid-url');
 
-      expect(job.title).toBe('Fallback Title');
-      expect(job.url).toBe('https://example.com/');
+      expect(() => extractStructuredJob(doc, 'not-a-valid-url')).toThrow(/not a valid URL/);
+
+      const savedWindow = globalThis.window;
+      (globalThis as unknown as { window: unknown }).window = undefined;
+      try {
+        expect(() => extractStructuredJob(doc)).toThrow(/without a document URL/);
+      } finally {
+        (globalThis as unknown as { window: unknown }).window = savedWindow;
+      }
     });
   });
 

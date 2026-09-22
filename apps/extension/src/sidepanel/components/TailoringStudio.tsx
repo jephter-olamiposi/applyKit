@@ -54,6 +54,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
   const [error, setError] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  const [recheckError, setRecheckError] = useState<string | null>(null);
 
   // Load Candidate Profile
   useEffect(() => {
@@ -67,6 +68,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
       })
       .catch((err) => {
         console.error('Failed to load profile for tailoring studio:', err);
+        setError('Failed to load your candidate profile for tailoring.');
       });
   }, []);
 
@@ -151,6 +153,8 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
       }
     } catch (err) {
       console.error('Fact-check verification failed:', err);
+      setLetterFactCheck(null);
+      setRecheckError('Fact-check verification could not be completed. Please try again.');
     } finally {
       setRechecking(false);
     }
@@ -158,10 +162,16 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
 
   // Clipboard Copy Helper
   const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopyFeedback(`✓ ${label} copied to clipboard!`);
-      setTimeout(() => setCopyFeedback(null), 3000);
-    });
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopyFeedback(`✓ ${label} copied to clipboard!`);
+        setTimeout(() => setCopyFeedback(null), 3000);
+      })
+      .catch(() => {
+        setCopyFeedback(`Could not copy ${label}. Clipboard access is unavailable.`);
+        setTimeout(() => setCopyFeedback(null), 3000);
+      });
   };
 
   // File Download Helper
@@ -517,6 +527,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
                   )}
                 </div>
               )}
+              {recheckError && <p className="form-error-msg">{recheckError}</p>}
 
               {/* Letter Editor */}
               <div className="cover-letter-editor-container">

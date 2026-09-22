@@ -64,7 +64,10 @@ export function findMatchingFormAdapter(url: URL, doc: Document): AtsFormAdapter
  * @returns Array of inspected ApplicationForm aggregates.
  */
 export function inspectPageWithAtsAdapters(doc: Document): readonly ApplicationForm[] {
-  const url = doc.location ? new URL(doc.location.href) : new URL('https://example.com');
+  if (!doc.location) {
+    throw new Error('Cannot inspect application form without a document location.');
+  }
+  const url = new URL(doc.location.href);
   const adapter = findMatchingFormAdapter(url, doc);
 
   const form = adapter.crawlForm(doc);

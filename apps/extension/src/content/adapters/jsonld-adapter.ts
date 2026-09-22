@@ -92,9 +92,10 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
     let requirements: Requirement[] = [];
 
     if (rawHtmlDesc.length > 0) {
-      const parserContainer = doc.createElement('div');
-      parserContainer.innerHTML = rawHtmlDesc;
-      requirements = [...extractStructuredSections(parserContainer).requirements];
+      // Parse via DOMParser instead of innerHTML: the description is untrusted
+      // page content, and DOMParser never executes scripts or handler attributes.
+      const parsed = new DOMParser().parseFromString(rawHtmlDesc, 'text/html');
+      requirements = [...extractStructuredSections(parsed.body).requirements];
     }
 
     if (requirements.length === 0) {

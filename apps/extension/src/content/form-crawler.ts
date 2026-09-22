@@ -237,7 +237,10 @@ export function crawlFormContainer(
   const formAction = container instanceof HTMLFormElement ? container.action : undefined;
   const formMethod = container instanceof HTMLFormElement ? container.method : undefined;
 
-  const parsedUrl = doc.location ? new URL(doc.location.href) : new URL('https://example.com');
+  if (!doc.location) {
+    throw new Error('Cannot crawl application form without a document location.');
+  }
+  const parsedUrl = new URL(doc.location.href);
   const adapter = findMatchingFormAdapter(parsedUrl, doc);
   const authBarrier = adapter.detectAuthBarrier ? adapter.detectAuthBarrier(doc) : null;
   const wizardState = adapter.detectWizardState ? adapter.detectWizardState(doc) : null;

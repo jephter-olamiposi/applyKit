@@ -121,6 +121,7 @@ const STORAGE_KEYS = {
   CANDIDATE_PROFILE: 'applykit_candidate_profile',
   LAST_EXTRACTION: 'applykit_last_extraction',
   LAST_JOB_POSTING: 'applykit_last_job_posting',
+  ACTIVE_DRY_RUN_PLAN: 'applykit_active_dry_run_plan',
 } as const;
 
 export const profileRepo = new IndexedDbProfileRepository();
@@ -147,8 +148,24 @@ const tabExtractionCache = new Map<number, ExtractedPageData>();
 
 /**
  * In-memory cache holding the currently planned DryRunPlan for active candidate review.
+ *
+ * MV3 service workers are ephemeral, so the plan is mirrored to chrome.storage.local
+ * after every mutation and rehydrated on wake (GET_ACTIVE_PLAN / execution paths).
  */
-export let activeDryRunPlan: DryRunPlan | null = null;
+let activeDryRunPlan: DryRunPlan | null = null;
+
+/** Mirrors the current plan to durable storage so it survives service-worker suspension. */
+function persistActivePlan(): void {
+  void chrome.storage.local.set({ [STORAGE_KEYS.ACTIVE_DRY_RUN_PLAN]: activeDryRunPlan });
+}
+
+/** Rehydrates the plan from storage when the service worker was suspended since generation. */
+async function loadActivePlanFromStorage(): Promise<void> {
+  if (activeDryRunPlan) return;
+  const data = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_DRY_RUN_PLAN);
+  const stored = data[STORAGE_KEYS.ACTIVE_DRY_RUN_PLAN];
+  activeDryRunPlan = stored && typeof stored === 'object' ? (stored as DryRunPlan) : null;
+}
 
 /**
  * Retrieves the current configured status of provider API keys.
@@ -594,6 +611,30 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
       case 'SET_API_KEY': {
         const payload = message as { provider: AIProviderName; apiKey: string };
+        const validProviders: readonly AIProviderName[] = [
+          'openai',
+          'anthropic',
+          'gemini',
+          'openrouter',
+        ];
+        if (!validProviders.includes(payload.provider)) {
+          sendResponse({
+            type: 'SET_API_KEY_RESULT',
+            success: false,
+            provider: payload.provider,
+            error: `Unsupported provider "${String(payload.provider)}".`,
+          });
+          return true;
+        }
+        if (typeof payload.apiKey !== 'string' || payload.apiKey.trim().length === 0) {
+          sendResponse({
+            type: 'SET_API_KEY_RESULT',
+            success: false,
+            provider: payload.provider,
+            error: 'API key must be a non-empty string.',
+          });
+          return true;
+        }
         setApiKey(payload.provider, payload.apiKey)
           .then(() => {
             const res: SetApiKeyResponse = {
@@ -624,7 +665,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             sendResponse(res);
           })
           .catch((err) => {
-            console.error('Failed to get profile summary:', err);
+            sendResponse({
+              type: 'CANDIDATE_PROFILE_SUMMARY_RESULT',
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
         return true;
       }
@@ -1079,6 +1123,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
             const plan = generateDryRunPlan(message.form, profile);
             activeDryRunPlan = plan;
+            persistActivePlan();
 
             const res: GenerateDryRunPlanResponse = {
               type: 'GENERATE_DRY_RUN_PLAN_RESULT',
@@ -1099,97 +1144,148 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       }
 
       case 'GET_ACTIVE_PLAN': {
-        const res: GetActivePlanResponse = {
-          type: 'ACTIVE_PLAN_RESULT',
-          plan: activeDryRunPlan,
+        const respond = (plan: DryRunPlan | null) => {
+          sendResponse({ type: 'ACTIVE_PLAN_RESULT', plan });
         };
-        sendResponse(res);
-        return false;
+        if (activeDryRunPlan) {
+          respond(activeDryRunPlan);
+          return false;
+        }
+        loadActivePlanFromStorage()
+          .then(() => respond(activeDryRunPlan))
+          .catch(() => respond(null));
+        return true;
       }
 
       case 'UPDATE_PLAN_ACTION': {
-        if (!activeDryRunPlan) {
-          const res: UpdatePlanActionResponse = {
-            type: 'UPDATE_PLAN_ACTION_RESULT',
-            success: false,
-            error: 'No active dry run plan to update.',
-          };
-          sendResponse(res);
-          return false;
-        }
+        (async () => {
+          try {
+            await loadActivePlanFromStorage();
+            if (!activeDryRunPlan) {
+              const res: UpdatePlanActionResponse = {
+                type: 'UPDATE_PLAN_ACTION_RESULT',
+                success: false,
+                error: 'No active dry run plan to update.',
+              };
+              sendResponse(res);
+              return;
+            }
 
-        activeDryRunPlan = updatePlanActionValue(
-          activeDryRunPlan,
-          message.actionId,
-          message.userValue
-        );
+            activeDryRunPlan = updatePlanActionValue(
+              activeDryRunPlan,
+              message.actionId,
+              message.userValue
+            );
+            persistActivePlan();
 
-        const res: UpdatePlanActionResponse = {
-          type: 'UPDATE_PLAN_ACTION_RESULT',
-          success: true,
-          plan: activeDryRunPlan,
-        };
-        sendResponse(res);
-        return false;
+            const res: UpdatePlanActionResponse = {
+              type: 'UPDATE_PLAN_ACTION_RESULT',
+              success: true,
+              plan: activeDryRunPlan,
+            };
+            sendResponse(res);
+          } catch {
+            sendResponse({
+              type: 'UPDATE_PLAN_ACTION_RESULT',
+              success: false,
+              error: 'Failed to load the active dry run plan.',
+            });
+          }
+        })();
+        return true;
       }
 
       case 'TOGGLE_PLAN_ACTION_APPROVAL': {
-        if (!activeDryRunPlan) {
-          const res: TogglePlanActionApprovalResponse = {
-            type: 'TOGGLE_PLAN_ACTION_APPROVAL_RESULT',
-            success: false,
-            error: 'No active dry run plan to toggle.',
-          };
-          sendResponse(res);
-          return false;
-        }
+        (async () => {
+          try {
+            await loadActivePlanFromStorage();
+            if (!activeDryRunPlan) {
+              const res: TogglePlanActionApprovalResponse = {
+                type: 'TOGGLE_PLAN_ACTION_APPROVAL_RESULT',
+                success: false,
+                error: 'No active dry run plan to toggle.',
+              };
+              sendResponse(res);
+              return;
+            }
 
-        activeDryRunPlan = togglePlanActionApproval(
-          activeDryRunPlan,
-          message.actionId,
-          message.confirmed
-        );
+            activeDryRunPlan = togglePlanActionApproval(
+              activeDryRunPlan,
+              message.actionId,
+              message.confirmed
+            );
+            persistActivePlan();
 
-        const res: TogglePlanActionApprovalResponse = {
-          type: 'TOGGLE_PLAN_ACTION_APPROVAL_RESULT',
-          success: true,
-          plan: activeDryRunPlan,
-        };
-        sendResponse(res);
-        return false;
+            const res: TogglePlanActionApprovalResponse = {
+              type: 'TOGGLE_PLAN_ACTION_APPROVAL_RESULT',
+              success: true,
+              plan: activeDryRunPlan,
+            };
+            sendResponse(res);
+          } catch {
+            sendResponse({
+              type: 'TOGGLE_PLAN_ACTION_APPROVAL_RESULT',
+              success: false,
+              error: 'Failed to load the active dry run plan.',
+            });
+          }
+        })();
+        return true;
       }
 
       case 'EXCLUDE_PLAN_ACTION': {
-        if (!activeDryRunPlan) {
-          const res: ExcludePlanActionResponse = {
-            type: 'EXCLUDE_PLAN_ACTION_RESULT',
-            success: false,
-            error: 'No active dry run plan to exclude action from.',
-          };
-          sendResponse(res);
-          return false;
-        }
+        (async () => {
+          try {
+            await loadActivePlanFromStorage();
+            if (!activeDryRunPlan) {
+              const res: ExcludePlanActionResponse = {
+                type: 'EXCLUDE_PLAN_ACTION_RESULT',
+                success: false,
+                error: 'No active dry run plan to exclude action from.',
+              };
+              sendResponse(res);
+              return;
+            }
 
-        activeDryRunPlan = excludePlanAction(activeDryRunPlan, message.actionId);
+            activeDryRunPlan = excludePlanAction(activeDryRunPlan, message.actionId);
+            persistActivePlan();
 
-        const res: ExcludePlanActionResponse = {
-          type: 'EXCLUDE_PLAN_ACTION_RESULT',
-          success: true,
-          plan: activeDryRunPlan,
-        };
-        sendResponse(res);
-        return false;
+            const res: ExcludePlanActionResponse = {
+              type: 'EXCLUDE_PLAN_ACTION_RESULT',
+              success: true,
+              plan: activeDryRunPlan,
+            };
+            sendResponse(res);
+          } catch {
+            sendResponse({
+              type: 'EXCLUDE_PLAN_ACTION_RESULT',
+              success: false,
+              error: 'Failed to load the active dry run plan.',
+            });
+          }
+        })();
+        return true;
       }
 
       case 'EXECUTE_PLAN': {
         const payload = message as { planId?: string; options?: ExecutionOptions };
         (async () => {
           try {
+            await loadActivePlanFromStorage();
             if (!activeDryRunPlan) {
               const res: ExecutePlanResponse = {
                 type: 'EXECUTE_PLAN_RESULT',
                 success: false,
                 error: 'No active dry run plan found to execute. Please generate a dry run plan first.',
+              };
+              sendResponse(res);
+              return;
+            }
+            if (payload.planId && payload.planId !== activeDryRunPlan.id) {
+              const res: ExecutePlanResponse = {
+                type: 'EXECUTE_PLAN_RESULT',
+                success: false,
+                error: 'The dry run plan has changed since it was generated. Please review the updated plan before executing.',
               };
               sendResponse(res);
               return;
@@ -1216,12 +1312,25 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         const payload = message as { selector: string; label?: string };
         (async () => {
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (activeTab && activeTab.id) {
-            chrome.tabs.sendMessage(activeTab.id, payload, () => {
-              void chrome.runtime.lastError;
+          if (!activeTab || !activeTab.id) {
+            sendResponse({
+              type: 'HIGHLIGHT_FORM_FIELD_RESULT',
+              success: false,
+              error: 'No active tab to highlight the form field on.',
             });
+            return;
           }
-          sendResponse({ type: 'HIGHLIGHT_FORM_FIELD_RESULT', success: true });
+          chrome.tabs.sendMessage(activeTab.id, payload, () => {
+            if (chrome.runtime && chrome.runtime.lastError) {
+              sendResponse({
+                type: 'HIGHLIGHT_FORM_FIELD_RESULT',
+                success: false,
+                error: chrome.runtime.lastError.message || 'Failed to send highlight message.',
+              });
+              return;
+            }
+            sendResponse({ type: 'HIGHLIGHT_FORM_FIELD_RESULT', success: true });
+          });
         })();
         return true;
       }
@@ -1229,12 +1338,25 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       case 'CLEAR_FORM_FIELD_HIGHLIGHT': {
         (async () => {
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (activeTab && activeTab.id) {
-            chrome.tabs.sendMessage(activeTab.id, { type: 'CLEAR_FORM_FIELD_HIGHLIGHT' }, () => {
-              void chrome.runtime.lastError;
+          if (!activeTab || !activeTab.id) {
+            sendResponse({
+              type: 'CLEAR_FORM_FIELD_HIGHLIGHT_RESULT',
+              success: false,
+              error: 'No active tab to clear the form field highlight on.',
             });
+            return;
           }
-          sendResponse({ type: 'CLEAR_FORM_FIELD_HIGHLIGHT_RESULT', success: true });
+          chrome.tabs.sendMessage(activeTab.id, { type: 'CLEAR_FORM_FIELD_HIGHLIGHT' }, () => {
+            if (chrome.runtime && chrome.runtime.lastError) {
+              sendResponse({
+                type: 'CLEAR_FORM_FIELD_HIGHLIGHT_RESULT',
+                success: false,
+                error: chrome.runtime.lastError.message || 'Failed to send clear-highlight message.',
+              });
+              return;
+            }
+            sendResponse({ type: 'CLEAR_FORM_FIELD_HIGHLIGHT_RESULT', success: true });
+          });
         })();
         return true;
       }
@@ -1242,60 +1364,79 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       case 'TOGGLE_IN_PAGE_REVIEW_BADGES': {
         const payload = message as { enabled: boolean };
         (async () => {
+          await loadActivePlanFromStorage();
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (activeTab && activeTab.id) {
-            chrome.tabs.sendMessage(
-              activeTab.id,
-              {
-                type: 'TOGGLE_IN_PAGE_REVIEW_BADGES',
-                enabled: payload.enabled,
-                plan: activeDryRunPlan,
-              },
-              (res) => {
-                void chrome.runtime.lastError;
-                sendResponse(res || { type: 'TOGGLE_IN_PAGE_REVIEW_BADGES_RESULT', success: true });
-              }
-            );
-          } else {
+          if (!activeTab || !activeTab.id) {
             sendResponse({ type: 'TOGGLE_IN_PAGE_REVIEW_BADGES_RESULT', success: false });
+            return;
           }
+          chrome.tabs.sendMessage(
+            activeTab.id,
+            {
+              type: 'TOGGLE_IN_PAGE_REVIEW_BADGES',
+              enabled: payload.enabled,
+              plan: activeDryRunPlan,
+            },
+            (res) => {
+              if (chrome.runtime && chrome.runtime.lastError) {
+                sendResponse({ type: 'TOGGLE_IN_PAGE_REVIEW_BADGES_RESULT', success: false });
+                return;
+              }
+              sendResponse(
+                res || { type: 'TOGGLE_IN_PAGE_REVIEW_BADGES_RESULT', success: true }
+              );
+            }
+          );
         })();
         return true;
       }
 
       case 'BATCH_APPROVE_PLAN_ACTIONS': {
         const payload = message as { mode: 'low_risk_only' | 'all' | 'reset' };
-        if (!activeDryRunPlan) {
-          const res: BatchApprovePlanActionsResponse = {
-            type: 'BATCH_APPROVE_PLAN_ACTIONS_RESULT',
-            success: false,
-            error: 'No active dry run plan found to batch-approve.',
-          };
-          sendResponse(res);
-          return false;
-        }
+        (async () => {
+          try {
+            await loadActivePlanFromStorage();
+            if (!activeDryRunPlan) {
+              const res: BatchApprovePlanActionsResponse = {
+                type: 'BATCH_APPROVE_PLAN_ACTIONS_RESULT',
+                success: false,
+                error: 'No active dry run plan found to batch-approve.',
+              };
+              sendResponse(res);
+              return;
+            }
 
-        if (payload.mode === 'low_risk_only') {
-          activeDryRunPlan = approveAllLowRiskActions(activeDryRunPlan);
-        } else if (payload.mode === 'all') {
-          activeDryRunPlan = approveAllActions(activeDryRunPlan);
-        } else if (payload.mode === 'reset') {
-          activeDryRunPlan = resetAllApprovals(activeDryRunPlan);
-        }
+            if (payload.mode === 'low_risk_only') {
+              activeDryRunPlan = approveAllLowRiskActions(activeDryRunPlan);
+            } else if (payload.mode === 'all') {
+              activeDryRunPlan = approveAllActions(activeDryRunPlan);
+            } else if (payload.mode === 'reset') {
+              activeDryRunPlan = resetAllApprovals(activeDryRunPlan);
+            }
+            persistActivePlan();
 
-        const res: BatchApprovePlanActionsResponse = {
-          type: 'BATCH_APPROVE_PLAN_ACTIONS_RESULT',
-          success: true,
-          plan: activeDryRunPlan,
-        };
-        sendResponse(res);
-        return false;
+            const res: BatchApprovePlanActionsResponse = {
+              type: 'BATCH_APPROVE_PLAN_ACTIONS_RESULT',
+              success: true,
+              plan: activeDryRunPlan,
+            };
+            sendResponse(res);
+          } catch {
+            sendResponse({
+              type: 'BATCH_APPROVE_PLAN_ACTIONS_RESULT',
+              success: false,
+              error: 'Failed to load the active dry run plan.',
+            });
+          }
+        })();
+        return true;
       }
 
       case 'EXECUTE_SELECTIVE_ACTION': {
         const payload = message as { actionId: ActionId; options?: ExecutionOptions };
         (async () => {
           try {
+            await loadActivePlanFromStorage();
             if (!activeDryRunPlan) {
               const res: ExecuteSelectiveActionResponse = {
                 type: 'EXECUTE_SELECTIVE_ACTION_RESULT',

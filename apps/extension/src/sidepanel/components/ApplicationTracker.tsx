@@ -108,6 +108,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
   const [selectedStage, setSelectedStage] = useState<string>('');
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadApplications = useCallback(async () => {
     try {
@@ -125,6 +126,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
       }
     } catch (err) {
       console.error('Failed to load application history:', err);
+      setErrorMessage('Failed to load application history. The extension may not be ready.');
     } finally {
       setLoading(false);
     }
@@ -225,6 +227,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
       }
     } catch (err) {
       console.error('Failed to transition application status:', err);
+      setErrorMessage('Failed to save the status update. Please try again.');
     } finally {
       setStatusUpdating(false);
     }
@@ -269,6 +272,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
       }
     } catch (err) {
       console.error('Failed to delete application record:', err);
+      setErrorMessage('Failed to delete the application record. Please try again.');
     }
   };
 
@@ -297,6 +301,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
       }
     } catch (err) {
       console.error('Failed to export audit log:', err);
+      setErrorMessage('Failed to export the audit log. Please try again.');
     } finally {
       setExporting(null);
     }
@@ -304,6 +309,19 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
 
   return (
     <div className="tracker-container">
+      {errorMessage && (
+        <div className="tracker-error-banner" role="alert">
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            className="tracker-error-dismiss"
+            aria-label="Dismiss error"
+            onClick={() => setErrorMessage(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {/* Header & Metrics Strip */}
       <div className="tracker-header">
         <div className="tracker-title-row">

@@ -53,7 +53,6 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [pacingMode, setPacingMode] = useState<'natural' | 'fast' | 'instant'>('natural');
 
   const loadStorageUsage = useCallback(async () => {
     try {
@@ -288,42 +287,6 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
 
         {statusMessage && <p className="form-status-msg">{statusMessage}</p>}
       </form>
-
-      {/* Human Pacing & Anti-Detection Settings */}
-      <div className="pacing-settings-card">
-        <h4 className="section-title">Human Pacing & Anti-Detection (ADR-0014, ADR-0021)</h4>
-        <p className="pacing-description">
-          Mimics human typing cadence and adds spatial coordinate jitter to avoid bot-detection heuristics without prototype tampering.
-        </p>
-        <div className="pacing-mode-selector">
-          <label className={`pacing-option ${pacingMode === 'natural' ? 'pacing-active' : ''}`}>
-            <input
-              type="radio"
-              name="pacing_mode"
-              value="natural"
-              checked={pacingMode === 'natural'}
-              onChange={() => setPacingMode('natural')}
-            />
-            <div>
-              <span className="pacing-title">Natural Human Cadence (Recommended)</span>
-              <span className="pacing-subtitle">Progressive character typing (20-65ms delay) with spatial click jitter</span>
-            </div>
-          </label>
-          <label className={`pacing-option ${pacingMode === 'fast' ? 'pacing-active' : ''}`}>
-            <input
-              type="radio"
-              name="pacing_mode"
-              value="fast"
-              checked={pacingMode === 'fast'}
-              onChange={() => setPacingMode('fast')}
-            />
-            <div>
-              <span className="pacing-title">Fast Mode</span>
-              <span className="pacing-subtitle">Accelerated entry (15ms delay) for rapid form population</span>
-            </div>
-          </label>
-        </div>
-      </div>
 
       {/* Local Storage Audit & Data Sovereignty */}
       {storageUsage && (

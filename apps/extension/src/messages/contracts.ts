@@ -176,7 +176,8 @@ export interface GetCandidateProfileSummaryRequest {
 
 export interface GetCandidateProfileSummaryResponse {
   type: 'CANDIDATE_PROFILE_SUMMARY_RESULT';
-  summary: CandidateProfileSummary;
+  summary?: CandidateProfileSummary;
+  error?: string;
 }
 
 /**
