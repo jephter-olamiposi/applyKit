@@ -140,6 +140,22 @@ import {
 
 import { AIGateway } from '../ai/gateway.js';
 
+/**
+ * Encodes binary data as a base64 string in bounded chunks.
+ *
+ * Spreading a large Uint8Array directly into String.fromCharCode overflows the
+ * engine's argument stack for PDF blobs that commonly exceed 100KB.
+ */
+export function encodeBytesToBase64(arrayBuffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 // Storage keys for isolated credentials and session cache
 const STORAGE_KEYS = {
   PROVIDER_KEYS: 'applykit_secure_provider_keys',
@@ -1324,7 +1340,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             }
 
             const activePlan = message.plan;
-            const form = message.form;
+            const form = message.form as ApplicationForm;
 
             const evidenceGraph = await evidenceRepo.getEvidenceGraph();
             const savedAnswers = profile.savedAnswers;
@@ -1381,7 +1397,6 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                 fieldType: field.fieldType,
                 options: field.options,
                 placeholder: field.placeholder,
-                maxLength: field.maxLength,
                 relevantAnswers,
                 relevantClaims,
                 writingStyle: getWritingStyleFromProfile(profile),
@@ -1962,7 +1977,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               });
               const pdfBlob = await generateCoverLetterPdfBlob(coverLetter);
               const arrayBuffer = await pdfBlob.arrayBuffer();
-              const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+              const pdfBase64 = encodeBytesToBase64(arrayBuffer);
               const res: GenerateCoverLetterPdfResponse = {
                 type: 'GENERATE_COVER_LETTER_PDF_RESULT',
                 success: true,
@@ -1998,7 +2013,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               });
               const pdfBlob = await generateResumePdfBlob(tailoredResume);
               const arrayBuffer = await pdfBlob.arrayBuffer();
-              const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+              const pdfBase64 = encodeBytesToBase64(arrayBuffer);
               const res: GenerateResumePdfResponse = {
                 type: 'GENERATE_RESUME_PDF_RESULT',
                 success: true,

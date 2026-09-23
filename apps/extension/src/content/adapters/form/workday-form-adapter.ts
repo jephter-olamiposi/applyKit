@@ -25,6 +25,7 @@ import type { AtsFormAdapter } from './form-adapter.js';
 import {
   generateElementSelector,
   extractElementLabel,
+  extractGroupQuestionLabel,
   isElementRequired,
   isSubmitElement,
 } from '../form-crawler-helpers.js';
@@ -219,7 +220,7 @@ export class WorkdayFormAdapter implements AtsFormAdapter {
       const firstRadio = radios[0];
       if (!firstRadio) continue;
 
-      const label = extractElementLabel(firstRadio, root);
+      const label = extractGroupQuestionLabel(radios, root) || extractElementLabel(firstRadio, root);
       const required = radios.some((r) => isElementRequired(r, label));
       const selector = `input[type="radio"][name="${CSS.escape(firstRadio.name || name)}"]`;
 

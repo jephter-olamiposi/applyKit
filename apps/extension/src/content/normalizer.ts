@@ -91,6 +91,13 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
             processedLists.add(current);
             sectionItems.push(...extractListItems(current));
           }
+        } else if (tag === 'P') {
+          // Capture standalone requirement-style paragraphs within an active section so
+          // they inherit the correct preferred/required importance from their heading.
+          const text = current.textContent?.trim();
+          if (text && text.length >= 15 && text.length <= 260 && (!current.querySelector(headingSelector))) {
+            sectionItems.push(text);
+          }
         } else {
           const nestedLists = current.querySelectorAll('ul, ol');
           nestedLists.forEach((list) => {
@@ -127,6 +134,34 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
   }
   if (uncapturedItems.length > 0) {
     requirements.unshift(...normalizeRequirementsList(uncapturedItems, 'required'));
+  }
+
+  // Capture standalone requirement-style paragraphs that are not inside lists or headings.
+  // Postings frequently express meets (e.g. "Proven experience in Node.js...") as plain
+  // <p> text rather than bullets; scanning them prevents silent requirement loss.
+  const distinctText = new Set<string>([
+    ...requirements.map((r) => r.rawText),
+    ...responsibilities,
+  ]);
+  const requirementParagraphRegex =
+    /\b(proven experience|experience (with|in|using|building|developing|managing|creating)|familiarity with|knowledge of|ability to|contributions? to|strong (competency|skillset)|hands-on|proficiency in)\b/i;
+  const containerParagraphs = Array.from(container.querySelectorAll('p'));
+  const paragraphItems: string[] = [];
+  for (const p of containerParagraphs) {
+    if (p.closest('ul, ol, li, h1, h2, h3, h4, h5, h6')) continue;
+    const text = p.textContent?.trim();
+    if (!text || text.length < 15 || text.length > 260) continue;
+    if (distinctText.has(text)) continue;
+    // Reject narrative marketing paragraphs that merely describe the company or role
+    if (/^(we are|at \w+, we|join .* and|why join|about us|our (team|company)|we('re| are) (looking|seeking)|we're seeking|is responsible for)/i.test(text)) {
+      continue;
+    }
+    if (!requirementParagraphRegex.test(text)) continue;
+    paragraphItems.push(text);
+    distinctText.add(text);
+  }
+  if (paragraphItems.length > 0) {
+    requirements.push(...normalizeRequirementsList(paragraphItems, 'required'));
   }
 
   if (requirements.length === 0) {

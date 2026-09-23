@@ -41,9 +41,33 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
     }
 
     let location = 'Remote / Unspecified';
-    if (data['jobLocation'] && typeof data['jobLocation'] === 'object') {
-      const loc = data['jobLocation'] as Record<string, unknown>;
-      if (loc['address'] && typeof loc['address'] === 'object') {
+    const rawLocations = data['jobLocation'];
+    if (Array.isArray(rawLocations)) {
+      // Multiple nested WorkLocations (ICIMS/RECRUITEE style): collect all place names.
+      const placeNames: string[] = [];
+      for (const loc of rawLocations) {
+        if (typeof loc !== 'object' || loc === null) continue;
+        const locObj = loc as Record<string, unknown>;
+        if (locObj['@type'] === 'VirtualLocation') {
+          placeNames.push(String(locObj['description'] || 'Remote'));
+          continue;
+        }
+        if (locObj['address'] && typeof locObj['address'] === 'object') {
+          const addr = locObj['address'] as Record<string, string>;
+          const parts = [addr.addressLocality, addr.addressRegion, addr.addressCountry].filter(Boolean);
+          if (parts.length > 0) {
+            placeNames.push(parts.join(', '));
+          }
+        }
+      }
+      if (placeNames.length > 0) {
+        location = placeNames.join('; ');
+      }
+    } else if (rawLocations && typeof rawLocations === 'object') {
+      const loc = rawLocations as Record<string, unknown>;
+      if (loc['@type'] === 'VirtualLocation') {
+        location = String(loc['description'] || 'Remote');
+      } else if (loc['address'] && typeof loc['address'] === 'object') {
         const addr = loc['address'] as Record<string, string>;
         const parts = [addr.addressLocality, addr.addressRegion, addr.addressCountry].filter(Boolean);
         if (parts.length > 0) {

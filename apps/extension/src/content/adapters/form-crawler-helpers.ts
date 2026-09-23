@@ -235,6 +235,20 @@ export function extractGroupQuestionLabel(
   }
 
   if (container) {
+    // Prefer a legend/heading INSIDE the shared container over trailing heuristics.
+    // This prevents stealing the label of an unrelated preceding sibling form group.
+    const innerHeading = container.querySelector(
+      'legend, .question-title, h3, h4, h5, [class*="title"]:not([class*="hint"]), [class*="question-text"], [class*="field-label"]'
+    );
+    if (
+      innerHeading &&
+      innerHeading.textContent &&
+      innerHeading.textContent.trim() &&
+      !inputs.some((i) => innerHeading.contains(i))
+    ) {
+      return cleanLabelText(innerHeading.textContent);
+    }
+
     // Check preceding sibling of container
     const prev = container.previousElementSibling;
     if (prev && ['LEGEND', 'LABEL', 'H3', 'H4', 'H5', 'DIV'].includes(prev.tagName)) {
