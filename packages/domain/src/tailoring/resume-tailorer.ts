@@ -13,6 +13,8 @@ import type { CandidateProject } from '../candidate/project.js';
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
 import type { EvidenceId } from '../types/ids.js';
 import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
+import type { WritingStyleProfile } from '../ai/writing-style.js';
+import { applyWritingQualityPassSync } from '../ai/human-answer-pipeline.js';
 import type {
   TailoredResume,
   TailoredExperience,
@@ -31,6 +33,8 @@ export interface ResumeTailoringOptions {
   readonly maxProjects?: number;
   /** Maximum number of bullet highlights per item (defaults to 4). */
   readonly maxBulletsPerItem?: number;
+  /** Candidate's writing style for natural human voice. */
+  readonly writingStyle?: WritingStyleProfile;
 }
 
 /**
@@ -332,7 +336,13 @@ export function tailorCandidateResume(
     `Committed to delivering robust, maintainable solutions aligned with ${job.companyName}'s technical requirements.`
   );
 
-  const tailoredSummary = summaryParts.join(' ');
+  let tailoredSummary = summaryParts.join(' ');
+
+  // Apply writing quality pass if writing style provided
+  if (options?.writingStyle) {
+    const { cleanedText } = applyWritingQualityPassSync(tailoredSummary, options.writingStyle);
+    tailoredSummary = cleanedText;
+  }
 
   return {
     targetJobTitle: job.title,

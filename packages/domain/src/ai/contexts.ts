@@ -44,8 +44,10 @@ export interface RequirementMatchingContext {
   readonly relevantExperienceHighlights: readonly string[];
 }
 
+import type { WritingStyleProfile } from './writing-style.js';
+
 /**
- * Scoped payload for answering a specific form input or question.
+ * Scoped payload for generating an answer to a single application form field.
  *
  * Privacy Invariant: Restricts data transmission strictly to the question text and candidate claims
  * relevant to that specific question. Excludes the rest of the candidate database.
@@ -58,6 +60,8 @@ export interface FieldAnsweringContext {
   readonly maxLength?: number;
   readonly relevantAnswers: readonly SavedAnswer[];
   readonly relevantClaims: readonly CandidateClaim[];
+  readonly writingStyle?: WritingStyleProfile;
+  readonly answerLengthPreference?: 'short' | 'normal' | 'detailed';
 }
 
 /**

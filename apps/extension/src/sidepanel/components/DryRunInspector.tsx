@@ -15,6 +15,10 @@ import { sendToBackground } from '../../messages/bridge.js';
 import type {
   GetActivePlanRequest,
   GetActivePlanResponse,
+  GetActiveFormRequest,
+  GetActiveFormResponse,
+  AnswerCustomFieldsRequest,
+  AnswerCustomFieldsResponse,
   UpdatePlanActionRequest,
   UpdatePlanActionResponse,
   TogglePlanActionApprovalRequest,
@@ -41,7 +45,7 @@ interface DryRunInspectorProps {
   onPlanUpdated?: (plan: DryRunPlan) => void;
 }
 
-type ActionFilter = 'all' | 'unconfirmed' | 'high_risk' | 'skipped';
+type ActionFilter = 'all' | 'unconfirmed' | 'high_risk' | 'medium_risk' | 'skipped';
 
 /**
  * Dry Run Plan Inspector component rendering interactive action diffs and approval gates.
@@ -155,6 +159,47 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       }
     } catch (err) {
       setFeedbackNotice(`Batch approval failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleAnswerCustomFields = async () => {
+    if (!plan) return;
+    try {
+      setFeedbackNotice('Generating AI answers for open-ended questions...');
+      // Fetch the form from background storage
+      const formRes = await sendToBackground<
+        GetActiveFormRequest,
+        GetActiveFormResponse
+      >({
+        type: 'GET_ACTIVE_FORM',
+      });
+
+      if (!formRes || !formRes.form) {
+        setFeedbackNotice('No active form found. Please inspect the form first.');
+        return;
+      }
+
+      const res = await sendToBackground<
+        AnswerCustomFieldsRequest,
+        AnswerCustomFieldsResponse
+      >({
+        type: 'ANSWER_CUSTOM_FIELDS',
+        form: formRes.form,
+        plan,
+      });
+
+      if (res.success && res.plan) {
+        setPlan(res.plan);
+        if (onPlanUpdated) onPlanUpdated(res.plan);
+        setFeedbackNotice(
+          `AI answers generated for open-ended questions. ${res.plan.actions.filter(a => a.sourceEvidenceTitle === 'AI Proposal Grounded in Evidence Graph').length} field(s) staged for review.`
+        );
+        setTimeout(() => setFeedbackNotice(null), 4000);
+      } else {
+        setFeedbackNotice(`AI answering failed: ${res.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      setFeedbackNotice(`AI answering error: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -311,10 +356,12 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
   const filteredActions = plan.actions.filter((action) => {
     if (filter === 'unconfirmed') return !action.userConfirmed;
     if (filter === 'high_risk') return action.riskLevel === 'high';
+    if (filter === 'medium_risk') return action.riskLevel === 'medium';
     return true;
   });
 
   const unconfirmedCount = plan.actions.filter((a) => !a.userConfirmed).length;
+  const mediumRiskCount = plan.actions.filter((a) => a.riskLevel === 'medium').length;
 
   return (
     <div className="dry-run-container">
@@ -405,6 +452,10 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
             <span className="meta-value risk-low-text">{plan.stats.lowRiskCount}</span>
           </div>
           <div className="meta-col">
+            <span className="meta-label">Medium Risk</span>
+            <span className="meta-value risk-medium-text">{plan.stats.mediumRiskCount}</span>
+          </div>
+          <div className="meta-col">
             <span className="meta-label">High Risk</span>
             <span className="meta-value risk-high-text">{plan.stats.highRiskCount}</span>
           </div>
@@ -459,6 +510,15 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
           >
             Reset
           </button>
+          <button
+            type="button"
+            className="btn-batch btn-batch-ai-answer"
+            onClick={handleAnswerCustomFields}
+            title="Generate AI answers for open-ended custom questions (ADR-0022)"
+            disabled={plan.actions.every(a => a.sourceEvidenceTitle === 'AI Proposal Grounded in Evidence Graph')}
+          >
+            Answer Custom Fields
+          </button>
         </div>
         <button
           type="button"
@@ -493,6 +553,13 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
             onClick={() => setFilter('high_risk')}
           >
             High Risk ({plan.stats.highRiskCount})
+          </button>
+          <button
+            type="button"
+            className={`filter-btn ${filter === 'medium_risk' ? 'filter-btn-active' : ''}`}
+            onClick={() => setFilter('medium_risk')}
+          >
+            Medium Risk ({mediumRiskCount})
           </button>
           <button
             type="button"
@@ -567,6 +634,22 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
                     <div className="action-evidence-citation">
                       <span className="citation-icon">&#128279;</span>
                       <span className="citation-text">Grounding: {action.sourceEvidenceTitle}</span>
+                    </div>
+                  )}
+
+                  {/* AI Proposed Badge & Confidence (ADR-0022) */}
+                  {action.sourceEvidenceTitle === 'AI Proposal Grounded in Evidence Graph' && (
+                    <div className="ai-proposed-badge">
+                      <span className="ai-badge-icon">&#129302;</span>
+                      <span className="ai-badge-text">AI Proposed</span>
+                      <span className="ai-confidence">
+                        Confidence: {(action.confidence * 100).toFixed(0)}%
+                      </span>
+                      {action.sourceClaimId && (
+                        <span className="ai-claim-id">
+                          Claim: {action.sourceClaimId.slice(0, 8)}...
+                        </span>
+                      )}
                     </div>
                   )}
 

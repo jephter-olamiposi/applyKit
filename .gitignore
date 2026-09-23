@@ -19,6 +19,7 @@ dist-types/
 
 
 plans/
+chrome/
 
 .agents/
 .claude/

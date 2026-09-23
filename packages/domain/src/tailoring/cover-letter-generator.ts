@@ -12,6 +12,8 @@ import type { EvidenceGraph } from '../evidence/evidence-graph.js';
 import type { EvidenceId, ClaimId } from '../types/ids.js';
 import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
 import { getPreferredOrLegalName } from '../candidate/identity.js';
+import type { WritingStyleProfile } from '../ai/writing-style.js';
+import { applyWritingQualityPassSync } from '../ai/human-answer-pipeline.js';
 import type {
   TailoredCoverLetter,
   CoverLetterParagraph,
@@ -26,6 +28,8 @@ export interface CoverLetterOptions {
   readonly recipient?: string;
   /** Tone customization preference. */
   readonly tone?: 'technical' | 'conversational' | 'executive';
+  /** Candidate's writing style for natural human voice. */
+  readonly writingStyle?: WritingStyleProfile;
 }
 
 /**
@@ -145,6 +149,7 @@ export function generateGroundedCoverLetter(
   const candidateName = getPreferredOrLegalName(profile.identity) || 'Candidate';
   const recipient = options?.recipient || `Hiring Team at ${job.companyName}`;
   const verifiedYears = getVerifiedExperienceYears(profile);
+  const writingStyle = options?.writingStyle;
 
   // Identify top matched skills
   const matchedSkills: string[] = [];
@@ -161,7 +166,7 @@ export function generateGroundedCoverLetter(
     : profile.skills.slice(0, 3).map((s) => s.name).join(', ');
 
   // 1. Opening Paragraph
-  const openingParagraph = `I am writing to express my strong interest in the ${job.title} position at ${job.companyName}. With over ${verifiedYears} years of verified experience specializing in ${primarySkills}, I am excited by the opportunity to contribute to your team's ongoing engineering initiatives.`;
+  let openingParagraph = `I am writing to express my strong interest in the ${job.title} position at ${job.companyName}. With over ${verifiedYears} years of verified experience specializing in ${primarySkills}, I am excited by the opportunity to contribute to your team's ongoing engineering initiatives.`;
 
   // 2. Select Grounded Accomplishments for Body Paragraphs
   const topAccomplishments = selectTopVerifiableAccomplishments(job, profile, graph, 3);
@@ -207,9 +212,34 @@ export function generateGroundedCoverLetter(
   }
 
   // 3. Closing Paragraph
-  const closingParagraph = `I would welcome the opportunity to discuss how my verified background and technical capabilities can support ${job.companyName}'s engineering goals. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
+  let closingParagraph = `I would welcome the opportunity to discuss how my verified background and technical capabilities can support ${job.companyName}'s engineering goals. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
 
-  // 4. Assemble Full Text
+  // 4. Apply writing quality pass if writing style provided
+  const ws = writingStyle;
+  if (ws) {
+    type ParagraphRef = { text: string; key: string };
+    const allParagraphs: ParagraphRef[] = [
+      { text: openingParagraph, key: 'opening' },
+      ...bodyParagraphs.map((p, i) => ({ text: p.paragraphText, key: `body-${i}` })),
+      { text: closingParagraph, key: 'closing' },
+    ];
+
+    for (const para of allParagraphs) {
+      const { cleanedText } = applyWritingQualityPassSync(para.text as string, ws);
+      const finalText = cleanedText || para.text;
+      if (para.key === 'opening') openingParagraph = finalText;
+      else if (para.key === 'closing') closingParagraph = finalText;
+      else {
+        const keyParts = para.key.split('-');
+        const idx = keyParts[1] ? parseInt(keyParts[1], 10) : NaN;
+        if (!isNaN(idx) && bodyParagraphs[idx]) {
+          bodyParagraphs[idx] = { ...bodyParagraphs[idx], paragraphText: finalText };
+        }
+      }
+    }
+  }
+
+  // 5. Assemble Full Text
   const fullText = [
     `Dear ${recipient},`,
     '',

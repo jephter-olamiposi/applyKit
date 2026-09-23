@@ -42,7 +42,7 @@ export class OpenRouterProvider extends BaseHttpProvider {
     apiKey: string,
     modelName = 'meta-llama/llama-3.3-70b-instruct',
     timeoutMs = 30000,
-    customFetch: typeof fetch = fetch
+    customFetch?: typeof fetch
   ) {
     super(apiKey, modelName, timeoutMs, customFetch);
   }

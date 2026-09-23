@@ -20,7 +20,7 @@ export abstract class BaseHttpProvider implements AIProvider {
     protected readonly apiKey: string,
     protected readonly modelName: string,
     protected readonly timeoutMs: number = 30000,
-    protected readonly customFetch: typeof fetch = fetch
+    protected readonly customFetch?: typeof fetch
   ) {}
 
   abstract complete<T = unknown>(request: AIRequest): Promise<AIResponse<T>>;
@@ -40,10 +40,9 @@ export abstract class BaseHttpProvider implements AIProvider {
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
       try {
-        const response = await this.customFetch(url, {
-          ...options,
-          signal: controller.signal,
-        });
+        const response = await (this.customFetch
+          ? this.customFetch(url, { ...options, signal: controller.signal })
+          : globalThis.fetch(url, { ...options, signal: controller.signal }));
 
         clearTimeout(timer);
 
@@ -52,11 +51,23 @@ export abstract class BaseHttpProvider implements AIProvider {
           return response;
         }
 
-        // Retryable: 429 Too Many Requests or 5xx Server Error
-        if (response.status === 429 || response.status >= 500) {
-          const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
+        // On 429 Quota/Rate Limit Exhaustion, capture error and break early for model fallback
+        if (response.status === 429) {
+          const bodyText = await response.text().catch(() => '');
+          lastError = new Error(`Rate limit or quota exceeded (HTTP 429): ${bodyText || response.statusText}`);
+          break;
+        }
+
+        // Retryable: 5xx Server Error
+        if (response.status >= 500) {
+          const bodyText = await response.text().catch(() => '');
+          lastError = new Error(`Server error (HTTP ${response.status}): ${bodyText || response.statusText}`);
+          if (attempt < maxRetries) {
+            const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          break;
         }
 
         return response;

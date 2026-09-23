@@ -28,7 +28,7 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
   const responsibilities: string[] = [];
   const requirements: Requirement[] = [];
 
-  const headingSelector = 'h1, h2, h3, h4, h5, h6, .section-title';
+  const headingSelector = 'h1, h2, h3, h4, h5, h6, .section-title, p > strong, p > b';
   const headings = Array.from(container.querySelectorAll(headingSelector));
 
   if (headings.length === 0) {
@@ -114,6 +114,19 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
         requirements.push(...normalizeRequirementsList(sectionItems, 'required'));
       }
     }
+  }
+
+  // Check if any lists were not captured by heading scanning (e.g. lists before the first heading)
+  const allLists = Array.from(container.querySelectorAll('ul, ol'));
+  const uncapturedItems: string[] = [];
+  for (const listEl of allLists) {
+    if (!processedLists.has(listEl)) {
+      processedLists.add(listEl);
+      uncapturedItems.push(...extractListItems(listEl));
+    }
+  }
+  if (uncapturedItems.length > 0) {
+    requirements.unshift(...normalizeRequirementsList(uncapturedItems, 'required'));
   }
 
   if (requirements.length === 0) {
@@ -214,11 +227,12 @@ export function extractYearsRequired(text: string): number | undefined {
 export function extractCompetencyKey(text: string): string {
   let cleaned = text.trim();
   const prefixes = [
-    /^\d+\+?\s*years?\s+(of\s+)?(professional\s+)?(software\s+)?experience\s+(in|with)?\s*/i,
-    /^at\s+least\s+\d+\s+years\s+(of\s+)?(experience\s+(in|with)?)?\s*/i,
-    /^minimum\s+\d+\s+years\s+(of\s+)?(experience\s+(in|with)?)?\s*/i,
-    /^(strong\s+proficiency\s+with|proficiency\s+in|hands-on\s+experience\s+with|experience\s+(with|in)|familiarity\s+with|knowledge\s+of)\s*/i,
+    /^\d+\+?\s*years?\s+(of\s+)?(professional\s+)?(software\s+)?experience\s+(in|with|building|developing|designing|engineering)?\s*/i,
+    /^at\s+least\s+\d+\s+years\s+(of\s+)?(experience\s+(in|with|building|developing)?)?\s*/i,
+    /^minimum\s+\d+\s+years\s+(of\s+)?(experience\s+(in|with|building|developing)?)?\s*/i,
+    /^(strong\s+proficiency\s+with|proficiency\s+in|hands-on\s+experience\s+with|experience\s+(with|in|creating(\s+and\s+managing)?|building|developing|designing|architecting|using|deploying|working\s+with)?|familiarity\s+with|knowledge\s+of)\s*/i,
     /^(must\s+have|ability\s+to|demonstrated\s+experience\s+in|proven\s+track\s+record\s+in)\s*/i,
+    /^(strong\s+competency\s+in|solid\s+skillset\s+in|deep\s+understanding\s+of|strong\s+understanding\s+of)\s*(writing|building|developing)?\s*/i,
   ];
 
   let changed = true;
@@ -232,8 +246,26 @@ export function extractCompetencyKey(text: string): string {
     }
   }
 
-  // Take the primary clause before commas or conjunctions for indexing
-  const primary = cleaned.split(/[,;]|\band\b/i)[0]?.trim();
+  // Strip trailing periods or punctuation
+  cleaned = cleaned.replace(/[.:;]+$/, '').trim();
+
+  // Remove rating indicators like (10/10)
+  cleaned = cleaned.replace(/\s*\(\d+\/\d+\)\s*/g, ' ').trim();
+
+  // If there is an elaboration clause like "Node.js with deep understanding...", isolate core subject
+  const withMatch = cleaned.match(/^([^,;]+?)\s+(?:with|including)\s+/i);
+  if (withMatch && withMatch[1] && withMatch[1].trim().length > 1) {
+    cleaned = withMatch[1].trim();
+  }
+
+  // Take the primary clause before commas, semicolons, or conjunctions
+  const clauses = cleaned.split(/[,;]|\band\b/i);
+  let primary = clauses[0]?.trim();
+  // Preserve coordinate adjectives (e.g., "modular, maintainable code")
+  if (primary && /^(modular|scalable|clean|robust|modern)$/i.test(primary) && clauses[1]) {
+    primary = `${primary}, ${clauses[1].trim()}`;
+  }
+
   return primary && primary.length > 0 ? primary : text.slice(0, 50).trim();
 }
 

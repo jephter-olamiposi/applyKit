@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && esbuild src/content/index.ts --bundle --outfile=dist/content.js --target=chrome120 --format=iife",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

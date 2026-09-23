@@ -48,3 +48,20 @@ export interface JobPosting {
   /** Vendor-specific ATS metadata (e.g. greenhouse_job_id, lever_posting_id). */
   readonly metadata: Readonly<Record<string, string>>;
 }
+
+/**
+ * Placeholder company label assigned by fallback adapters when no organization could be identified.
+ */
+const UNKNOWN_COMPANY_HINTS: readonly string[] = ['unknown company', 'company'];
+
+/**
+ * Flags a deterministic JobPosting that yielded no usable signal (empty or fallback
+ * identifiers with no requirements), used to trigger the LLM extraction fallback.
+ */
+export function isDegenerateJobPosting(job: JobPosting): boolean {
+  const titleEmpty = job.title.trim().length === 0;
+  const companyUnidentified = UNKNOWN_COMPANY_HINTS.includes(job.companyName.trim().toLowerCase());
+  const noRequirements = job.requirements.length === 0;
+  const descriptionEmpty = job.rawDescription.trim().length < 40;
+  return titleEmpty || (companyUnidentified && noRequirements) || (noRequirements && descriptionEmpty);
+}

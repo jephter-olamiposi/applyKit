@@ -140,6 +140,22 @@ export function evaluateJobRequirements(
       }
     }
 
+    // Tier 2.5: Skill containment within requirement text (e.g. "Node.js" inside "Proven experience in Node.js development")
+    if (!matchedSkill) {
+      const reqRawToken = normalizeCompetencyToken(req.rawText);
+      const reqNormToken = normalizeCompetencyToken(req.normalizedSkillOrCompetency);
+      matchedSkill = profile.skills.find((s) => {
+        const sToken = normalizeCompetencyToken(s.name);
+        if (sToken.length < 3) return false;
+        const escaped = sToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'i');
+        return pattern.test(reqRawToken) || pattern.test(reqNormToken);
+      });
+      if (matchedSkill) {
+        isSynonym = false;
+      }
+    }
+
     // Tier 3: Graph claims matching
     const matchedClaims = graph
       ? graph.claims.filter((c) => {

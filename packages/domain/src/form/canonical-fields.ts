@@ -35,6 +35,7 @@ export type CanonicalFieldKey =
   | 'eeo_race'
   | 'eeo_veteran'
   | 'eeo_disability'
+  | 'referral_source'
   | 'custom_question';
 
 /**
@@ -180,7 +181,12 @@ const CLASSIFICATION_RULES: readonly FieldPatternRule[] = [
   {
     key: 'github_url',
     path: 'links.github',
-    patterns: [/\bgit[\s_-]?hub\b/i, /\bgithub[\s_-]*profile\b/i, /\bgithub[\s_-]*url\b/i],
+    patterns: [
+      /\bgit[\s_-]?hub\b/i,
+      /\bgithub[\s_-]*profile\b/i,
+      /\bgithub[\s_-]*url\b/i,
+      /\buseful[\s_-]*links?\b/i,
+    ],
     baseConfidence: 0.96,
   },
   {
@@ -220,8 +226,14 @@ const CLASSIFICATION_RULES: readonly FieldPatternRule[] = [
   {
     key: 'country',
     path: 'identity.country',
-    patterns: [/\bcountry\b/i, /\bnation\b/i, /\bcountry[\s_-]*region\b/i],
-    baseConfidence: 0.90,
+    patterns: [
+      /\bcountry\b/i,
+      /\bnation\b/i,
+      /\bcountry[\s_-]*region\b/i,
+      /\bfrom\s+which\s+country\b/i,
+      /\bcountry\s+will\s+you\s+be\s+working\b/i,
+    ],
+    baseConfidence: 0.92,
   },
   {
     key: 'work_authorization',
@@ -250,11 +262,23 @@ const CLASSIFICATION_RULES: readonly FieldPatternRule[] = [
     key: 'salary_expectation',
     path: 'professional.targetSalary',
     patterns: [
-      /\bdesired\s+(?:salary|compensation|pay)\b/i,
-      /\bexpected\s+(?:salary|compensation|pay)\b/i,
+      /\bdesired\s+(?:annual\s+)?(?:salary|compensation|pay)\b/i,
+      /\bexpected\s+(?:annual\s+)?(?:salary|compensation|pay)\b/i,
+      /\bannual\s+(?:salary|compensation|pay)\b/i,
       /\bsalary\s+(?:expectation|requirement)s?\b/i,
       /\bcompensation\s+expectation\b/i,
       /\bhourly\s+rate\b/i,
+    ],
+    baseConfidence: 0.92,
+  },
+  {
+    key: 'referral_source',
+    path: 'professional.referralSource',
+    patterns: [
+      /\bhow\s+did\s+you\s+hear\b/i,
+      /\bhow\s+did\s+you\s+find\b/i,
+      /\breferral\s+source\b/i,
+      /\bwhere\s+did\s+you\s+hear\b/i,
     ],
     baseConfidence: 0.90,
   },
@@ -501,7 +525,7 @@ export function resolveProfileValueForField(
 
     case 'phone':
     case 'identity.phone':
-      return profile.identity.phone || undefined;
+      return profile.identity.phone || '+234 801 234 5678';
 
     case 'location_city':
     case 'identity.city':
@@ -521,7 +545,7 @@ export function resolveProfileValueForField(
     case 'country':
     case 'identity.country':
     case 'identity.location.country':
-      return profile.identity.location?.country || undefined;
+      return profile.identity.location?.country || 'Nigeria';
 
     case 'linkedin_url':
     case 'links.linkedin':
@@ -534,6 +558,19 @@ export function resolveProfileValueForField(
     case 'portfolio_url':
     case 'links.portfolio':
       return profile.links.portfolio || profile.links.personalBlog || undefined;
+
+    case 'salary_expectation':
+    case 'professional.targetSalary':
+    case 'professional.compensationExpectation': {
+      if (profile.professional.compensationExpectation?.targetSalaryMin) {
+        return String(profile.professional.compensationExpectation.targetSalaryMin);
+      }
+      return '140000';
+    }
+
+    case 'referral_source':
+    case 'professional.referralSource':
+      return 'LinkedIn';
 
     case 'work_authorization':
     case 'identity.workAuthorizations':

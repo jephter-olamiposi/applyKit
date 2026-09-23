@@ -97,29 +97,29 @@ export function generateElementSelector(element: Element, root: Element | Docume
 /**
  * Resolves human-visible label text for an input control.
  *
+ * Precedence Hierarchy (ADR-0023):
+ * 1. Explicit <label for="elementId">: highest human-intent indicator.
+ * 2. Enclosing wrapping <label>.
+ * 3. aria-labelledby and aria-label attributes.
+ * 4. Immediate field container label (e.g. .form-group > label, .field > label).
+ * 5. Preceding sibling label or heading.
+ * 6. Fallback to placeholder or title attribute.
+ * 7. Fieldset legend ONLY as a last resort if not an overarching section container.
+ *
  * @param element Target input control.
  * @param root Container root or Document.
  * @returns Cleaned label string.
  */
 export function extractElementLabel(element: HTMLElement, root: Element | Document): string {
-  // 1. Group / Fieldset Question Title Prioritization (especially for radio groups)
-  const groupContainer = element.closest('fieldset, [role="group"]');
-  if (groupContainer) {
-    const legend = groupContainer.querySelector('legend, .question-title, h3, h4');
-    if (legend && legend.textContent && legend.textContent.trim()) {
-      return cleanLabelText(legend.textContent);
-    }
-  }
-
-  // 2. Explicit <label for="elementId">
+  // 1. Explicit <label for="elementId">
   if (element.id) {
     const explicitLabel = root.querySelector(`label[for="${CSS.escape(element.id)}"]`);
-    if (explicitLabel && explicitLabel.textContent) {
+    if (explicitLabel && explicitLabel.textContent && explicitLabel.textContent.trim()) {
       return cleanLabelText(explicitLabel.textContent);
     }
   }
 
-  // 3. Enclosing wrapping <label>
+  // 2. Enclosing wrapping <label>
   const enclosingLabel = element.closest('label');
   if (enclosingLabel && enclosingLabel.textContent) {
     const clone = enclosingLabel.cloneNode(true) as HTMLElement;
@@ -130,7 +130,7 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 4. aria-labelledby
+  // 3. aria-labelledby
   const labelledBy = element.getAttribute('aria-labelledby');
   if (labelledBy) {
     const ids = labelledBy.split(/\s+/);
@@ -146,20 +146,31 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 5. aria-label
+  // 4. aria-label
   const ariaLabel = element.getAttribute('aria-label');
   if (ariaLabel && ariaLabel.trim()) {
     return cleanLabelText(ariaLabel);
   }
 
-  // 6. Surrounding field container label/legend
-  const container = element.closest(
-    '.field, .form-group, .form-field, .application-question, [role="group"], fieldset'
-  );
-  if (container) {
-    const header = container.querySelector('legend, label, h3, h4, .label, .field-label, .question-title');
-    if (header && header !== element && header.textContent && header.textContent.trim()) {
-      return cleanLabelText(header.textContent);
+  // 5. Immediate field container label/header (bounded to field-level containers)
+  let parent = element.parentElement;
+  for (let depth = 0; depth < 3 && parent && parent !== root && parent !== document.body; depth++) {
+    // Avoid checking massive section containers that hold multiple fields
+    const siblingInputs = parent.querySelectorAll('input:not([type="hidden"]), textarea, select');
+    if (siblingInputs.length <= 2) {
+      const header = parent.querySelector('label, [class*="label"], [class*="title"], [class*="header"]');
+      if (header && header !== element && !header.contains(element) && header.textContent && header.textContent.trim()) {
+        return cleanLabelText(header.textContent);
+      }
+    }
+    parent = parent.parentElement;
+  }
+
+  // 6. Preceding sibling element label or legend
+  const prevSibling = element.previousElementSibling;
+  if (prevSibling && prevSibling.textContent && prevSibling.textContent.trim()) {
+    if (['LABEL', 'LEGEND', 'H3', 'H4', 'H5', 'P', 'SPAN', 'DIV'].includes(prevSibling.tagName)) {
+      return cleanLabelText(prevSibling.textContent);
     }
   }
 
@@ -169,7 +180,93 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     return cleanLabelText(placeholder);
   }
 
+  // 8. Fieldset legend fallback ONLY if fieldset wraps solely this field
+  const fieldset = element.closest('fieldset');
+  if (fieldset) {
+    const inputs = fieldset.querySelectorAll('input:not([type="hidden"]), textarea, select');
+    if (inputs.length <= 1) {
+      const legend = fieldset.querySelector('legend');
+      if (legend && legend.textContent && legend.textContent.trim()) {
+        return cleanLabelText(legend.textContent);
+      }
+    }
+  }
+
   return '';
+}
+
+/**
+ * Resolves the question or prompt title for a cohesive group of radio or checkbox inputs.
+ *
+ * @param inputs Collection of radio or checkbox inputs in the same named group.
+ * @param root Container root or Document.
+ * @returns Cleaned group question title.
+ */
+export function extractGroupQuestionLabel(
+  inputs: readonly HTMLInputElement[],
+  root: Element | Document
+): string {
+  if (inputs.length === 0) return '';
+  const first = inputs[0];
+  if (!first) return '';
+
+  // 1. Check if first input is in a dedicated fieldset where inputs share the group's name
+  const fieldset = first.closest('fieldset, [role="radiogroup"], [role="group"]');
+  if (fieldset) {
+    const fieldsetInputs = Array.from(fieldset.querySelectorAll('input:not([type="hidden"]), textarea, select'));
+    const isDedicatedGroup =
+      fieldsetInputs.length <= inputs.length ||
+      fieldsetInputs.every((i) => (i as HTMLInputElement).name === first.name);
+    if (isDedicatedGroup) {
+      const legend = fieldset.querySelector('legend, .question-title, h3, h4');
+      if (legend && legend.textContent && legend.textContent.trim()) {
+        return cleanLabelText(legend.textContent);
+      }
+    }
+  }
+
+  // 2. Find common container across group inputs
+  let container: HTMLElement | null = first.parentElement;
+  while (container && container !== root && container !== document.body) {
+    if (inputs.every((i) => container?.contains(i))) {
+      break;
+    }
+    container = container.parentElement;
+  }
+
+  if (container) {
+    // Check preceding sibling of container
+    const prev = container.previousElementSibling;
+    if (prev && ['LEGEND', 'LABEL', 'H3', 'H4', 'H5', 'DIV'].includes(prev.tagName)) {
+      if (prev.textContent && prev.textContent.trim()) {
+        return cleanLabelText(prev.textContent);
+      }
+    }
+
+    // Check parent's preceding sibling
+    const parentPrev = container.parentElement?.previousElementSibling;
+    if (parentPrev && ['LEGEND', 'LABEL', 'H3', 'H4', 'H5', 'DIV'].includes(parentPrev.tagName)) {
+      if (parentPrev.textContent && parentPrev.textContent.trim()) {
+        return cleanLabelText(parentPrev.textContent);
+      }
+    }
+
+    // Check header inside container parent
+    const header = container.parentElement?.querySelector(
+      'legend, .question-title, h3, h4, h5, [class*="title"], [class*="label"]'
+    );
+    if (
+      header &&
+      header.textContent &&
+      header.textContent.trim() &&
+      !inputs.some((i) => header.contains(i))
+    ) {
+      return cleanLabelText(header.textContent);
+    }
+  }
+
+  // Fallback to name or individual label
+  return cleanLabelText(first.getAttribute('name') || '');
 }
 
 /**

@@ -66,6 +66,8 @@ export type ActionId = Brand<string, 'ActionId'>;
 
 /** Unique identifier for a DryRunPlan sequence. */
 export type PlanId = Brand<string, 'PlanId'>;
+export type WritingStyleProfileId = Brand<string, 'WritingStyleProfileId'>;
+export type WritingSampleId = Brand<string, 'WritingSampleId'>;
 
 
 function sanitizeOrGenerateId(prefix: string, id?: string): string {
@@ -148,5 +150,13 @@ export function createActionId(id?: string): ActionId {
 /** Creates a branded PlanId from an existing string or generates a new prefixed UUID. */
 export function createPlanId(id?: string): PlanId {
   return sanitizeOrGenerateId('plan', id) as PlanId;
+}
+
+export function createWritingStyleProfileId(id?: string): WritingStyleProfileId {
+  return sanitizeOrGenerateId('wsp', id) as WritingStyleProfileId;
+}
+
+export function createWritingSampleId(id?: string): WritingSampleId {
+  return sanitizeOrGenerateId('wsa', id) as WritingSampleId;
 }
 

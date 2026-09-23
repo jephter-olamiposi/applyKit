@@ -137,6 +137,10 @@ export interface ExtractJobResponse {
   data?: ExtractedPageData;
   jobPosting?: JobPosting;
   error?: string;
+  /** True when the posting was produced (or refined) by the LLM fallback extractor. */
+  aiRefined?: boolean;
+  /** Non-fatal diagnostic when the LLM fallback failed but deterministic data was preserved. */
+  aiExtractionError?: string;
 }
 
 /**
@@ -396,12 +400,34 @@ export interface MatchJobRequirementsRequest {
   requirements?: Requirement[];
 }
 
+/**
+ * Semantic match result evaluated for an individual requirement by the LLM.
+ */
+export interface AiRequirementMatch {
+  readonly requirementText: string;
+  readonly status: 'strong_match' | 'partial_match' | 'gap' | 'unclear';
+  readonly reasoning: string;
+  readonly matchedClaimIds: readonly string[];
+  readonly matchedSkillNames: readonly string[];
+}
+
+/**
+ * Structured LLM semantic requirement analysis output.
+ */
+export interface AiRequirementAnalysisResult {
+  readonly overallScore: number;
+  readonly matches: readonly AiRequirementMatch[];
+  readonly keyStrengths: readonly string[];
+  readonly identifiedGaps: readonly string[];
+}
+
 export interface MatchJobRequirementsResponse {
   type: 'MATCH_JOB_REQUIREMENTS_RESULT';
   success: boolean;
   matchMatrix?: JobMatchMatrix;
   gapAnalysis?: GapAnalysisReport;
   highlightSuggestions?: HighlightSuggestion[];
+  aiAnalysis?: AiRequirementAnalysisResult;
   error?: string;
 }
 
@@ -435,6 +461,26 @@ export interface GenerateDryRunPlanResponse {
 }
 
 /**
+ * Request AI-generated answers for open-answer custom questions in a form.
+ * These are staged as unconfirmed medium-risk actions pending candidate review.
+ */
+export interface AnswerCustomFieldsRequest {
+  type: 'ANSWER_CUSTOM_FIELDS';
+  form: ApplicationForm;
+  plan: DryRunPlan;
+}
+
+/**
+ * Response containing AI-proposed answers appended to the plan.
+ */
+export interface AnswerCustomFieldsResponse {
+  type: 'ANSWER_CUSTOM_FIELDS_RESULT';
+  success: boolean;
+  plan?: DryRunPlan;
+  error?: string;
+}
+
+/**
  * Retrieve the currently cached active DryRunPlan.
  */
 export interface GetActivePlanRequest {
@@ -444,6 +490,18 @@ export interface GetActivePlanRequest {
 export interface GetActivePlanResponse {
   type: 'ACTIVE_PLAN_RESULT';
   plan: DryRunPlan | null;
+}
+
+/**
+ * Retrieve the currently cached active ApplicationForm (used for AI field answering).
+ */
+export interface GetActiveFormRequest {
+  type: 'GET_ACTIVE_FORM';
+}
+
+export interface GetActiveFormResponse {
+  type: 'ACTIVE_FORM_RESULT';
+  form: ApplicationForm | null;
 }
 
 /**
@@ -700,6 +758,40 @@ export interface GenerateCoverLetterResponse {
 }
 
 /**
+ * Generate PDF for tailored cover letter.
+ */
+export interface GenerateCoverLetterPdfRequest {
+  type: 'GENERATE_COVER_LETTER_PDF';
+  jobId?: string;
+  recipient?: string;
+  tone?: 'technical' | 'conversational' | 'executive';
+}
+
+export interface GenerateCoverLetterPdfResponse {
+  type: 'GENERATE_COVER_LETTER_PDF_RESULT';
+  success: boolean;
+  pdfBase64?: string;
+  error?: string;
+}
+
+/**
+ * Generate PDF for tailored resume.
+ */
+export interface GenerateResumePdfRequest {
+  type: 'GENERATE_RESUME_PDF';
+  jobId?: string;
+  maxBulletsPerItem?: number;
+  maxProjects?: number;
+}
+
+export interface GenerateResumePdfResponse {
+  type: 'GENERATE_RESUME_PDF_RESULT';
+  success: boolean;
+  pdfBase64?: string;
+  error?: string;
+}
+
+/**
  * Fact-check an arbitrary candidate document against EvidenceGraph.
  */
 export interface FactCheckDocumentRequest {
@@ -759,7 +851,9 @@ export type ExtensionRequest =
   | ExecuteSelectiveActionRequest
   | GenerateTailoredResumeRequest
   | GenerateCoverLetterRequest
-  | FactCheckDocumentRequest;
+  | FactCheckDocumentRequest
+  | AnswerCustomFieldsRequest
+  | GetActiveFormRequest;
 
 /**
  * Discriminated union of all extension RPC response types.
@@ -805,7 +899,11 @@ export type ExtensionResponse =
   | ExecuteSelectiveActionResponse
   | GenerateTailoredResumeResponse
   | GenerateCoverLetterResponse
-  | FactCheckDocumentResponse;
+  | GenerateCoverLetterPdfResponse
+  | GenerateResumePdfResponse
+  | FactCheckDocumentResponse
+  | AnswerCustomFieldsResponse
+  | GetActiveFormResponse;
 
 
 

@@ -56,6 +56,25 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
         <div className="alert-error" role="alert">
           <p className="alert-title">Extraction Error</p>
           <p className="alert-message">{error}</p>
+          {typeof chrome !== 'undefined' && chrome.tabs && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginTop: '8px', fontSize: '11px', padding: '4px 10px', width: 'auto' }}
+              onClick={async () => {
+                try {
+                  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+                  if (tab && tab.id) {
+                    await chrome.tabs.reload(tab.id);
+                  }
+                } catch {
+                  // Fallback
+                }
+              }}
+            >
+              🔄 Refresh Active Tab
+            </button>
+          )}
         </div>
       )}
 

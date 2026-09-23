@@ -14,6 +14,7 @@ import type {
   CoverLetterContext,
 } from './contexts.js';
 import type { AIRequest } from './provider.js';
+import type { WritingStyleProfile } from './writing-style.js';
 import { wrapUntrustedContent, buildHardenedSystemPrompt } from './sanitization.js';
 
 /**
@@ -163,6 +164,39 @@ Perform a strict, grounded gap analysis returning only the specified JSON format
 export function buildFieldAnsweringPrompt(
   context: FieldAnsweringContext
 ): AIRequest<FieldAnsweringContext> {
+  const writingStyle = context.writingStyle;
+  const lengthPref = context.answerLengthPreference ?? 'normal';
+
+  const lengthGuidance = {
+    short: 'Keep it brief — 2-3 sentences max.',
+    normal: 'Write a natural paragraph — 3-5 sentences.',
+    detailed: 'Write 2-3 paragraphs with specific details.',
+  }[lengthPref];
+
+  const styleGuidance = writingStyle ? [
+    `Write like a senior software engineer talking to another engineer.`,
+    `Tone: ${writingStyle.formality}.`,
+    `Sentence length: ${writingStyle.sentenceLength}.`,
+    `Technical detail: ${writingStyle.technicalDetail}.`,
+    `Confidence: ${writingStyle.confidence}.`,
+    `Answer length: ${lengthGuidance}`,
+    writingStyle.preferredVocabulary.length > 0 ? `Use these words naturally: ${writingStyle.preferredVocabulary.join(', ')}` : '',
+    writingStyle.avoidedVocabulary.length > 0 ? `Avoid these words: ${writingStyle.avoidedVocabulary.join(', ')}` : '',
+    writingStyle.personalPhrases.length > 0 ? `Your phrases: ${writingStyle.personalPhrases.join('; ')}` : '',
+    writingStyle.engineeringDescriptions.length > 0 ? `How you describe your work: ${writingStyle.engineeringDescriptions.join('; ')}` : '',
+  ].filter(Boolean).join('\n') : '';
+
+  const forbiddenRules = [
+    'NEVER use: "I am excited to bring my expertise", "I am passionate about leveraging", "I possess extensive expertise", "cutting edge technologies", "robust and scalable solutions", "architect solutions", "leverage synergy", "drive results", "best practices", "deliverables", "stakeholders", "holistic approach", "deep dive", "move the needle", "game changer", "paradigm shift", "next level"',
+    'NEVER use corporate filler: "in order to", "due to the fact that", "with respect to", "utilize", "synergize", "optimize", "facilitate", "orchestrate"',
+    'NEVER use AI phrasing: "I am writing to", "This letter serves to", "In conclusion", "Furthermore", "Moreover", "Additionally"',
+    'NEVER use em dashes (—) or colons (:) as stylistic devices',
+    'NEVER use bullet points, headings, or numbered lists in plain answers',
+    'NEVER use excessive transitions: "Furthermore," "Moreover," "Additionally," "Consequently,"',
+    'NEVER hedge excessively: "maybe," "perhaps," "potentially," "somewhat," "fairly"',
+    'NEVER use passive voice when active works',
+  ].join('\n');
+
   const systemPrompt = buildHardenedSystemPrompt(
     `You are a professional job application assistant formulating answers to application form questions.
 
@@ -171,6 +205,12 @@ CRITICAL INVARIANTS:
 2. NEVER invent experiences, metrics, employer names, or degrees.
 3. If the candidate has no relevant background to answer the prompt, produce a concise factual statement or advise the user to fill manually.
 4. Adhere strictly to any specified character or word limits.
+5. Write like a real human — direct, natural, specific, conversational. No corporate speak. No AI phrasing.
+
+${styleGuidance ? `WRITING STYLE (match this voice):\n${styleGuidance}\n` : ''}
+
+FORBIDDEN — These will cause rejection:
+${forbiddenRules}
 
 Return a valid JSON object matching this schema:
 {
@@ -200,6 +240,7 @@ Return a valid JSON object matching this schema:
 ${wrappedLabel}
 
 Field Type: ${context.fieldType}
+${context.fieldType === 'number' ? 'Instruction: This field requires a single numeric value (e.g. 9 or 10 for ratings, or target salary integer). In answerText, provide solely the numeric digits.' : ''}
 ${optionsText}
 ${context.maxLength ? `Max Characters: ${context.maxLength}` : ''}
 ${context.placeholder ? `Placeholder: ${context.placeholder}` : ''}
@@ -210,7 +251,7 @@ ${answersText || 'None available.'}
 SUPPORTING CANDIDATE CLAIMS:
 ${claimsText || 'None available.'}
 
-Provide a natural, professional, evidence-backed answer strictly in JSON.`;
+Provide a natural, human, evidence-backed answer strictly in JSON.`;
 
   return {
     prompt: userPrompt,

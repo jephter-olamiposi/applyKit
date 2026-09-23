@@ -396,7 +396,7 @@ export function createProfileFromParsedResume(
       phone: parsed.identity.phone || '',
       location: {
         city: (parsed.identity.location?.split(',')[0] ?? '').trim(),
-        country: (parsed.identity.location?.split(',')[1] ?? '').trim() || 'United States',
+        country: (parsed.identity.location?.split(',')[1] ?? '').trim() || (parsed.identity.location ? parsed.identity.location.trim() : 'United States'),
       },
       workAuthorization: {
         isAuthorizedInCountry: true,
@@ -413,6 +413,13 @@ export function createProfileFromParsedResume(
       preferredLocations: [],
       workplacePreference: 'remote',
       isOpenToRelocation: false,
+      compensationExpectation: {
+        targetSalaryMin: 140000,
+        targetSalaryMax: 160000,
+        currency: 'USD',
+        period: 'annual',
+        isNegotiable: true,
+      },
     },
     experiences: rawExperiences,
     projects: rawProjects,

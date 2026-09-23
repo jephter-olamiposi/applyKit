@@ -230,8 +230,9 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
   const fullText = rawText;
   const emailMatch = fullText.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
   const phoneMatch = fullText.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/);
-  const linkedinMatch = fullText.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9_-]+/i);
-  const githubMatch = fullText.match(/https?:\/\/(?:www\.)?github\.com\/[A-Za-z0-9_-]+/i);
+  const linkedinMatch = fullText.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9_-]+/i);
+  const githubMatch = fullText.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[A-Za-z0-9_-]+/i);
+  const devtoMatch = fullText.match(/(?:https?:\/\/)?(?:www\.)?dev\.to\/[A-Za-z0-9_-]+/i);
   const allUrls = fullText.match(/https?:\/\/[^\s|)]+/g) || [];
   let portfolioUrl: string | undefined;
   for (const u of allUrls) {
@@ -240,15 +241,41 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
       break;
     }
   }
+  if (!portfolioUrl && devtoMatch) {
+    portfolioUrl = devtoMatch[0].startsWith('http') ? devtoMatch[0] : `https://${devtoMatch[0]}`;
+  }
 
   // Extract name: first non-empty header line that is not an email, phone, or link
   let fullName = '';
   for (const hLine of sections.header) {
     const clean = hLine.replace(/^#+\s*/, '').trim();
-    if (clean && !clean.includes('@') && !clean.includes('http') && !/^\+?\d/.test(clean)) {
+    if (clean && !clean.includes('@') && !clean.includes('http') && !clean.includes('.com') && !/^\+?\d/.test(clean)) {
       fullName = clean;
       break;
     }
+  }
+
+  // Extract candidate location: inspect header lines for patterns like "City, Country"
+  let candidateLocation: string | undefined;
+  for (const hLine of sections.header) {
+    const segments = hLine.split(/[|•·;]|\s+-\s+/);
+    for (const seg of segments) {
+      const cleanSeg = seg.trim();
+      if (!cleanSeg) continue;
+      if (
+        cleanSeg.includes('@') ||
+        /https?:\/\//i.test(cleanSeg) ||
+        /github\.com|linkedin\.com/i.test(cleanSeg) ||
+        /\b(?:engineer|developer|architect|designer|manager|lead|senior|junior|intern)\b/i.test(cleanSeg)
+      ) {
+        continue;
+      }
+      if (/^[A-Za-z\s.-]+,\s*[A-Za-z\s.-]+$/.test(cleanSeg)) {
+        candidateLocation = cleanSeg;
+        break;
+      }
+    }
+    if (candidateLocation) break;
   }
 
   // Parse Summary
@@ -271,9 +298,14 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
       fullName,
       email: emailMatch ? emailMatch[0] : undefined,
       phone: phoneMatch ? phoneMatch[0] : undefined,
+      location: candidateLocation,
       links: {
-        linkedin: linkedinMatch ? linkedinMatch[0] : undefined,
-        github: githubMatch ? githubMatch[0] : undefined,
+        linkedin: linkedinMatch
+          ? (linkedinMatch[0].startsWith('http') ? linkedinMatch[0] : `https://${linkedinMatch[0]}`)
+          : undefined,
+        github: githubMatch
+          ? (githubMatch[0].startsWith('http') ? githubMatch[0] : `https://${githubMatch[0]}`)
+          : undefined,
         portfolio: portfolioUrl,
       },
     },
@@ -332,8 +364,21 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       continue;
     }
 
-    // Check if this line is an experience entry header (e.g., "Senior Software Engineer | Acme Corp | 2021 - Present")
-    if (cleanLine.includes('|') || cleanLine.includes(' - ') || cleanLine.includes(' at ') || cleanLine.includes(' @ ')) {
+    // Check if this line is just a date line for the active entry (e.g. "Feb 2026 – Aug 2026")
+    if (current && isDateLine(cleanLine) && !current.dateText) {
+      current.dateText = cleanLine;
+      continue;
+    }
+
+    // Check if this line is an experience entry header (e.g., "Senior Software Engineer | Acme Corp | 2021 - Present" or "Software Engineer — CoreServe — Rust")
+    if (
+      cleanLine.includes('|') ||
+      cleanLine.includes(' - ') ||
+      cleanLine.includes(' — ') ||
+      cleanLine.includes(' – ') ||
+      cleanLine.includes(' at ') ||
+      cleanLine.includes(' @ ')
+    ) {
       commitCurrent();
 
       let title = '';
@@ -370,11 +415,17 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
           title = atMatch[1].trim();
           company = atMatch[2].trim();
         } else {
-          // e.g. "Google - Tech Lead" or "Acme Corp - Senior Engineer"
-          const dashSegments = lineText.split(/\s+-\s+/);
+          // e.g. "Software Engineer — CoreServe — Rust" or "Google - Tech Lead" or "Acme Corp - Senior Engineer"
+          const dashSegments = lineText.split(/\s+[—–-]\s+/);
           if (dashSegments.length >= 2 && dashSegments[0] && dashSegments[1]) {
-            title = dashSegments[1].trim();
-            company = dashSegments[0].trim();
+            const isRoleFirst = /engineer|developer|architect|lead|manager|specialist|director|designer|analyst|consultant/i.test(dashSegments[0]);
+            if (isRoleFirst) {
+              title = dashSegments[0].trim();
+              company = dashSegments[1].trim();
+            } else {
+              title = dashSegments[1].trim();
+              company = dashSegments[0].trim();
+            }
           }
         }
       }
@@ -386,12 +437,6 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
         dateText,
         highlights: [],
       };
-      continue;
-    }
-
-    // Check if this line is just a date line for the active entry
-    if (current && isDateLine(cleanLine) && !current.dateText) {
-      current.dateText = cleanLine;
       continue;
     }
 
@@ -450,6 +495,20 @@ function parseProjects(lines: readonly string[]): ParsedProject[] {
 
     if (isBullet(line)) {
       const bulletText = line.replace(/^[-*•–—+]\s+/, '').trim();
+      // Check if this bullet line is a self-contained project entry e.g. "* wsblast (Rust) — Built a high-performance..."
+      const projectBulletMatch = bulletText.match(/^([A-Za-z0-9\s._-]+(?:\s*\([^)]+\))?)\s+[—–-]\s+(.*)$/);
+      if (projectBulletMatch && projectBulletMatch[1] && projectBulletMatch[2]) {
+        commitCurrent();
+        const projectTitle = projectBulletMatch[1].trim();
+        const projectDesc = projectBulletMatch[2].trim();
+        current = {
+          title: projectTitle,
+          description: projectDesc,
+          highlights: [projectDesc],
+        };
+        continue;
+      }
+
       if (current) {
         current.highlights.push(bulletText);
       }
@@ -527,6 +586,15 @@ function parseEducation(lines: readonly string[]): ParsedEducation[] {
       degree = segments[0] || 'Degree';
       institution = segments[1] || 'University';
       fieldOfStudy = segments[2] || '';
+    } else if (clean.includes('—') || clean.includes('–')) {
+      const parts = clean.split(/\s+[—–]\s+/).map((s) => s.trim());
+      institution = parts[0] || 'Academic Institution';
+      degree = parts[1] || 'Degree';
+      if (degree.includes(',')) {
+        const sub = degree.split(',').map((s) => s.trim());
+        degree = sub[0] || degree;
+        fieldOfStudy = sub.slice(1).join(', ') || fieldOfStudy;
+      }
     } else {
       const degreeMatch = clean.match(/(bachelor|master|b\.?s\.?|m\.?s\.?|ph\.?d|b\.?a\.?|associate)\b.*?(?:in|of)\s+([A-Za-z\s]+)/i);
       if (degreeMatch && degreeMatch[2]) {
@@ -560,7 +628,7 @@ function parseSkills(
   const skillSet = new Set<string>();
 
   for (const line of skillLines) {
-    const clean = line.replace(/^[-*•#]\s*/, '').replace(/^[A-Za-z\s]+:\s*/, '');
+    const clean = line.replace(/^[-*•#]\s*/, '').replace(/^[A-Za-z0-9\s&/_-]+:\s*/, '');
     const tokens = clean.split(/[,;|•]/).map((s) => s.trim()).filter((s) => s.length > 1);
     for (const t of tokens) {
       skillSet.add(t);

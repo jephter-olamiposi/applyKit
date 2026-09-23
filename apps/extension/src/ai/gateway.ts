@@ -122,7 +122,7 @@ export class AIGateway {
       case 'anthropic':
         return new AnthropicProvider(apiKey, modelName || 'claude-3-5-haiku-20241022', 30000, customFetch);
       case 'gemini':
-        return new GeminiProvider(apiKey, modelName || 'gemini-1.5-flash', 30000, customFetch);
+        return new GeminiProvider(apiKey, modelName || 'gemini-3.7-flash', 30000, customFetch);
       case 'openrouter':
         return new OpenRouterProvider(apiKey, modelName || 'meta-llama/llama-3.3-70b-instruct', 30000, customFetch);
     }

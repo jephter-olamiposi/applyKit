@@ -12,7 +12,12 @@
     "sidePanel",
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
   ],
   "action": {
     "default_title": "Open ApplyKit Side Panel",

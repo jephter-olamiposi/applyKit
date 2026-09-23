@@ -21,6 +21,12 @@ import type {
   ApplicationRecord,
   ApplicationId,
   ApplicationState,
+  AiJobExtractionResult,
+  FieldAnsweringContext,
+  AiProposedFieldAnswer,
+  ApplicationField,
+  ApplicationForm,
+  WritingStyleProfile,
 } from '@applykit/domain';
 import {
   parsePlainTextResume,
@@ -50,7 +56,21 @@ import {
   tailorCandidateResume,
   generateGroundedCoverLetter,
   factCheckTailoredDocument,
+  buildJobExtractionPrompt,
+  buildRequirementMatchingPrompt,
+  parseAndValidateJsonResponse,
+  isAiJobExtractionResult,
+  jobPostingFromAiExtraction,
+  isDegenerateJobPosting,
+  buildFieldAnsweringPrompt,
+  isAiAnswerableCustomField,
+  withAiProposedFieldAnswers,
+  getWritingStyleFromProfile,
 } from '@applykit/domain';
+import {
+  generateCoverLetterPdfBlob,
+  generateResumePdfBlob,
+} from '@applykit/domain/pdf-exporter';
 
 import type {
   ApiKeysStatus,
@@ -81,9 +101,12 @@ import type {
   GetTokenMetricsResponse,
   ResetTokenMetricsResponse,
   MatchJobRequirementsResponse,
+  AiRequirementAnalysisResult,
   InspectPageFormsResponse,
   GenerateDryRunPlanResponse,
   GetActivePlanResponse,
+  AnswerCustomFieldsRequest,
+  AnswerCustomFieldsResponse,
   UpdatePlanActionResponse,
   TogglePlanActionApprovalResponse,
   ExcludePlanActionResponse,
@@ -97,6 +120,8 @@ import type {
   ExecuteSelectiveActionResponse,
   GenerateTailoredResumeResponse,
   GenerateCoverLetterResponse,
+  GenerateCoverLetterPdfResponse,
+  GenerateResumePdfResponse,
   FactCheckDocumentResponse,
   GetStorageUsageResponse,
 } from '../messages/contracts.js';
@@ -122,6 +147,7 @@ const STORAGE_KEYS = {
   LAST_EXTRACTION: 'applykit_last_extraction',
   LAST_JOB_POSTING: 'applykit_last_job_posting',
   ACTIVE_DRY_RUN_PLAN: 'applykit_active_dry_run_plan',
+  ACTIVE_FORM: 'applykit_active_form',
 } as const;
 
 export const profileRepo = new IndexedDbProfileRepository();
@@ -207,183 +233,299 @@ export async function getProfileSummary(): Promise<CandidateProfileSummary> {
 }
 
 /**
- * Triggers job posting extraction on the currently active tab.
+ * Safely resolves the currently active webpage tab for sidepanel and background actions.
+ * Prefers lastFocusedWindow, then currentWindow, and falls back to open web tabs if the focused tab is an internal or side panel view.
+ */
+async function getActiveWebTab(): Promise<chrome.tabs.Tab | null> {
+  if (typeof chrome === 'undefined' || !chrome.tabs) return null;
+  try {
+    const [lastFocused] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (lastFocused && lastFocused.id && lastFocused.url && !isRestrictedTabUrl(lastFocused.url)) {
+      return lastFocused;
+    }
+    const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (current && current.id && current.url && !isRestrictedTabUrl(current.url)) {
+      return current;
+    }
+    // Fallback: look for an active non-restricted tab across any window
+    const allActive = await chrome.tabs.query({ active: true });
+    const activeWeb = allActive.find((t) => t.url && !isRestrictedTabUrl(t.url));
+    if (activeWeb && activeWeb.id) return activeWeb;
+
+    // Fallback: find any tab currently open with http or https URL
+    const allTabs = await chrome.tabs.query({});
+    const webTab = allTabs.find((t) => t.url && (t.url.startsWith('http://') || t.url.startsWith('https://')));
+    if (webTab && webTab.id) return webTab;
+
+    return lastFocused || current || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Checks whether the given tab URL is an internal browser page where content scripts cannot execute.
+ */
+function isRestrictedTabUrl(url: string): boolean {
+  if (!url) return false;
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:') ||
+    url.startsWith('view-source:') ||
+    url.startsWith('https://chrome.google.com/webstore') ||
+    url.startsWith('https://chromewebstore.google.com')
+  );
+}
+
+/**
+ * Dispatches a typed message to the webpage content script with programmatic injection and readiness polling.
  *
- * If the content script is not yet responsive (e.g. pages loaded before extension install),
- * falls back to programmatic script injection via chrome.scripting.
+ * If content.js is not yet active (e.g. tabs opened before extension install/reload),
+ * programmatically injects it and polls for PONG confirmation before sending the payload.
+ */
+async function sendToContentScriptWithFallback<TReq, TRes>(
+  tabId: number,
+  message: TReq,
+  retries = 3
+): Promise<TRes> {
+  const trySendMessage = (): Promise<TRes> => {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(error.message));
+        } else {
+          resolve(response as TRes);
+        }
+      });
+    });
+  };
+
+  try {
+    return await trySendMessage();
+  } catch (initialErr) {
+    if (!chrome.scripting) {
+      throw initialErr;
+    }
+
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content.js'],
+      });
+    } catch (scriptErr) {
+      const scriptErrMsg = scriptErr instanceof Error ? scriptErr.message : String(scriptErr);
+      throw new Error(
+        `Cannot inject ApplyKit script into this tab: ${scriptErrMsg}. If this tab was open before installing or reloading the extension, please refresh the webpage tab.`
+      );
+    }
+
+    // Wait for content script to mount and attach listener
+    for (let attempt = 0; attempt < retries; attempt++) {
+      await new Promise((r) => setTimeout(r, 60 * (attempt + 1)));
+      try {
+        const pingPong = await new Promise<{ type: string }>((resolve, reject) => {
+          chrome.tabs.sendMessage(tabId, { type: 'PING' }, (res) => {
+            const err = chrome.runtime.lastError;
+            if (err) reject(new Error(err.message));
+            else resolve(res as { type: string });
+          });
+        });
+
+        if (pingPong && pingPong.type === 'PONG') {
+          return await trySendMessage();
+        }
+      } catch {
+        // Continue retry loop
+      }
+    }
+
+    try {
+      return await trySendMessage();
+    } catch {
+      throw new Error(
+        'Could not establish connection with this webpage. Please refresh the webpage tab and try again.'
+      );
+    }
+  }
+}
+
+/**
+ * Triggers job posting extraction on the currently active tab.
  */
 export async function extractFromActiveTab(): Promise<ExtractJobResponse> {
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const activeTab = await getActiveWebTab();
 
   if (!activeTab || !activeTab.id) {
     return {
       type: 'EXTRACT_JOB_RESULT',
       success: false,
-      error: 'No active browser tab found to extract from.',
+      error: 'No active browser tab found to extract from. Please select a job posting tab.',
     };
   }
 
   const tabId = activeTab.id;
   const tabUrl = activeTab.url || '';
 
-  // Restricted chrome:// and edge:// schemes cannot run content scripts
-  if (tabUrl.startsWith('chrome://') || tabUrl.startsWith('chrome-extension://') || tabUrl.startsWith('about:')) {
+  if (isRestrictedTabUrl(tabUrl)) {
     return {
       type: 'EXTRACT_JOB_RESULT',
       success: false,
-      error: 'Cannot extract job postings from browser internal pages.',
+      error: 'Cannot extract job postings from browser internal or Web Store pages. Please open an external job posting (e.g. Lever, Greenhouse, Workday, LinkedIn).',
     };
   }
 
   try {
-    // Attempt standard message pass to content script
-    const response = await new Promise<ExtractJobResponse>((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_JOB' }, (res) => {
-        const error = chrome.runtime.lastError;
-        if (error) {
-          reject(new Error(error.message));
-        } else {
-          resolve(res as ExtractJobResponse);
-        }
-      });
-    });
+    const response = await sendToContentScriptWithFallback<{ type: 'EXTRACT_JOB' }, ExtractJobResponse>(
+      tabId,
+      { type: 'EXTRACT_JOB' }
+    );
 
     if (response && response.success && response.data) {
-      tabExtractionCache.set(tabId, response.data);
-      if (response.jobPosting) {
-        await jobRepo.saveJob(response.jobPosting);
-      }
-      await chrome.storage.local.set({
-        [STORAGE_KEYS.LAST_EXTRACTION]: response.data,
-        ...(response.jobPosting ? { [STORAGE_KEYS.LAST_JOB_POSTING]: response.jobPosting } : {}),
-      });
-      return response;
+      return maybeAiRefineExtraction(tabId, tabUrl, response);
     }
-  } catch {
-    // Content script may not be loaded yet; inject and execute fallback
-    try {
-      if (chrome.scripting) {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['content.js'],
-        });
+    return response;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      type: 'EXTRACT_JOB_RESULT',
+      success: false,
+      error: `Extraction failed: ${msg}`,
+    };
+  }
+}
 
-        // Retry sending message after injection
-        const retryResponse = await new Promise<ExtractJobResponse>((resolve, reject) => {
-          chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_JOB' }, (res) => {
-            const error = chrome.runtime.lastError;
-            if (error) {
-              reject(new Error(error.message));
-            } else {
-              resolve(res as ExtractJobResponse);
-            }
-          });
-        });
+/**
+ * Persists a successful deterministic extraction (page data + posting) for later retrieval.
+ */
+async function commitExtraction(
+  tabId: number,
+  response: ExtractJobResponse
+): Promise<ExtractJobResponse> {
+  if (!response.success || !response.data) return response;
+  tabExtractionCache.set(tabId, response.data);
+  if (response.jobPosting) {
+    await jobRepo.saveJob(response.jobPosting);
+  }
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.LAST_EXTRACTION]: response.data,
+    ...(response.jobPosting ? { [STORAGE_KEYS.LAST_JOB_POSTING]: response.jobPosting } : {}),
+  });
+  return response;
+}
 
-        if (retryResponse && retryResponse.success && retryResponse.data) {
-          tabExtractionCache.set(tabId, retryResponse.data);
-          if (retryResponse.jobPosting) {
-            await jobRepo.saveJob(retryResponse.jobPosting);
-          }
-          await chrome.storage.local.set({
-            [STORAGE_KEYS.LAST_EXTRACTION]: retryResponse.data,
-            ...(retryResponse.jobPosting ? { [STORAGE_KEYS.LAST_JOB_POSTING]: retryResponse.jobPosting } : {}),
-          });
-          return retryResponse;
-        }
-      }
-    } catch (injectErr) {
-      const msg = injectErr instanceof Error ? injectErr.message : String(injectErr);
-      return {
-        type: 'EXTRACT_JOB_RESULT',
-        success: false,
-        error: `Extraction failed: ${msg}`,
-      };
-    }
+/**
+ * Runs the LLM fallback extractor when deterministic extraction yields no usable job data.
+ *
+ * API Key Invariant: Executes only inside the background Service Worker (ADR-0002); the content
+ * script never sees provider credentials. Failure degrades to the deterministic result rather
+ * than failing the whole extraction.
+ *
+ * @param pageData Sanitized page data harvested by the content script.
+ * @param tabUrl Source URL of the posting.
+ * @returns A JobPosting when the LLM returned schema-valid data, otherwise null.
+ */
+async function runAiJobExtractionFallback(
+  pageData: ExtractedPageData,
+  tabUrl: string
+): Promise<JobPosting | null> {
+  const sourceText = (pageData.cleanBodyText || pageData.sanitizedXml || '').trim();
+  if (sourceText.length < 40) {
+    return null;
   }
 
-  return {
-    type: 'EXTRACT_JOB_RESULT',
-    success: false,
-    error: 'Failed to communicate with webpage content script.',
-  };
+  const request = buildJobExtractionPrompt({
+    rawHtmlOrText: sourceText,
+    pageUrl: tabUrl,
+    pageTitle: pageData.title || pageData.ogTitle,
+  });
+
+  const response = await aiGateway.executeRequest(request);
+  const parsed = parseAndValidateJsonResponse<AiJobExtractionResult>(response.rawText, isAiJobExtractionResult);
+
+  if (!parsed.success || !parsed.data) {
+    throw new Error(parsed.error || 'AI extraction returned malformed JSON.');
+  }
+
+  return jobPostingFromAiExtraction(parsed.data, tabUrl, sourceText);
+}
+
+/**
+ * Attempts AI refinement for degenerate deterministic extractions, then commits and returns
+ * the (possibly refined) response.
+ *
+ * Deterministic extraction stays authoritative whenever it produces usable requirements;
+ * the LLM is only consulted to rescue empty signal (Phase 2 fallback, ADR-0020).
+ */
+async function maybeAiRefineExtraction(
+  tabId: number,
+  tabUrl: string,
+  response: ExtractJobResponse
+): Promise<ExtractJobResponse> {
+  const deterministic = response.jobPosting;
+
+  if (!deterministic || !isDegenerateJobPosting(deterministic)) {
+    return commitExtraction(tabId, response);
+  }
+
+  try {
+    const aiJob = await runAiJobExtractionFallback(response.data!, tabUrl);
+    if (aiJob) {
+      response.jobPosting = aiJob;
+      response.aiRefined = true;
+    } else {
+      response.aiExtractionError = 'AI extraction produced no usable job data.';
+    }
+  } catch (err) {
+    response.aiExtractionError = err instanceof Error ? err.message : String(err);
+  }
+
+  return commitExtraction(tabId, response);
 }
 
 /**
  * Triggers application form inspection on the active tab.
  */
 export async function inspectFormsFromActiveTab(): Promise<InspectPageFormsResponse> {
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const activeTab = await getActiveWebTab();
 
   if (!activeTab || !activeTab.id) {
     return {
       type: 'INSPECT_PAGE_FORMS_RESULT',
       success: false,
       forms: [],
-      error: 'No active browser tab found to inspect forms on.',
+      error: 'No active browser tab found to inspect forms on. Please click onto an application tab.',
     };
   }
 
   const tabId = activeTab.id;
   const tabUrl = activeTab.url || '';
 
-  if (tabUrl.startsWith('chrome://') || tabUrl.startsWith('chrome-extension://') || tabUrl.startsWith('about:')) {
+  if (isRestrictedTabUrl(tabUrl)) {
     return {
       type: 'INSPECT_PAGE_FORMS_RESULT',
       success: false,
       forms: [],
-      error: 'Cannot inspect application forms on browser internal pages.',
+      error: 'Cannot inspect application forms on browser internal or Web Store pages.',
     };
   }
 
   try {
-    const response = await new Promise<InspectPageFormsResponse>((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, { type: 'INSPECT_PAGE_FORMS' }, (res) => {
-        const error = chrome.runtime.lastError;
-        if (error) {
-          reject(new Error(error.message));
-        } else {
-          resolve(res as InspectPageFormsResponse);
-        }
-      });
-    });
-    return response;
-  } catch {
-    try {
-      if (chrome.scripting) {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['content.js'],
-        });
-
-        const retryResponse = await new Promise<InspectPageFormsResponse>((resolve, reject) => {
-          chrome.tabs.sendMessage(tabId, { type: 'INSPECT_PAGE_FORMS' }, (res) => {
-            const error = chrome.runtime.lastError;
-            if (error) {
-              reject(new Error(error.message));
-            } else {
-              resolve(res as InspectPageFormsResponse);
-            }
-          });
-        });
-        return retryResponse;
-      }
-    } catch (injectErr) {
-      return {
-        type: 'INSPECT_PAGE_FORMS_RESULT',
-        success: false,
-        forms: [],
-        error: `Failed to communicate with content script: ${injectErr instanceof Error ? injectErr.message : String(injectErr)}`,
-      };
-    }
+    return await sendToContentScriptWithFallback<{ type: 'INSPECT_PAGE_FORMS' }, InspectPageFormsResponse>(
+      tabId,
+      { type: 'INSPECT_PAGE_FORMS' }
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      type: 'INSPECT_PAGE_FORMS_RESULT',
+      success: false,
+      forms: [],
+      error: `Form inspection failed: ${msg}`,
+    };
   }
-
-  return {
-    type: 'INSPECT_PAGE_FORMS_RESULT',
-    success: false,
-    forms: [],
-    error: 'Form inspection failed on active tab.',
-  };
 }
 
 /**
@@ -398,20 +540,20 @@ export async function executePlanOnActiveTab(
   plan: DryRunPlan,
   options?: ExecutionOptions
 ): Promise<ExecutePlanResponse> {
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const activeTab = await getActiveWebTab();
 
   if (!activeTab || !activeTab.id) {
     return {
       type: 'EXECUTE_PLAN_RESULT',
       success: false,
-      error: 'No active browser tab found to execute actions on.',
+      error: 'No active browser tab found to execute actions on. Please select a job application tab.',
     };
   }
 
   const tabId = activeTab.id;
   const tabUrl = activeTab.url || '';
 
-  if (tabUrl.startsWith('chrome://') || tabUrl.startsWith('chrome-extension://') || tabUrl.startsWith('about:')) {
+  if (isRestrictedTabUrl(tabUrl)) {
     return {
       type: 'EXECUTE_PLAN_RESULT',
       success: false,
@@ -426,16 +568,10 @@ export async function executePlanOnActiveTab(
   };
 
   try {
-    const response = await new Promise<ExecuteContentPlanResponse>((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, payload, (res) => {
-        const error = chrome.runtime.lastError;
-        if (error) {
-          reject(new Error(error.message));
-        } else {
-          resolve(res as ExecuteContentPlanResponse);
-        }
-      });
-    });
+    const response = await sendToContentScriptWithFallback<ExecuteContentPlanRequest, ExecuteContentPlanResponse>(
+      tabId,
+      payload
+    );
 
     return {
       type: 'EXECUTE_PLAN_RESULT',
@@ -443,46 +579,14 @@ export async function executePlanOnActiveTab(
       report: response.report,
       error: response.error,
     };
-  } catch {
-    try {
-      if (chrome.scripting) {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['content.js'],
-        });
-
-        const retryResponse = await new Promise<ExecuteContentPlanResponse>((resolve, reject) => {
-          chrome.tabs.sendMessage(tabId, payload, (res) => {
-            const error = chrome.runtime.lastError;
-            if (error) {
-              reject(new Error(error.message));
-            } else {
-              resolve(res as ExecuteContentPlanResponse);
-            }
-          });
-        });
-
-        return {
-          type: 'EXECUTE_PLAN_RESULT',
-          success: retryResponse.success,
-          report: retryResponse.report,
-          error: retryResponse.error,
-        };
-      }
-    } catch (injectErr) {
-      return {
-        type: 'EXECUTE_PLAN_RESULT',
-        success: false,
-        error: `Failed to communicate with content script: ${injectErr instanceof Error ? injectErr.message : String(injectErr)}`,
-      };
-    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      type: 'EXECUTE_PLAN_RESULT',
+      success: false,
+      error: `Action execution failed: ${msg}`,
+    };
   }
-
-  return {
-    type: 'EXECUTE_PLAN_RESULT',
-    success: false,
-    error: 'Form execution failed on active tab.',
-  };
 }
 
 /**
@@ -979,7 +1083,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             sendResponse({
               type: 'COMPLETE_AI_TASK_RESULT',
               success: false,
-              error: err instanceof Error ? err.message : String(err),
+              error: err instanceof Error ? `${err.message} [STACK: ${err.stack}]` : String(err),
             });
           }
         })();
@@ -1070,9 +1174,67 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               return;
             }
 
+            let resolvedJob: JobPosting | undefined;
+            if (payload.jobPostingId) {
+              const j = await jobRepo.getJobById(payload.jobPostingId as any);
+              if (j) resolvedJob = j;
+            }
+            if (!resolvedJob) {
+              const stored = await chrome.storage.local.get(STORAGE_KEYS.LAST_JOB_POSTING);
+              resolvedJob = stored[STORAGE_KEYS.LAST_JOB_POSTING] as JobPosting | undefined;
+            }
+
             const matchMatrix = evaluateJobRequirements(reqs, profile, evidenceGraph);
             const gapAnalysis = analyzeQualificationGaps(reqs, matchMatrix.matches, profile, evidenceGraph);
             const highlightSuggestions = generateHighlightSuggestions(reqs, profile, evidenceGraph);
+
+            // Execute AI semantic matching when provider key is available (ADR-0020)
+            let aiAnalysis: AiRequirementAnalysisResult | undefined;
+            try {
+              const expHighlights: string[] = [];
+              const expList = profile.experiences || (profile.professional as any)?.experiences || [];
+              for (const exp of expList) {
+                if (exp.highlights && Array.isArray(exp.highlights)) {
+                  expHighlights.push(...exp.highlights.slice(0, 3));
+                } else if (exp.description) {
+                  expHighlights.push(`${exp.title} at ${exp.company}: ${exp.description.slice(0, 150)}`);
+                }
+              }
+
+              const matchingContext = {
+                jobTitle: resolvedJob?.title || 'Target Job',
+                companyName: resolvedJob?.companyName || 'Target Company',
+                requirements: reqs,
+                candidateSkills: profile.skills,
+                candidateClaims: evidenceGraph.claims.slice(0, 25),
+                relevantExperienceHighlights: expHighlights.slice(0, 10),
+              };
+
+              const aiReq = buildRequirementMatchingPrompt(matchingContext);
+              const aiRes = await aiGateway.executeRequest(aiReq);
+
+              function isAiRequirementAnalysis(value: unknown): value is AiRequirementAnalysisResult {
+                if (typeof value !== 'object' || value === null) return false;
+                const v = value as Record<string, unknown>;
+                return (
+                  typeof v.overallScore === 'number' &&
+                  Array.isArray(v.matches) &&
+                  Array.isArray(v.keyStrengths) &&
+                  Array.isArray(v.identifiedGaps)
+                );
+              }
+
+              const parsed = parseAndValidateJsonResponse<AiRequirementAnalysisResult>(
+                aiRes.rawText,
+                isAiRequirementAnalysis
+              );
+              if (parsed.success && parsed.data) {
+                aiAnalysis = parsed.data;
+              }
+            } catch (aiErr) {
+              // Deterministic match matrix remains authoritative if AI is offline or encounters rate limits
+              console.warn('AI semantic requirement matching skipped or failed:', aiErr);
+            }
 
             const res: MatchJobRequirementsResponse = {
               type: 'MATCH_JOB_REQUIREMENTS_RESULT',
@@ -1080,6 +1242,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               matchMatrix,
               gapAnalysis,
               highlightSuggestions: [...highlightSuggestions],
+              ...(aiAnalysis ? { aiAnalysis } : {}),
             };
             sendResponse(res);
           } catch (err) {
@@ -1125,6 +1288,9 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             activeDryRunPlan = plan;
             persistActivePlan();
 
+            // Store the form for later AI answering
+            void chrome.storage.local.set({ [STORAGE_KEYS.ACTIVE_FORM]: message.form });
+
             const res: GenerateDryRunPlanResponse = {
               type: 'GENERATE_DRY_RUN_PLAN_RESULT',
               success: true,
@@ -1134,6 +1300,150 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
           } catch (err) {
             const res: GenerateDryRunPlanResponse = {
               type: 'GENERATE_DRY_RUN_PLAN_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+            sendResponse(res);
+          }
+        })();
+        return true;
+      }
+
+      case 'ANSWER_CUSTOM_FIELDS': {
+        (async () => {
+          try {
+            const profile = await profileRepo.getProfile();
+            if (!profile) {
+              const res: AnswerCustomFieldsResponse = {
+                type: 'ANSWER_CUSTOM_FIELDS_RESULT',
+                success: false,
+                error: 'Candidate profile not initialized. Please configure your profile first.',
+              };
+              sendResponse(res);
+              return;
+            }
+
+            const activePlan = message.plan;
+            const form = message.form;
+
+            const evidenceGraph = await evidenceRepo.getEvidenceGraph();
+            const savedAnswers = profile.savedAnswers;
+            const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
+            const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : [];
+
+            const aiAnswerableFields = form.fields.filter((field: ApplicationField) =>
+              isAiAnswerableCustomField(field)
+            );
+
+            if (aiAnswerableFields.length === 0) {
+              const res: AnswerCustomFieldsResponse = {
+                type: 'ANSWER_CUSTOM_FIELDS_RESULT',
+                success: true,
+                plan: activePlan,
+              };
+              sendResponse(res);
+              return;
+            }
+
+            const answers: AiProposedFieldAnswer[] = [];
+
+            for (const field of aiAnswerableFields) {
+              const relevantAnswers = savedAnswers.filter((ans) =>
+                field.label.toLowerCase().includes(ans.canonicalKey.toLowerCase()) ||
+                ans.promptPatterns.some((pattern) => field.label.toLowerCase().includes(pattern.toLowerCase()))
+              );
+
+              // Tokenize field label for keyword matching against evidence statements and tags
+              const labelKeywords = field.label
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, ' ')
+                .split(/\s+/)
+                .filter((w) => w.length > 2);
+
+              const keywordMatchedClaims = candidateClaims.filter((claim) => {
+                const statementLower = claim.statement.toLowerCase();
+                const tagsLower = (claim.tags || []).map((t) => t.toLowerCase());
+                return labelKeywords.some(
+                  (kw) => statementLower.includes(kw) || tagsLower.some((t) => t.includes(kw))
+                );
+              });
+
+              // Supply keyword matches supplemented by candidate core evidence so context is never starved
+              const relevantClaims = keywordMatchedClaims.length >= 3
+                ? keywordMatchedClaims
+                : [
+                    ...keywordMatchedClaims,
+                    ...candidateClaims.slice(0, 10),
+                  ].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+
+              const context: FieldAnsweringContext = {
+                fieldLabel: field.label,
+                fieldType: field.fieldType,
+                options: field.options,
+                placeholder: field.placeholder,
+                maxLength: field.maxLength,
+                relevantAnswers,
+                relevantClaims,
+                writingStyle: getWritingStyleFromProfile(profile),
+                answerLengthPreference: 'normal',
+              };
+
+              const request = buildFieldAnsweringPrompt(context);
+              const response = await aiGateway.executeRequest(request);
+
+              interface FieldAnsweringResult {
+                answerText: string;
+                confidence: number;
+                supportingClaimIds: string[];
+                isGrounded: boolean;
+                notes: string;
+              }
+
+              function isFieldAnsweringResult(value: unknown): value is FieldAnsweringResult {
+                return (
+                  typeof value === 'object' &&
+                  value !== null &&
+                  typeof (value as Record<string, unknown>).answerText === 'string' &&
+                  typeof (value as Record<string, unknown>).confidence === 'number' &&
+                  Array.isArray((value as Record<string, unknown>).supportingClaimIds)
+                );
+              }
+
+              const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
+                response.rawText,
+                isFieldAnsweringResult
+              );
+
+              if (parsed.success && parsed.data) {
+                const answerText = parsed.data.answerText.trim();
+                if (answerText) {
+                  const confidence = Math.min(1, Math.max(0, parsed.data.confidence ?? 0.8));
+                  const supportingClaimIds = parsed.data.supportingClaimIds?.length > 0
+                    ? parsed.data.supportingClaimIds
+                    : relevantClaims.slice(0, 3).map((c) => c.id);
+                  answers.push({
+                    fieldId: field.id,
+                    answerText,
+                    confidence,
+                    supportingClaimIds,
+                  });
+                }
+              }
+            }
+
+            const updatedPlan = withAiProposedFieldAnswers(activePlan, form, answers);
+            activeDryRunPlan = updatedPlan;
+            persistActivePlan();
+
+            const res: AnswerCustomFieldsResponse = {
+              type: 'ANSWER_CUSTOM_FIELDS_RESULT',
+              success: true,
+              plan: updatedPlan,
+            };
+            sendResponse(res);
+          } catch (err) {
+            const res: AnswerCustomFieldsResponse = {
+              type: 'ANSWER_CUSTOM_FIELDS_RESULT',
               success: false,
               error: err instanceof Error ? err.message : String(err),
             };
@@ -1154,6 +1464,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         loadActivePlanFromStorage()
           .then(() => respond(activeDryRunPlan))
           .catch(() => respond(null));
+        return true;
+      }
+
+      case 'GET_ACTIVE_FORM': {
+        (async () => {
+          const data = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_FORM);
+          const form = data[STORAGE_KEYS.ACTIVE_FORM] as ApplicationForm | undefined;
+          sendResponse({ type: 'ACTIVE_FORM_RESULT', form: form || null });
+        })();
         return true;
       }
 
@@ -1632,6 +1951,78 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         return true;
       }
 
+      case 'GENERATE_COVER_LETTER_PDF': {
+        const payload = (message as any).payload || message;
+        loadTailoringContext(payload?.jobId)
+          .then(async ({ profile, job, graph }) => {
+            try {
+              const coverLetter = generateGroundedCoverLetter(job, profile, graph, {
+                recipient: payload?.recipient,
+                tone: payload?.tone,
+              });
+              const pdfBlob = await generateCoverLetterPdfBlob(coverLetter);
+              const arrayBuffer = await pdfBlob.arrayBuffer();
+              const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+              const res: GenerateCoverLetterPdfResponse = {
+                type: 'GENERATE_COVER_LETTER_PDF_RESULT',
+                success: true,
+                pdfBase64,
+              };
+              sendResponse(res);
+            } catch (err) {
+              sendResponse({
+                type: 'GENERATE_COVER_LETTER_PDF_RESULT',
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'GENERATE_COVER_LETTER_PDF_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
+      case 'GENERATE_RESUME_PDF': {
+        const payload = (message as any).payload || message;
+        loadTailoringContext(payload?.jobId)
+          .then(async ({ profile, job, graph }) => {
+            try {
+              const tailoredResume = tailorCandidateResume(job, profile, graph, {
+                maxBulletsPerItem: payload?.maxBulletsPerItem,
+                maxProjects: payload?.maxProjects,
+              });
+              const pdfBlob = await generateResumePdfBlob(tailoredResume);
+              const arrayBuffer = await pdfBlob.arrayBuffer();
+              const pdfBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+              const res: GenerateResumePdfResponse = {
+                type: 'GENERATE_RESUME_PDF_RESULT',
+                success: true,
+                pdfBase64,
+              };
+              sendResponse(res);
+            } catch (err) {
+              sendResponse({
+                type: 'GENERATE_RESUME_PDF_RESULT',
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'GENERATE_RESUME_PDF_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
       case 'FACT_CHECK_DOCUMENT': {
         const payload = (message as any).payload || message;
         Promise.all([
@@ -1702,3 +2093,89 @@ async function loadTailoringContext(jobId?: string) {
 
   return { profile, job, graph };
 }
+
+/**
+ * Automatically seeds Jephter Olamiposi Olaifa's profile, claims, evidence graph,
+ * and Gemini API key on first launch if storage is uninitialized.
+ */
+async function bootstrapInitialCandidateData(): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+
+  try {
+    // 1. Seed Gemini API key if not configured
+    const keyData = await chrome.storage.local.get(STORAGE_KEYS.PROVIDER_KEYS);
+    const existingKeys = (keyData[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, string>) || {};
+    if (!existingKeys.gemini) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.PROVIDER_KEYS]: existingKeys });
+    }
+
+    // 2. Seed profile if no candidate profile exists
+    const existingProfile = await profileRepo.getProfile();
+    if (!existingProfile) {
+      const RAW_RESUME_TEXT = `Jephter Olamiposi Olaifa
+jephterolaifa@gmail.com  |  github.com/jephter-olamiposi  |  linkedin.com/in/jephter-olaifa  |  dev.to/iamjephter
+SKILLS
+Languages: Rust, TypeScript, JavaScript, Python
+Frameworks: Axum, Tokio, Node.js, Express, NestJS, gRPC, React, Next.js
+Databases: PostgreSQL, SurrealDB, Redis, MongoDB
+Infrastructure & Tools: AWS, Docker, Kubernetes, CI/CD, GitHub Actions
+Focus Areas: System Design, Distributed Systems, Financial Systems, Observability
+WORK EXPERIENCE
+Software Engineer — CoreServe — Rust
+Feb 2026 – Aug 2026
+* Engineered a production-grade, multi-tenant backend for a waste recycling and logistics platform using Rust, Axum, Tokio, SQLx, and PostgreSQL.
+* Designed transaction-safe wallet, billing, settlement, and payout workflows with maker-checker approval, idempotent processing, cancellation lifecycles, and automated reconciliation.
+* Built asynchronous workers for billing, payout dispatch, settlement, reporting, scheduled pickups, notifications, and reconciliation with bounded concurrency and retry handling; implemented tenant-isolated data access, role-based authorization, and JWT authentication.
+* Developed APIs for marketplace orders, inventory, pickup scheduling, dashboards, and operational metrics across administrators, aggregators, clients, and field staff.
+Backend Engineer — GeoResinStore
+Mar 2025 – Feb 2026
+* Architected a modular e-commerce backend for a leading Nigerian resin art supplier using Node.js and PostgreSQL.
+* Implemented server-side Paystack and Flutterwave webhook verification to prevent payment tampering and automate order confirmation.
+* Architected a multi-tenant invoicing backend with isolated business profiles, role-based access control, and configurable branding using NestJS.
+* Engineered an inventory state machine with checkout-time stock reservations to prevent overselling under concurrent demand.
+* Built administrative APIs for order processing, status tracking, inventory operations, and automated logistics email notifications.
+Software Engineer — Internet Number Technologies — Rust
+Feb 2025 – Oct 2025
+* Architected the control plane for a production-grade telephony platform orchestrating real-time communication, subscriptions, and billing for thousands of users.
+* Engineered a high-throughput signaling backend with Rust and Axum to manage session lifecycles for Web-to-PSTN calls.
+* Designed a type-safe SurrealDB persistence layer for subscription models and automated top-ups, protecting financial state across complex billing flows.
+* Implemented dynamic codec negotiation and SIP bridging logic to support reliable, low-latency audio delivery.
+Software Engineer — Billeva
+May 2024 – Present
+* Engineered an asynchronous streaming CSV import pipeline for processing large customer datasets without blocking request workflows.
+* Designed a configurable mapping engine that transformed arbitrary CSV columns into validated internal data models.
+Software Engineer — Freelance
+Mar 2023 – Feb 2025
+* Developed backend services for decentralized applications, creating an interoperability layer between React clients and Rust-based Solana smart contracts.
+* Established reusable GitHub Actions CI/CD pipelines to automate testing and deployment across client projects.
+Software Engineer — B-glow Creations
+Aug 2022 – Feb 2023
+* Built a fashion e-commerce website in React, including the customer-facing storefront and an admin dashboard for managing products, orders, and inventory.
+PERSONAL PROJECTS
+* wsblast (Rust) — Built a high-performance WebSocket load-testing CLI with zero-allocation hot paths, lock-free task-local latency histograms (HdrHistogram), and CI/CD SLO gating (p50/p95/p99/p99.9, error-rate budgets) that fails builds on regression; published on crates.io with a Ratatui live dashboard and JSON/Markdown reporting.
+* Echo (Rust, Tauri, SQLite) — Built a cross-platform clipboard synchronization engine with a low-memory Rust daemon that captures OS-level clipboard events and synchronizes history across desktop and mobile clients.
+* Real-Time Multiplayer Game Engine (Rust, Axum, Tokio, Egui) — Engineered a distributed multiplayer system with a native desktop client and an asynchronous Axum WebSocket server for low-latency game-state synchronization.
+EDUCATION
+Ladoke Akintola University of Technology — BSc, Information Systems`;
+
+      const parsed = parsePlainTextResume(RAW_RESUME_TEXT);
+      const { profile, evidence } = createProfileFromParsedResume(parsed);
+      const claims = deriveClaimsFromEvidence(evidence);
+
+      await Promise.all([
+        profileRepo.saveProfile({ ...profile, claims }),
+        evidenceRepo.saveEvidenceBatch(evidence),
+        evidenceRepo.saveClaimBatch(claims),
+        chrome.storage.local.set({ applykit_onboarding_completed: true }),
+      ]);
+    }
+  } catch (err) {
+    console.error('Failed to bootstrap initial candidate profile:', err);
+  }
+}
+
+// Run bootstrap when background script initializes in extension runtime
+if (typeof process === 'undefined' || !process.env || (process.env.NODE_ENV !== 'test' && !process.env.VITEST)) {
+  void bootstrapInitialCandidateData();
+}
+

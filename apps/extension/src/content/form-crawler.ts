@@ -19,6 +19,7 @@ import {
 import {
   generateElementSelector,
   extractElementLabel,
+  extractGroupQuestionLabel,
   isElementRequired,
   extractNativeSelectOptions,
   isSubmitElement,
@@ -32,6 +33,7 @@ import {
 export {
   generateElementSelector,
   extractElementLabel,
+  extractGroupQuestionLabel,
   isElementRequired,
   extractNativeSelectOptions,
   isSubmitElement,
@@ -120,7 +122,7 @@ export function crawlFormContainer(
     const firstRadio = radios[0];
     if (!firstRadio) continue;
 
-    const label = extractElementLabel(firstRadio, container);
+    const label = extractGroupQuestionLabel(radios, container) || extractElementLabel(firstRadio, container);
     const required = radios.some((r) => isElementRequired(r, label));
     const selector = `input[type="radio"][name="${CSS.escape(name)}"]`;
 

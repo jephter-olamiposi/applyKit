@@ -40,7 +40,7 @@ export class AnthropicProvider extends BaseHttpProvider {
     apiKey: string,
     modelName = 'claude-3-5-haiku-20241022',
     timeoutMs = 30000,
-    customFetch: typeof fetch = fetch
+    customFetch?: typeof fetch
   ) {
     super(apiKey, modelName, timeoutMs, customFetch);
   }

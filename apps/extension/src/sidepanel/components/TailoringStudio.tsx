@@ -25,8 +25,13 @@ import { sendToBackground } from '../../messages/bridge.js';
 import type {
   GenerateTailoredResumeResponse,
   GenerateCoverLetterResponse,
+  GenerateCoverLetterPdfRequest,
+  GenerateCoverLetterPdfResponse,
+  GenerateResumePdfRequest,
+  GenerateResumePdfResponse,
   FactCheckDocumentResponse,
   GetCandidateProfileResponse,
+  ExtensionRequest,
 } from '../../messages/contracts.js';
 
 interface TailoringStudioProps {
@@ -185,6 +190,45 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  // PDF Download Helper (base64 from background)
+  const handleDownloadPdf = async (
+    requestType: 'GENERATE_COVER_LETTER_PDF' | 'GENERATE_RESUME_PDF',
+    payload: Record<string, unknown>,
+    filename: string
+  ) => {
+    try {
+      const res = await sendToBackground<
+        ExtensionRequest,
+        GenerateCoverLetterPdfResponse | GenerateResumePdfResponse
+      >({
+        type: requestType,
+        payload,
+      } as unknown as ExtensionRequest);
+
+      if (!res.success || !res.pdfBase64) {
+        throw new Error(res.error || 'Failed to generate PDF');
+      }
+
+      // Convert base64 to blob and download
+      const binaryString = atob(res.pdfBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download PDF');
+    }
   };
 
   return (
@@ -432,6 +476,25 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
                 >
                   Download .md
                 </button>
+                <button
+                  type="button"
+                  className="btn-action-download"
+                  onClick={() => {
+                    if (profile) {
+                      handleDownloadPdf(
+                        'GENERATE_RESUME_PDF',
+                        {
+                          jobId: undefined,
+                          maxBulletsPerItem: undefined,
+                          maxProjects: undefined,
+                        },
+                        `resume-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                      );
+                    }
+                  }}
+                >
+                  Download PDF
+                </button>
               </div>
             </div>
           ) : (
@@ -600,6 +663,23 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
                   }}
                 >
                   Download .txt
+                </button>
+                <button
+                  type="button"
+                  className="btn-action-download"
+                  onClick={() => {
+                    handleDownloadPdf(
+                      'GENERATE_COVER_LETTER_PDF',
+                      {
+                        jobId: undefined,
+                        recipient,
+                        tone,
+                      },
+                      `cover-letter-${coverLetter.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${coverLetter.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                    );
+                  }}
+                >
+                  Download PDF
                 </button>
               </div>
             </div>

@@ -281,4 +281,69 @@ Go, Python, Kubernetes, GCP
       expect(report.warnings.some((w) => w.includes('non-existent evidence'))).toBe(true);
     });
   });
+
+  describe('Em-Dash & Advanced Resume Format Parsing', () => {
+    const REALISTIC_RESUME = `Jephter Olamiposi Olaifa
+jephterolaifa@gmail.com  |  github.com/jephter-olamiposi  |  linkedin.com/in/jephter-olaifa  |  dev.to/iamjephter
+
+SKILLS
+Languages: Rust, TypeScript, JavaScript, Python
+Frameworks: Axum, Tokio, Node.js, Express, NestJS, React
+Databases: PostgreSQL, SurrealDB, Redis
+Infrastructure & Tools: AWS, Docker, Kubernetes, CI/CD, GitHub Actions
+
+WORK EXPERIENCE
+Software Engineer — CoreServe — Rust
+Feb 2026 – Aug 2026
+* Engineered a production-grade multi-tenant backend for logistics platform using Rust, Axum, and PostgreSQL.
+* Designed transaction-safe wallet, billing, and settlement workflows.
+
+Backend Engineer — GeoResinStore
+Mar 2025 – Feb 2026
+* Architected a modular e-commerce backend using Node.js and PostgreSQL.
+
+PERSONAL PROJECTS
+* wsblast (Rust) — Built a high-performance WebSocket load-testing CLI with zero allocations.
+* Echo (Rust, Tauri, SQLite) — Built a cross-platform clipboard synchronization engine.
+
+EDUCATION
+Ladoke Akintola University of Technology — BSc, Information Systems
+`;
+
+    it('correctly parses em-dash experiences, bulleted projects, and education', () => {
+      const parsed = parsePlainTextResume(REALISTIC_RESUME);
+
+      expect(parsed.identity.fullName).toBe('Jephter Olamiposi Olaifa');
+      expect(parsed.identity.email).toBe('jephterolaifa@gmail.com');
+      expect(parsed.identity.links.github).toBe('https://github.com/jephter-olamiposi');
+      expect(parsed.identity.links.linkedin).toBe('https://linkedin.com/in/jephter-olaifa');
+      expect(parsed.identity.links.portfolio).toBe('https://dev.to/iamjephter');
+
+      expect(parsed.experiences.length).toBe(2);
+      expect(parsed.experiences[0]?.title).toBe('Software Engineer');
+      expect(parsed.experiences[0]?.company).toBe('CoreServe');
+      expect(parsed.experiences[0]?.startDate).toBe('2026-02');
+      expect(parsed.experiences[0]?.endDate).toBe('2026-08');
+      expect(parsed.experiences[0]?.highlights.length).toBe(2);
+
+      expect(parsed.experiences[1]?.title).toBe('Backend Engineer');
+      expect(parsed.experiences[1]?.company).toBe('GeoResinStore');
+      expect(parsed.experiences[1]?.startDate).toBe('2025-03');
+      expect(parsed.experiences[1]?.endDate).toBe('2026-02');
+
+      expect(parsed.projects.length).toBe(2);
+      expect(parsed.projects[0]?.title).toBe('wsblast (Rust)');
+      expect(parsed.projects[0]?.description).toContain('WebSocket load-testing CLI');
+      expect(parsed.projects[1]?.title).toBe('Echo (Rust, Tauri, SQLite)');
+
+      expect(parsed.education.length).toBe(1);
+      expect(parsed.education[0]?.institution).toBe('Ladoke Akintola University of Technology');
+      expect(parsed.education[0]?.degree).toBe('BSc');
+      expect(parsed.education[0]?.fieldOfStudy).toBe('Information Systems');
+
+      expect(parsed.skills).toContain('Rust');
+      expect(parsed.skills).toContain('AWS');
+      expect(parsed.skills).not.toContain('Infrastructure & Tools: AWS');
+    });
+  });
 });

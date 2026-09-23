@@ -21,6 +21,7 @@ import { sendToBackground } from '../../messages/bridge.js';
 import type {
   MatchJobRequirementsRequest,
   MatchJobRequirementsResponse,
+  AiRequirementAnalysisResult,
 } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
 
@@ -38,6 +39,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
   const [matrix, setMatrix] = useState<JobMatchMatrix | null>(null);
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisReport | null>(null);
   const [highlights, setHighlights] = useState<readonly HighlightSuggestion[]>([]);
+  const [aiAnalysis, setAiAnalysis] = useState<AiRequirementAnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +71,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
         setMatrix(res.matchMatrix);
         setGapAnalysis(res.gapAnalysis);
         setHighlights(res.highlightSuggestions || []);
+        setAiAnalysis(res.aiAnalysis || null);
       } else {
         setError(res.error || 'Failed to evaluate job requirements against candidate profile.');
       }
@@ -169,6 +172,15 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
     gapAnalysis ? gapAnalysis.gaps.map((g) => [g.requirementId, g]) : []
   );
 
+  const aiMatchMap = new Map<string, string>();
+  if (aiAnalysis?.matches) {
+    for (const m of aiAnalysis.matches) {
+      if (m.requirementText && m.reasoning) {
+        aiMatchMap.set(m.requirementText.toLowerCase().trim(), m.reasoning);
+      }
+    }
+  }
+
   const matchedCount = matrix?.matches.filter((m) => m.isMatched).length ?? 0;
   const gapCount = gapAnalysis?.totalGaps ?? 0;
 
@@ -250,6 +262,67 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
               </div>
             </div>
           </section>
+
+          {/* AI Semantic Intelligence Section (ADR-0020) */}
+          {aiAnalysis && (
+            <section
+              className="ai-intelligence-card"
+              style={{
+                background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(147, 51, 234, 0.12) 100%)',
+                border: '1px solid rgba(129, 140, 248, 0.35)',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                marginBottom: '14px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '16px' }}>✨</span>
+                  <h3 style={{ fontSize: '13px', fontWeight: 600, color: '#e0e7ff', margin: 0 }}>
+                    Gemini AI Semantic Evaluation
+                  </h3>
+                </div>
+                <span
+                  style={{
+                    background: 'rgba(99, 102, 241, 0.3)',
+                    color: '#c7d2fe',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {aiAnalysis.overallScore}% AI Alignment
+                </span>
+              </div>
+
+              {aiAnalysis.keyStrengths && aiAnalysis.keyStrengths.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a5b4fc', margin: '0 0 4px 0' }}>
+                    Key Candidate Strengths
+                  </h4>
+                  <ul style={{ margin: 0, paddingLeft: '16px', color: '#cbd5e1', fontSize: '12px', lineHeight: '1.4' }}>
+                    {aiAnalysis.keyStrengths.map((str, idx) => (
+                      <li key={idx} style={{ marginBottom: '2px' }}>{str}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {aiAnalysis.identifiedGaps && aiAnalysis.identifiedGaps.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#fca5a5', margin: '0 0 4px 0' }}>
+                    Real Gaps to Address
+                  </h4>
+                  <ul style={{ margin: 0, paddingLeft: '16px', color: '#cbd5e1', fontSize: '12px', lineHeight: '1.4' }}>
+                    {aiAnalysis.identifiedGaps.map((gap, idx) => (
+                      <li key={idx} style={{ marginBottom: '2px' }}>{gap}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* View Filter Switcher */}
           <nav className="filter-pill-nav" aria-label="Requirement Filter Options">
@@ -387,6 +460,36 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
                         </div>
 
                         <p className="eval-raw-text">{req.rawText}</p>
+
+                        {/* AI Semantic Reasoning Note (ADR-0020) */}
+                        {(() => {
+                          const aiReasoning =
+                            aiMatchMap.get(req.rawText.toLowerCase().trim()) ||
+                            Array.from(aiMatchMap.entries()).find(
+                              ([k]) =>
+                                k.includes(req.normalizedSkillOrCompetency.toLowerCase()) ||
+                                req.rawText.toLowerCase().includes(k)
+                            )?.[1];
+                          if (!aiReasoning) return null;
+                          return (
+                            <div
+                              className="ai-req-reasoning-box"
+                              style={{
+                                marginTop: '6px',
+                                marginBottom: '8px',
+                                padding: '8px 10px',
+                                background: 'rgba(99, 102, 241, 0.08)',
+                                borderRadius: '6px',
+                                borderLeft: '3px solid #818cf8',
+                                fontSize: '12px',
+                                color: '#e2e8f0',
+                                lineHeight: '1.4',
+                              }}
+                            >
+                              <strong style={{ color: '#a5b4fc' }}>AI Alignment:</strong> {aiReasoning}
+                            </div>
+                          );
+                        })()}
 
                         {/* Gap Explanation and Recommendation */}
                         {gap && (

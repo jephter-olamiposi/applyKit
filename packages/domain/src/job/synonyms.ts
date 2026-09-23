@@ -59,9 +59,13 @@ const SYNONYM_GROUPS: readonly (readonly string[])[] = [
   ['terraform', 'iac', 'infrastructure as code'],
   ['cicd', 'ci/cd', 'continuous integration', 'continuous deployment'],
 
-  // Architecture & Engineering Practices
-  ['microservices', 'distributed systems'],
-  ['tdd', 'test driven development', 'unit testing'],
+  // Architecture, Systems & Engineering Practices
+  ['microservices', 'distributed systems', 'distributed architecture'],
+  ['p2p', 'peer to peer', 'peer-to-peer', 'decentralized', 'p2p technologies', 'distributed systems'],
+  ['npm', 'npm packages', 'npm modules', 'reusable modules', 'modular code', 'package management'],
+  ['networking', 'network protocols', 'tcp', 'udp', 'websockets', 'websocket', 'low latency', 'throughput', 'advanced networking'],
+  ['testing', 'debugging', 'unit testing', 'test automation', 'load testing', 'benchmarking', 'tdd', 'test driven development'],
+  ['oss', 'open source', 'open-source', 'oss contributions', 'open source software'],
   ['agile', 'scrum'],
 ];
 

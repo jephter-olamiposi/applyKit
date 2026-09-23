@@ -12,6 +12,10 @@ import {
   createSelectiveDryRunPlan,
   createEmptyProfile,
   createFieldId,
+  isAiAnswerableCustomField,
+  withAiProposedFieldAnswers,
+  type AiProposedFieldAnswer,
+  type DryRunAction,
 } from '../index.js';
 import type {
   ApplicationForm,
@@ -661,6 +665,303 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       expect(selectivePlan.actions[0]!.userConfirmed).toBe(true);
       expect(selectivePlan.isApproved).toBe(true);
       expect(selectivePlan.stats.totalActions).toBe(1);
+    });
+  });
+
+  describe('isAiAnswerableCustomField', () => {
+    it('returns true for open text/textarea custom questions', () => {
+      const field: ApplicationField = {
+        id: createFieldId('fld_custom'),
+        selector: '#custom_q',
+        fieldType: 'textarea',
+        label: 'Why do you want to work here?',
+        isRequired: false,
+        confidenceScore: 0.8,
+        inferredMappingKey: 'custom_question',
+      };
+      expect(isAiAnswerableCustomField(field)).toBe(true);
+    });
+
+    it('returns false for honeypot suspect fields', () => {
+      const field: ApplicationField = {
+        id: createFieldId('fld_honeypot'),
+        selector: '#honeypot',
+        fieldType: 'text',
+        label: 'Website',
+        isRequired: false,
+        confidenceScore: 0.9,
+        inferredMappingKey: 'custom_question',
+        isHoneypotSuspect: true,
+      };
+      expect(isAiAnswerableCustomField(field)).toBe(false);
+    });
+
+    it('returns false for demographic/EEO fields', () => {
+      const field: ApplicationField = {
+        id: createFieldId('fld_eeo'),
+        selector: '#eeo_gender',
+        fieldType: 'select',
+        label: 'Gender (EEO)',
+        isRequired: false,
+        confidenceScore: 0.9,
+        inferredMappingKey: 'eeo_gender',
+      };
+      expect(isAiAnswerableCustomField(field)).toBe(false);
+    });
+
+    it('returns false for work authorization fields', () => {
+      const field: ApplicationField = {
+        id: createFieldId('fld_auth'),
+        selector: '#work_auth',
+        fieldType: 'radio',
+        label: 'Work Authorization',
+        isRequired: true,
+        confidenceScore: 0.95,
+        inferredMappingKey: 'identity.workAuthorization',
+      };
+      expect(isAiAnswerableCustomField(field)).toBe(false);
+    });
+
+    it('returns false for sponsorship fields', () => {
+      const field: ApplicationField = {
+        id: createFieldId('fld_sponsor'),
+        selector: '#sponsorship',
+        fieldType: 'radio',
+        label: 'Will you require sponsorship?',
+        isRequired: true,
+        confidenceScore: 0.9,
+        inferredMappingKey: 'workauthorization.sponsorship',
+      };
+      expect(isAiAnswerableCustomField(field)).toBe(false);
+    });
+
+    it('returns false for non-text field types (select, radio, checkbox)', () => {
+      const selectField: ApplicationField = {
+        id: createFieldId('fld_select'),
+        selector: '#select',
+        fieldType: 'select',
+        label: 'How did you hear about us?',
+        isRequired: false,
+        confidenceScore: 0.8,
+        inferredMappingKey: 'custom_question',
+        options: [{ label: 'LinkedIn', value: 'linkedin' }],
+      };
+      expect(isAiAnswerableCustomField(selectField)).toBe(false);
+
+      const radioField: ApplicationField = {
+        id: createFieldId('fld_radio'),
+        selector: '#radio',
+        fieldType: 'radio',
+        label: 'Preferred location',
+        isRequired: false,
+        confidenceScore: 0.8,
+        inferredMappingKey: 'custom_question',
+        options: [{ label: 'Remote', value: 'remote' }],
+      };
+      expect(isAiAnswerableCustomField(radioField)).toBe(false);
+    });
+
+    it('returns false for fields with profile-mapped values', () => {
+      const field: ApplicationField = {
+        id: createFieldId('fld_mapped'),
+        selector: '#name',
+        fieldType: 'text',
+        label: 'Full Name',
+        isRequired: true,
+        confidenceScore: 0.95,
+        inferredMappingKey: 'identity.legalFirstName',
+      };
+      expect(isAiAnswerableCustomField(field)).toBe(false);
+    });
+  });
+
+  describe('withAiProposedFieldAnswers', () => {
+    const mockForm: ApplicationForm = {
+      id: 'form_test',
+      url: 'https://example.com/apply',
+      detectedAts: 'lever',
+      fields: [
+        {
+          id: createFieldId('fld_1'),
+          selector: '#name',
+          fieldType: 'text',
+          label: 'Full Name',
+          isRequired: true,
+          confidenceScore: 0.95,
+          inferredMappingKey: 'identity.legalFirstName',
+        },
+        {
+          id: createFieldId('fld_2'),
+          selector: '#why_us',
+          fieldType: 'textarea',
+          label: 'Why do you want to work here?',
+          isRequired: false,
+          confidenceScore: 0.8,
+          inferredMappingKey: 'custom_question',
+        },
+        {
+          id: createFieldId('fld_3'),
+          selector: '#salary',
+          fieldType: 'text',
+          label: 'Salary expectations',
+          isRequired: false,
+          confidenceScore: 0.7,
+          inferredMappingKey: 'salary_expectations',
+        },
+      ],
+      isMultiStep: false,
+      inspectedAt: new Date().toISOString(),
+    };
+
+    const basePlan = generateDryRunPlan(mockForm, mockProfile);
+
+    it('appends AI-proposed answers as unconfirmed medium-risk actions', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_2'),
+          answerText: 'I admire the mission and culture.',
+          confidence: 0.85,
+          supportingClaimIds: ['claim_1'],
+        },
+      ];
+
+const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+
+      expect(updated.actions.length).toBe(basePlan.actions.length + 1);
+      const firstAnswer = answers[0];
+      expect(firstAnswer).toBeDefined();
+      const newAction = updated.actions.find((a) => a.fieldId === firstAnswer!.fieldId);
+      expect(newAction).toBeDefined();
+      const action = newAction as DryRunAction;
+      expect(action.riskLevel).toBe('medium');
+      expect(action.userConfirmed).toBe(false);
+      expect(action.candidateValueUsed).toBe('I admire the mission and culture.');
+      expect(action.confidence).toBe(0.85);
+      expect(action.diffExplanation).toContain('AI-proposed answer staged for candidate review');
+    });
+
+    it('recomputes stats including new medium-risk action', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_2'),
+          answerText: 'I admire the mission.',
+          confidence: 0.9,
+          supportingClaimIds: ['claim_1'],
+        },
+      ];
+
+      const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+
+      expect(updated.stats.mediumRiskCount).toBe(basePlan.stats.mediumRiskCount + 1);
+      expect(updated.stats.totalActions).toBe(basePlan.stats.totalActions + 1);
+      expect(updated.stats.requiresConfirmationCount).toBe(basePlan.stats.requiresConfirmationCount + 1);
+      expect(updated.isApproved).toBe(false);
+    });
+
+    it('removes skippedFields entries for answered fields', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_2'),
+          answerText: 'Answer for why us.',
+          confidence: 0.8,
+          supportingClaimIds: [],
+        },
+      ];
+
+      const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+
+      const skippedForAnswered = updated.skippedFields.find(
+        (s) => s.fieldId === createFieldId('fld_2')
+      );
+      expect(skippedForAnswered).toBeUndefined();
+    });
+
+    it('skips honeypot suspect fields even if answer provided', () => {
+      const formWithHoneypot: ApplicationForm = {
+        ...mockForm,
+        fields: [
+          ...mockForm.fields,
+          {
+            id: createFieldId('fld_honeypot'),
+            selector: '#website',
+            fieldType: 'text',
+            label: 'Website',
+            isRequired: false,
+            confidenceScore: 0.9,
+            inferredMappingKey: 'custom_question',
+            isHoneypotSuspect: true,
+          },
+        ],
+      };
+
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_honeypot'),
+          answerText: 'Should not be added',
+          confidence: 0.9,
+          supportingClaimIds: [],
+        },
+      ];
+
+      const updated = withAiProposedFieldAnswers(basePlan, formWithHoneypot, answers);
+      const honeypotAction = updated.actions.find((a) => a.fieldId === createFieldId('fld_honeypot'));
+      expect(honeypotAction).toBeUndefined();
+    });
+
+    it('skips empty answers', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_2'),
+          answerText: '',
+          confidence: 0.8,
+          supportingClaimIds: [],
+        },
+        {
+          fieldId: createFieldId('fld_3'),
+          answerText: '  ',
+          confidence: 0.8,
+          supportingClaimIds: [],
+        },
+      ];
+
+      const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+      expect(updated.actions.length).toBe(basePlan.actions.length);
+    });
+
+    it('skips answers for non-existent fields', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_nonexistent'),
+          answerText: 'Some answer',
+          confidence: 0.8,
+          supportingClaimIds: [],
+        },
+      ];
+
+      const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+      expect(updated.actions.length).toBe(basePlan.actions.length);
+    });
+
+    it('does not duplicate actions for fields already in plan', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [
+        {
+          fieldId: createFieldId('fld_1'),
+          answerText: 'Should not duplicate',
+          confidence: 0.8,
+          supportingClaimIds: [],
+        },
+      ];
+
+      const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+      const nameActions = updated.actions.filter((a) => a.fieldId === createFieldId('fld_1'));
+      expect(nameActions.length).toBe(1);
+    });
+
+    it('returns original plan unchanged when no valid answers', () => {
+      const answers: readonly AiProposedFieldAnswer[] = [];
+
+      const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
+      expect(updated).toBe(basePlan);
     });
   });
 });

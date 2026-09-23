@@ -42,7 +42,7 @@ export class OpenAIProvider extends BaseHttpProvider {
     apiKey: string,
     modelName = 'gpt-4o-mini',
     timeoutMs = 30000,
-    customFetch: typeof fetch = fetch
+    customFetch?: typeof fetch
   ) {
     super(apiKey, modelName, timeoutMs, customFetch);
   }

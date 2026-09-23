@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./pdf-exporter": {
+      "types": "./dist/tailoring/pdf-exporter.d.ts",
+      "import": "./dist/tailoring/pdf-exporter.js"
     }
   },
   "scripts": {
@@ -23,5 +27,8 @@
     "browser-automation"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@react-pdf/renderer": "^4.9.0"
+  }
 }

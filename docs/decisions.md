@@ -669,6 +669,60 @@ Modern job application portals (Workday, Greenhouse, Ashby, Lever) integrate sop
 - **Tampering with `navigator.webdriver` via content scripts:** Rejected because anti-bot engines (Cloudflare, Kasada) specifically inspect prototype descriptors and flag JavaScript-wrapped getters.
 - **Soft deletion (flagging records as `is_deleted: true`):** Rejected because GDPR/CCPA Right to Erasure requires permanent, unrecoverable data deletion across all local storage mechanisms.
 
+---
+
+## ADR-0022: AI-Assisted Open-Ended Custom Field Answering with Evidence Grounding and Candidate Review Gate
+
+### Status
+Accepted
+
+### Context
+Job applications frequently include free-form essay questions ("Why do you want to work here?", "Describe a challenging project...", "What is your approach to...?") that are not covered by standard profile mappings. Candidates currently must manually type answers for each application, which is time-consuming and error-prone. Fully autonomous AI answering would violate the core invariant that the AI proposes and the user decides (ADR-0001), risk hallucinated or unverified claims (ADR-0001/ADR-0004), and potentially trigger anti-bot detection. Sensitive compliance fields (EEO demographics, work authorization, visa sponsorship) must never be AI-answered.
+
+### Decision
+Implement a scoped, evidence-grounded AI field answering pipeline with mandatory candidate review:
+
+1. **Eligibility Filtering (`isAiAnswerableCustomField`)**:
+   - Only `text` and `textarea` fields with `inferredMappingKey === 'custom_question'` or no profile mapping qualify.
+   - Explicitly blocks: honeypot suspect fields, EEO/demographic disclosures (`eeo_*`, `demographics`), work authorization, and visa sponsorship fields.
+   - Non-text field types (select, radio, checkbox) are excluded.
+
+2. **Scoped Context Builder (`buildFieldAnsweringPrompt`)**:
+   - Constructs minimal `FieldAnsweringContext` containing only: field label, type, options/placeholder/maxLength, relevant saved answers (matched by canonical key/patterns), and relevant candidate claims (matched by statement overlap).
+   - Wraps untrusted field label in `<untrusted_field_label>` XML delimiter.
+   - System prompt enforces: ground answers strictly in verified evidence, never invent experiences/metrics/employers, advise manual fill if no relevant background.
+
+3. **Background Service Worker AI Gateway (`ANSWER_CUSTOM_FIELDS` RPC)**:
+   - Executes exclusively in Background Service Worker (ADR-0002 API key isolation).
+   - Iterates eligible fields, builds context, calls `aiGateway.executeRequest`.
+   - Parses validated JSON response: `{ answerText, confidence, supportingClaimIds, isGrounded, notes }`.
+   - Filters: requires `isGrounded === true`, non-empty `answerText`, and confidence >= 0.7.
+
+4. **Plan Augmentation (`withAiProposedFieldAnswers`)**:
+   - Appends AI-proposed answers as new `DryRunAction` entries with `riskLevel: 'medium'`, `userConfirmed: false`, `diffExplanation: 'AI-proposed answer staged for candidate review before insertion.'`.
+   - Removes corresponding `skippedFields` entries for answered fields.
+   - Recomputes plan statistics (totalActions, mediumRiskCount, requiresConfirmationCount, isApproved).
+   - Preserves existing actions; does not duplicate for fields already in plan.
+
+5. **Candidate Review & Approval (ADR-0006 Hard Gate)**:
+   - Proposed answers appear in Side Panel Dry Run Inspector as medium-risk unconfirmed actions.
+   - Candidate must explicitly approve each AI-proposed answer before execution.
+   - Anti-Autonomous Submission Hard Gate applies identically: execution halts at `awaiting_user_review`.
+
+6. **Message Contract**:
+   - `ANSWER_CUSTOM_FIELDS` request: `{ type: 'ANSWER_CUSTOM_FIELDS', form: ApplicationForm, plan: DryRunPlan }`
+   - `ANSWER_CUSTOM_FIELDS_RESULT` response: `{ type: 'ANSWER_CUSTOM_FIELDS_RESULT', success: boolean, plan?: DryRunPlan, error?: string }`
+
+### Consequences
+- **Positive:** Eliminates repetitive manual typing for open-ended questions; maintains zero-hallucination guarantee through evidence grounding; preserves candidate decision authority via review gate; zero API key leakage (background-only execution); scoped context minimizes token usage.
+- **Negative:** Requires candidate to have relevant saved answers or evidence-backed claims; fields without grounding remain manual. Adds one AI request per eligible field (rate-limited by AIGateway sliding window).
+
+### Alternatives
+- **Fully autonomous AI form filling including essays:** Rejected under ADR-0001/ADR-0006 — violates candidate decision authority and hallucination immunity.
+- **Sending full candidate profile/resume to LLM for each field:** Rejected under ADR-0012 — excessive token cost and PII leakage to third-party models.
+- **LLM-driven answer without evidence grounding:** Rejected under ADR-0004 — no provenance verification for submitted claims.
+- **Auto-approving AI answers as low-risk:** Rejected — free-form answers carry inherent uncertainty and must be medium-risk minimum.
+
 
 
 

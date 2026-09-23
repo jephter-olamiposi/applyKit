@@ -53,6 +53,11 @@ export * from './ai/provider.js';
 export * from './ai/sanitization.js';
 export * from './ai/builders.js';
 export * from './ai/validator.js';
+export * from './ai/job-extraction.js';
+export * from './ai/field-answering.js';
+export * from './ai/writing-style.js';
+export * from './ai/human-answer-pipeline.js';
+export * from './ai/writing-style-learner.js';
 
 export * from './tailoring/index.js';
 

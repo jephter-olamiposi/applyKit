@@ -259,7 +259,10 @@ export function generateDryRunPlan(
       if (field.options && field.options.length > 0) {
         const match = matchFieldOption(field.options, resolvedValue);
         if (match.matchedOption) {
-          targetSelector = `${field.selector} input[value="${match.matchedOption.value}"]`;
+          const escapedVal = match.matchedOption.value.replace(/"/g, '\\"');
+          targetSelector = field.selector.startsWith('input')
+            ? `${field.selector}[value="${escapedVal}"]`
+            : `${field.selector} input[value="${escapedVal}"]`;
           targetValue = match.matchedOption.value;
           actionDescription = `Select radio choice "${match.matchedOption.label}" for ${field.label}`;
         }
@@ -351,6 +354,134 @@ export function generateDryRunPlan(
     submitButtonSelector: form.submitButtonSelector,
     createdAt: new Date().toISOString(),
     isApproved: actions.every((a) => a.userConfirmed),
+  };
+}
+
+/**
+ * Determines whether an inspected field is an open-answer question eligible for AI-assisted answering.
+ *
+ * Eligible fields are free-text questions (text/textarea) without a profile-mapped value that are
+ * not anti-bot traps and not sensitive compliance disclosures (demographics, EEO, work
+ * authorization, sponsorship). Answers to these fields are staged as unconfirmed medium-risk
+ * actions for candidate review (ADR-0006).
+ */
+export function isAiAnswerableCustomField(field: ApplicationField): boolean {
+  if (field.isHoneypotSuspect) return false;
+  if (
+    field.fieldType !== 'text' &&
+    field.fieldType !== 'textarea' &&
+    field.fieldType !== 'number'
+  ) {
+    return false;
+  }
+
+  const key = (field.inferredMappingKey || '').toLowerCase();
+  if (
+    key.includes('demographics') ||
+    key.startsWith('eeo_') ||
+    key.includes('workauthorization') ||
+    key.includes('sponsorship')
+  ) {
+    return false;
+  }
+
+  // Fields with a resolved profile mapping are already deterministic; only open questions qualify.
+  return !field.inferredMappingKey || key === 'custom_question';
+}
+
+/**
+ * Staged AI-proposed answer for a single open-answer field, pending candidate review.
+ */
+export interface AiProposedFieldAnswer {
+  readonly fieldId: FieldId;
+  readonly answerText: string;
+  /** 0.0 to 1.0 model grounding confidence. */
+  readonly confidence: number;
+  readonly supportingClaimIds: readonly string[];
+}
+
+/**
+ * Appends AI-proposed answers to a DryRunPlan as unconfirmed, medium-risk fill actions.
+ *
+ * Invariant (ADR-0001 & ADR-0006): Proposals are only staged when backed by candidate evidence;
+ * every AI-proposed action starts with userConfirmed=false so the candidate must approve it
+ * before execution. Previously skipped no-profile-value entries for the answered fields are
+ * removed to keep the plan consistent, and summary statistics are recomputed.
+ *
+ * @param plan Existing DryRunPlan.
+ * @param form The inspected application form the plan was generated from.
+ * @param answers AI-proposed answers, each grounded in the evidence graph.
+ * @returns Updated DryRunPlan containing the additional review-pending actions.
+ */
+export function withAiProposedFieldAnswers(
+  plan: DryRunPlan,
+  form: ApplicationForm,
+  answers: readonly AiProposedFieldAnswer[]
+): DryRunPlan {
+  const fieldsById = new Map(form.fields.map((field) => [field.id, field]));
+
+  const newActions: DryRunAction[] = answers.flatMap((answer) => {
+    const field = fieldsById.get(answer.fieldId);
+    if (!field) return [];
+    if (field.isHoneypotSuspect || !isAiAnswerableCustomField(field)) return [];
+    if (plan.actions.some((action) => action.fieldId === answer.fieldId)) return [];
+    if (!answer.answerText || answer.answerText.trim().length === 0) return [];
+
+    const browserAction: BrowserAction = {
+      actionType: 'fill_text',
+      selector: field.selector,
+      value: answer.answerText,
+      description: `Propose AI answer for ${field.label || 'question'}`,
+      requiresUserConfirmation: true,
+    };
+
+    const dryRunAction: DryRunAction = {
+      id: createActionId(),
+      action: browserAction,
+      fieldId: field.id,
+      currentValue: field.currentValue || '',
+      candidateValueUsed: answer.answerText,
+      confidence: Math.min(1, Math.max(0, answer.confidence)),
+      riskLevel: 'medium',
+      userConfirmed: false,
+      diffExplanation: 'AI-proposed answer staged for candidate review before insertion.',
+      sourceEvidenceTitle: 'AI Proposal Grounded in Evidence Graph',
+      sourceClaimId: answer.supportingClaimIds[0],
+    };
+    return [dryRunAction];
+  });
+
+  if (newActions.length === 0) {
+    return plan;
+  }
+
+  const answeredFieldIds = new Set(newActions.map((action) => action.fieldId));
+  const actions = [...plan.actions, ...newActions];
+  const skippedFields = plan.skippedFields.filter(
+    (skipped) => skipped.fieldId === undefined || !answeredFieldIds.has(skipped.fieldId)
+  );
+
+  const lowRiskCount = actions.filter((action) => action.riskLevel === 'low').length;
+  const mediumRiskCount = actions.filter((action) => action.riskLevel === 'medium').length;
+  const highRiskCount = actions.filter((action) => action.riskLevel === 'high').length;
+  const requiresConfirmationCount = actions.filter((action) => !action.userConfirmed).length;
+  const unmappedRequiredCount = form.fields.filter(
+    (field) => field.isRequired && !actions.some((action) => action.fieldId === field.id)
+  ).length;
+
+  return {
+    ...plan,
+    actions,
+    skippedFields,
+    stats: {
+      totalActions: actions.length,
+      lowRiskCount,
+      mediumRiskCount,
+      highRiskCount,
+      requiresConfirmationCount,
+      unmappedRequiredCount,
+    },
+    isApproved: actions.every((action) => action.userConfirmed),
   };
 }
 
