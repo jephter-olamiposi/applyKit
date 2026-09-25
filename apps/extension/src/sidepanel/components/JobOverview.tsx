@@ -5,6 +5,7 @@
 import React from 'react';
 import type { JobPosting } from '@applykit/domain';
 import type { ExtractedPageData } from '../../messages/contracts.js';
+import type { TabId } from './NavigationTabs.js';
 
 interface JobOverviewProps {
   jobData: ExtractedPageData | null;
@@ -13,6 +14,7 @@ interface JobOverviewProps {
   onExtract: () => void;
   onViewRequirements?: () => void;
   onViewMatch?: () => void;
+  onNavigateToTab?: (tab: TabId) => void;
   error?: string | null;
 }
 
@@ -26,6 +28,7 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
   onExtract,
   onViewRequirements,
   onViewMatch,
+  onNavigateToTab,
   error,
 }) => {
   const formatSalary = (salary: NonNullable<JobPosting['salaryRange']>) => {
@@ -97,10 +100,12 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
             </div>
             <div className="badge-group">
               <span className="badge badge-site">
-                {jobPosting.metadata.adapter ? `${jobPosting.metadata.adapter.toUpperCase()} Adapter` : 'Structured'}
+                {jobPosting.metadata?.adapter
+                  ? `${jobPosting.metadata.adapter.charAt(0).toUpperCase() + jobPosting.metadata.adapter.slice(1)} Application`
+                  : 'Direct Application'}
               </span>
-              <span className={`badge badge-${jobPosting.workplaceType}`}>
-                {jobPosting.workplaceType.toUpperCase()}
+              <span className={`badge badge-${jobPosting.workplaceType || 'hybrid'}`}>
+                {(jobPosting.workplaceType || 'hybrid').toUpperCase()}
               </span>
             </div>
           </header>
@@ -167,6 +172,29 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
               {jobPosting.rawDescription.slice(0, 600)}
               {jobPosting.rawDescription.length > 600 ? '...' : ''}
             </div>
+          </div>
+
+          {/* Pipeline Forward Progression Card */}
+          <div className="pipeline-next-step-card">
+            <div className="next-step-info">
+              <span className="next-step-title">Ready to Prepare Your Application?</span>
+              <span className="next-step-desc">
+                Generate your evidence-grounded resume, tailored cover letter, and align with all requirements.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-next-step"
+              onClick={() => {
+                if (onNavigateToTab) {
+                  onNavigateToTab('tailor');
+                } else if (onViewMatch) {
+                  onViewMatch();
+                }
+              }}
+            >
+              Next Step: Tailor Resume &amp; Materials &rarr;
+            </button>
           </div>
         </div>
       )}

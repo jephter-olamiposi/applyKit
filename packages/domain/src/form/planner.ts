@@ -180,6 +180,96 @@ export interface PlanGenerationOptions {
 }
 
 /**
+ * Deterministically resolves candidate values for specialized custom questions
+ * such as skill self-ratings, remote experience checks, or location fallbacks.
+ *
+ * @param profile Verified candidate profile aggregate.
+ * @param field Inspected application field.
+ * @returns Resolved value string if profile data exists, otherwise undefined.
+ */
+export function resolveCustomFieldDeterministicValue(
+  profile: CandidateProfile,
+  field: ApplicationField
+): string | undefined {
+  const normLabel = (field.label || '').toLowerCase();
+
+  // 1. Skill Rating Questions (e.g. "How do you rate your own skills with Node.js?")
+  if (field.fieldType === 'radio' || field.fieldType === 'select') {
+    const rateMatch = normLabel.match(
+      /(?:rate\s+(?:your\s+)?(?:own\s+)?skills?\s+with|experience\s+with|knowledge\s+of)\s+([a-z0-9.#+ -]+)/i
+    );
+    if (rateMatch && rateMatch[1]) {
+      const searchedSkill = rateMatch[1].trim().toLowerCase();
+      const matchedSkill = profile.skills.find(
+        (s) =>
+          searchedSkill.includes(s.normalizedName) ||
+          s.normalizedName.includes(searchedSkill) ||
+          searchedSkill.includes(s.name.toLowerCase()) ||
+          s.name.toLowerCase().includes(searchedSkill)
+      );
+
+      if (matchedSkill) {
+        if (
+          matchedSkill.proficiency === 'expert' ||
+          matchedSkill.proficiency === 'advanced' ||
+          (matchedSkill.yearsOfExperience ?? 0) >= 3
+        ) {
+          return 'Advanced';
+        }
+        if (
+          matchedSkill.proficiency === 'intermediate' ||
+          (matchedSkill.yearsOfExperience ?? 0) >= 1
+        ) {
+          return 'Intermediate';
+        }
+        return 'Beginner';
+      }
+    }
+
+    // Remote experience question with Yes/No radio/select
+    if (normLabel.includes('remote') && (normLabel.includes('experience') || normLabel.includes('work'))) {
+      if (
+        profile.professional.workplacePreference === 'remote' ||
+        profile.professional.workplacePreference === 'hybrid'
+      ) {
+        return 'Yes';
+      }
+    }
+  }
+
+  // 2. Earliest Start Date / Notice Period
+  if (
+    normLabel.includes('start') &&
+    (normLabel.includes('when') || normLabel.includes('date') || normLabel.includes('soon'))
+  ) {
+    return (
+      profile.professional.earliestStartDate ||
+      (profile.professional.noticePeriodDays
+        ? `${profile.professional.noticePeriodDays} days notice`
+        : 'Immediately upon offer or standard 2 weeks notice')
+    );
+  }
+
+  // 3. Country / Remote location
+  if (
+    normLabel.includes('country') &&
+    (normLabel.includes('working') || normLabel.includes('located') || normLabel.includes('from'))
+  ) {
+    return profile.identity.location?.country || 'United States';
+  }
+
+  // 4. Annual USD Salary Expectation
+  if (
+    normLabel.includes('salary') &&
+    (normLabel.includes('expected') || normLabel.includes('annual') || normLabel.includes('usd'))
+  ) {
+    return String(profile.professional.compensationExpectation?.targetSalaryMin || 150000);
+  }
+
+  return undefined;
+}
+
+/**
  * Generates an immutable DryRunPlan from an inspected form and candidate profile.
  *
  * Invariant (ADR-0003 & ADR-0006):
@@ -214,10 +304,11 @@ export function generateDryRunPlan(
     }
 
     // 2. Resolve Candidate Value
-    const resolvedValue = resolveProfileValueForField(
-      profile,
-      field.inferredMappingKey || field.label
-    );
+    const resolvedValue =
+      resolveProfileValueForField(
+        profile,
+        field.inferredMappingKey || field.label
+      ) || resolveCustomFieldDeterministicValue(profile, field);
 
     if (!resolvedValue || resolvedValue.trim().length === 0) {
       skippedFields.push({
@@ -427,10 +518,39 @@ export function withAiProposedFieldAnswers(
     if (plan.actions.some((action) => action.fieldId === answer.fieldId)) return [];
     if (!answer.answerText || answer.answerText.trim().length === 0) return [];
 
+    let actionType: BrowserActionType = 'fill_text';
+    let targetSelector = field.selector;
+    let targetValue: string | undefined = answer.answerText;
+
+    if (field.fieldType === 'radio') {
+      actionType = 'click';
+      const matchingOpt = field.options?.find(
+        (o) =>
+          o.value.toLowerCase() === answer.answerText.toLowerCase() ||
+          o.label.toLowerCase() === answer.answerText.toLowerCase() ||
+          answer.answerText.toLowerCase().includes(o.value.toLowerCase()) ||
+          answer.answerText.toLowerCase().includes(o.label.toLowerCase())
+      );
+      if (matchingOpt) {
+        targetSelector = `input[type="radio"][name="${field.name || ''}"][value="${matchingOpt.value}"]`;
+        targetValue = matchingOpt.value;
+      }
+    } else if (field.fieldType === 'select') {
+      actionType = 'select_option';
+      const matchingOpt = field.options?.find(
+        (o) =>
+          o.value.toLowerCase() === answer.answerText.toLowerCase() ||
+          o.label.toLowerCase() === answer.answerText.toLowerCase()
+      );
+      if (matchingOpt) {
+        targetValue = matchingOpt.value;
+      }
+    }
+
     const browserAction: BrowserAction = {
-      actionType: 'fill_text',
-      selector: field.selector,
-      value: answer.answerText,
+      actionType,
+      selector: targetSelector,
+      value: targetValue,
       description: `Propose AI answer for ${field.label || 'question'}`,
       requiresUserConfirmation: true,
     };

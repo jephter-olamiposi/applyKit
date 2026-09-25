@@ -161,7 +161,24 @@ export const App: React.FC = () => {
           <h1 className="brand-title">ApplyKit</h1>
           <span className="brand-subtitle">Job Application Copilot</span>
         </div>
-        <span className="phase-pill">Phase 15</span>
+        <div className="header-actions">
+          <button
+            type="button"
+            className={`header-util-btn ${activeTab === 'profile' ? 'header-util-btn-active' : ''}`}
+            onClick={() => setActiveTab('profile')}
+            title="Candidate Profile"
+          >
+            👤 Profile
+          </button>
+          <button
+            type="button"
+            className={`header-util-btn ${activeTab === 'settings' ? 'header-util-btn-active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+            title="API Keys & Settings"
+          >
+            ⚙️ Settings
+          </button>
+        </div>
       </header>
 
       {shouldShowOnboarding ? (
@@ -188,12 +205,16 @@ export const App: React.FC = () => {
                 onExtract={handleExtract}
                 onViewRequirements={() => setActiveTab('requirements')}
                 onViewMatch={() => setActiveTab('match')}
+                onNavigateToTab={setActiveTab}
                 error={extractionError}
               />
             )}
 
             {activeTab === 'requirements' && (
-              <RequirementsList requirements={jobPosting?.requirements || []} />
+              <RequirementsList
+                requirements={jobPosting?.requirements || []}
+                onNavigateToTab={setActiveTab}
+              />
             )}
 
             {activeTab === 'match' && (

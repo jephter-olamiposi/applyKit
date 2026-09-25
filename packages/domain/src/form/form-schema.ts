@@ -16,6 +16,7 @@ export type AtsPlatform =
   | 'workday'
   | 'ashby'
   | 'smartrecruiters'
+  | 'recruitee'
   | 'generic';
 
 /**

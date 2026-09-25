@@ -538,6 +538,23 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
               </ul>
             </section>
           )}
+
+          {/* Pipeline Forward Progression Card */}
+          <div className="pipeline-next-step-card">
+            <div className="next-step-info">
+              <span className="next-step-title">Match Review Complete</span>
+              <span className="next-step-desc">
+                Proceed to generate your tailored resume and evidence-grounded cover letter.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-next-step"
+              onClick={() => onNavigateToTab('tailor')}
+            >
+              Next Step: Tailor Resume &amp; Materials &rarr;
+            </button>
+          </div>
         </>
       )}
     </div>

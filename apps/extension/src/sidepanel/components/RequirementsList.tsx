@@ -4,12 +4,14 @@
 
 import React from 'react';
 import type { Requirement } from '@applykit/domain';
+import type { TabId } from './NavigationTabs.js';
 
 interface RequirementsListProps {
   requirements: readonly Requirement[];
+  onNavigateToTab?: (tab: TabId) => void;
 }
 
-export const RequirementsList: React.FC<RequirementsListProps> = ({ requirements }) => {
+export const RequirementsList: React.FC<RequirementsListProps> = ({ requirements, onNavigateToTab }) => {
   if (requirements.length === 0) {
     return (
       <div className="empty-state">
@@ -89,6 +91,36 @@ export const RequirementsList: React.FC<RequirementsListProps> = ({ requirements
           </ul>
         </section>
       )}
+
+      {/* Pipeline Forward Progression Card */}
+      <div className="pipeline-next-step-card">
+        <div className="next-step-info">
+          <span className="next-step-title">Requirements Reviewed</span>
+          <span className="next-step-desc">
+            Analyze your qualifications against these requirements, or proceed to tailoring your materials.
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+          {onNavigateToTab && (
+            <>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => onNavigateToTab('match')}
+              >
+                Analyze Match &amp; Gaps &rarr;
+              </button>
+              <button
+                type="button"
+                className="btn-primary btn-next-step"
+                onClick={() => onNavigateToTab('tailor')}
+              >
+                Next Step: Tailor Materials &rarr;
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

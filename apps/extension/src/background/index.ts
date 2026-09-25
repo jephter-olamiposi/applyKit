@@ -56,6 +56,8 @@ import {
   tailorCandidateResume,
   generateGroundedCoverLetter,
   factCheckTailoredDocument,
+  auditResumeQuality,
+  autoFixResumeQualityIssues,
   buildJobExtractionPrompt,
   buildRequirementMatchingPrompt,
   parseAndValidateJsonResponse,
@@ -119,6 +121,14 @@ import type {
   BatchApprovePlanActionsResponse,
   ExecuteSelectiveActionResponse,
   GenerateTailoredResumeResponse,
+  AutoFixResumeRequest,
+  AutoFixResumeResponse,
+  AnswerAdHocQuestionRequest,
+  AnswerAdHocQuestionResponse,
+  InsertTextIntoActiveElementRequest,
+  InsertTextIntoActiveElementResponse,
+  ExecuteOneClickAutoFillRequest,
+  ExecuteOneClickAutoFillResponse,
   GenerateCoverLetterResponse,
   GenerateCoverLetterPdfResponse,
   GenerateResumePdfResponse,
@@ -1914,6 +1924,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             const tailoredResume = tailorCandidateResume(job, profile, graph, {
               maxBulletsPerItem: payload?.maxBulletsPerItem,
               maxProjects: payload?.maxProjects,
+              templateId: payload?.templateId,
+              onePageFit: payload?.onePageFit,
             });
             const textToAudit = [
               tailoredResume.tailoredSummary,
@@ -1921,17 +1933,44 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               ...tailoredResume.projects.flatMap((p) => p.rankedHighlights.map((h) => h.text)),
             ].join('\n');
             const factCheck = factCheckTailoredDocument(textToAudit, profile, graph, 'resume');
+            const qualityAudit = tailoredResume.qualityAudit || auditResumeQuality(tailoredResume, profile, job, payload?.templateId);
             const res: GenerateTailoredResumeResponse = {
               type: 'GENERATE_TAILORED_RESUME_RESULT',
               success: true,
               tailoredResume,
               factCheck,
+              qualityAudit,
             };
             sendResponse(res);
           })
           .catch((err) => {
             sendResponse({
               type: 'GENERATE_TAILORED_RESUME_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
+      case 'AUTO_FIX_RESUME': {
+        const payload = message as AutoFixResumeRequest;
+        loadTailoringContext(payload?.jobId)
+          .then(({ profile, job }) => {
+            const fixedResume = autoFixResumeQualityIssues(payload.resume, profile, job);
+            const qualityAudit = auditResumeQuality(fixedResume, profile, job, fixedResume.templateId || 'modern');
+
+            const res: AutoFixResumeResponse = {
+              type: 'AUTO_FIX_RESUME_RESULT',
+              success: true,
+              tailoredResume: fixedResume,
+              qualityAudit,
+            };
+            sendResponse(res);
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'AUTO_FIX_RESUME_RESULT',
               success: false,
               error: err instanceof Error ? err.message : String(err),
             });
@@ -2010,8 +2049,13 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               const tailoredResume = tailorCandidateResume(job, profile, graph, {
                 maxBulletsPerItem: payload?.maxBulletsPerItem,
                 maxProjects: payload?.maxProjects,
+                templateId: payload?.templateId,
+                onePageFit: payload?.onePageFit,
               });
-              const pdfBlob = await generateResumePdfBlob(tailoredResume);
+              const pdfBlob = await generateResumePdfBlob(tailoredResume, profile, {
+                templateId: payload?.templateId,
+                onePageFit: payload?.onePageFit,
+              });
               const arrayBuffer = await pdfBlob.arrayBuffer();
               const pdfBase64 = encodeBytesToBase64(arrayBuffer);
               const res: GenerateResumePdfResponse = {
@@ -2035,6 +2079,335 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               error: err instanceof Error ? err.message : String(err),
             });
           });
+        return true;
+      }
+
+      case 'ANSWER_AD_HOC_QUESTION': {
+        const payload = message as AnswerAdHocQuestionRequest;
+        (async () => {
+          try {
+            const profile = await profileRepo.getProfile();
+            if (!profile) {
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: false,
+                error: 'Candidate profile not initialized. Please configure your profile first.',
+              });
+              return;
+            }
+
+            const evidenceGraph = await evidenceRepo.getEvidenceGraph();
+            const savedAnswers = profile.savedAnswers || [];
+            const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
+            const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : (profile.claims || []);
+
+            // Check if saved answers have an exact match or pattern match
+            const questionLower = payload.question.toLowerCase();
+            const directMatch = savedAnswers.find((ans) =>
+              questionLower.includes(ans.canonicalKey.toLowerCase()) ||
+              ans.promptPatterns.some((pattern) => questionLower.includes(pattern.toLowerCase()))
+            );
+
+            // Tokenize question for keyword matching against evidence claims
+            const qTokens = questionLower.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2);
+            const matchedClaims = candidateClaims.filter((claim) => {
+              const stmt = claim.statement.toLowerCase();
+              const tags = (claim.tags || []).map((t) => t.toLowerCase());
+              return qTokens.some((t) => stmt.includes(t) || tags.some((tag) => tag.includes(t)));
+            });
+
+            const relevantClaims = matchedClaims.length >= 3
+              ? matchedClaims.slice(0, 10)
+              : [...matchedClaims, ...candidateClaims.slice(0, 10)].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+
+            const context: FieldAnsweringContext = {
+              fieldLabel: payload.question,
+              fieldType: 'textarea',
+              relevantAnswers: directMatch ? [directMatch] : savedAnswers.slice(0, 5),
+              relevantClaims,
+              writingStyle: getWritingStyleFromProfile(profile),
+              answerLengthPreference: payload.maxLength && payload.maxLength < 150 ? 'short' : 'normal',
+            };
+
+            const request = buildFieldAnsweringPrompt(context);
+            const response = await aiGateway.executeRequest(request);
+
+            interface FieldAnsweringResult {
+              answerText: string;
+              confidence: number;
+              supportingClaimIds: string[];
+              isGrounded: boolean;
+              notes: string;
+            }
+
+            function isFieldAnsweringResult(value: unknown): value is FieldAnsweringResult {
+              return (
+                typeof value === 'object' &&
+                value !== null &&
+                typeof (value as Record<string, unknown>).answerText === 'string' &&
+                typeof (value as Record<string, unknown>).confidence === 'number'
+              );
+            }
+
+            const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
+              response.rawText,
+              isFieldAnsweringResult
+            );
+
+            if (parsed.success && parsed.data) {
+              const answerText = parsed.data.answerText.trim();
+              const res: AnswerAdHocQuestionResponse = {
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: true,
+                answerText,
+                confidence: parsed.data.confidence ?? 0.85,
+                supportingClaimIds: parsed.data.supportingClaimIds || [],
+                notes: parsed.data.notes || '',
+              };
+              sendResponse(res);
+            } else {
+              const raw = response.rawText.trim();
+              const res: AnswerAdHocQuestionResponse = {
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: true,
+                answerText: raw,
+                confidence: 0.7,
+                supportingClaimIds: relevantClaims.slice(0, 3).map((c) => c.id),
+                notes: 'Generated from verified candidate evidence.',
+              };
+              sendResponse(res);
+            }
+          } catch (err) {
+            sendResponse({
+              type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return true;
+      }
+
+      case 'INSERT_TEXT_INTO_ACTIVE_ELEMENT': {
+        const payload = message as InsertTextIntoActiveElementRequest;
+        (async () => {
+          try {
+            const activeTab = await getActiveWebTab();
+            if (!activeTab || !activeTab.id) {
+              sendResponse({
+                type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT',
+                success: false,
+                error: 'No active browser tab found.',
+              });
+              return;
+            }
+
+            chrome.tabs.sendMessage(
+              activeTab.id,
+              {
+                type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT',
+                text: payload.text,
+              },
+              (res) => {
+                if (chrome.runtime && chrome.runtime.lastError) {
+                  sendResponse({
+                    type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT',
+                    success: false,
+                    error: chrome.runtime.lastError.message || 'Failed to communicate with active tab.',
+                  });
+                  return;
+                }
+                sendResponse(
+                  res || {
+                    type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT',
+                    success: true,
+                  }
+                );
+              }
+            );
+          } catch (err) {
+            sendResponse({
+              type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return true;
+      }
+
+      case 'EXECUTE_ONE_CLICK_AUTO_FILL': {
+        const payload = message as ExecuteOneClickAutoFillRequest;
+        (async () => {
+          try {
+            // 1. Resolve target application form
+            let targetForm = payload.form;
+            if (!targetForm) {
+              const inspectResult = await inspectFormsFromActiveTab();
+              if (!inspectResult.success || !inspectResult.forms || inspectResult.forms.length === 0) {
+                const res: ExecuteOneClickAutoFillResponse = {
+                  type: 'EXECUTE_ONE_CLICK_AUTO_FILL_RESULT',
+                  success: false,
+                  error: inspectResult.error || 'No job application form detected on the active webpage. Please open or scroll to an application form.',
+                };
+                sendResponse(res);
+                return;
+              }
+              targetForm = inspectResult.forms[0];
+            }
+
+            if (!targetForm) {
+              const res: ExecuteOneClickAutoFillResponse = {
+                type: 'EXECUTE_ONE_CLICK_AUTO_FILL_RESULT',
+                success: false,
+                error: 'No valid job application form detected.',
+              };
+              sendResponse(res);
+              return;
+            }
+
+            // 2. Load candidate profile and evidence
+            const profile = await profileRepo.getProfile();
+            if (!profile) {
+              const res: ExecuteOneClickAutoFillResponse = {
+                type: 'EXECUTE_ONE_CLICK_AUTO_FILL_RESULT',
+                success: false,
+                error: 'Candidate profile not initialized. Please configure your profile first.',
+              };
+              sendResponse(res);
+              return;
+            }
+
+            // 3. Generate initial deterministic dry-run plan
+            let plan = generateDryRunPlan(targetForm, profile);
+
+            // 4. Answer custom open fields using AI when applicable
+            const aiAnswerableFields = targetForm.fields.filter(isAiAnswerableCustomField);
+            if (aiAnswerableFields.length > 0) {
+              try {
+                const evidenceGraph = await evidenceRepo.getEvidenceGraph();
+                const savedAnswers = profile.savedAnswers || [];
+                const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
+                const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : [];
+
+                const answers: AiProposedFieldAnswer[] = [];
+                for (const field of aiAnswerableFields) {
+                  const relevantAnswers = savedAnswers.filter((ans) =>
+                    field.label.toLowerCase().includes(ans.canonicalKey.toLowerCase()) ||
+                    ans.promptPatterns.some((pattern) => field.label.toLowerCase().includes(pattern.toLowerCase()))
+                  );
+
+                  const labelKeywords = field.label
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter((w) => w.length > 2);
+
+                  const keywordMatchedClaims = candidateClaims.filter((claim) => {
+                    const statementLower = claim.statement.toLowerCase();
+                    const tagsLower = (claim.tags || []).map((t) => t.toLowerCase());
+                    return labelKeywords.some(
+                      (kw) => statementLower.includes(kw) || tagsLower.some((t) => t.includes(kw))
+                    );
+                  });
+
+                  const relevantClaims = keywordMatchedClaims.length >= 3
+                    ? keywordMatchedClaims
+                    : [
+                        ...keywordMatchedClaims,
+                        ...candidateClaims.slice(0, 10),
+                      ].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+
+                  const context: FieldAnsweringContext = {
+                    fieldLabel: field.label,
+                    fieldType: field.fieldType,
+                    options: field.options,
+                    placeholder: field.placeholder,
+                    relevantAnswers,
+                    relevantClaims,
+                    writingStyle: getWritingStyleFromProfile(profile),
+                    answerLengthPreference: 'normal',
+                  };
+
+                  const request = buildFieldAnsweringPrompt(context);
+                  const response = await aiGateway.executeRequest(request);
+
+                  interface FieldAnsweringResult {
+                    answerText: string;
+                    confidence: number;
+                    supportingClaimIds: string[];
+                    isGrounded: boolean;
+                    notes: string;
+                  }
+
+                  function isFieldAnsweringResult(value: unknown): value is FieldAnsweringResult {
+                    return (
+                      typeof value === 'object' &&
+                      value !== null &&
+                      typeof (value as Record<string, unknown>).answerText === 'string' &&
+                      typeof (value as Record<string, unknown>).confidence === 'number' &&
+                      Array.isArray((value as Record<string, unknown>).supportingClaimIds)
+                    );
+                  }
+
+                  const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
+                    response.rawText,
+                    isFieldAnsweringResult
+                  );
+
+                  if (parsed.success && parsed.data) {
+                    const answerText = parsed.data.answerText.trim();
+                    if (answerText) {
+                      const confidence = Math.min(1, Math.max(0, parsed.data.confidence ?? 0.8));
+                      const supportingClaimIds = parsed.data.supportingClaimIds?.length > 0
+                        ? parsed.data.supportingClaimIds
+                        : relevantClaims.slice(0, 3).map((c) => c.id);
+                      answers.push({
+                        fieldId: field.id,
+                        answerText,
+                        confidence,
+                        supportingClaimIds,
+                      });
+                    }
+                  }
+                }
+
+                if (answers.length > 0) {
+                  plan = withAiProposedFieldAnswers(plan, targetForm, answers);
+                }
+              } catch (aiErr) {
+                console.warn('AI custom field answering encountered an issue during 1-click auto-fill:', aiErr);
+              }
+            }
+
+            // 5. Batch-approve all planned actions for single-click execution
+            plan = approveAllActions(plan);
+            activeDryRunPlan = plan;
+            persistActivePlan();
+
+            // 6. Execute actions on active tab DOM (Strictly halts at Submission Gate)
+            const result = await executePlanOnActiveTab(plan, payload.options);
+            if (result.success && result.report) {
+              await recordApplicationExecution(plan, result.report);
+            }
+
+            const res: ExecuteOneClickAutoFillResponse = {
+              type: 'EXECUTE_ONE_CLICK_AUTO_FILL_RESULT',
+              success: result.success,
+              report: result.report,
+              plan,
+              error: result.error,
+            };
+            sendResponse(res);
+          } catch (err) {
+            const res: ExecuteOneClickAutoFillResponse = {
+              type: 'EXECUTE_ONE_CLICK_AUTO_FILL_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+            sendResponse(res);
+          }
+        })();
         return true;
       }
 

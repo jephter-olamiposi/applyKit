@@ -28,8 +28,11 @@ import type {
   GetCandidateProfileResponse,
   GenerateDryRunPlanRequest,
   GenerateDryRunPlanResponse,
+  ExecuteOneClickAutoFillRequest,
+  ExecuteOneClickAutoFillResponse,
 } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
+import { InstantQuestionSolver } from './InstantQuestionSolver.js';
 
 interface FormInspectorProps {
   onNavigateToTab?: (tab: TabId) => void;
@@ -45,6 +48,8 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
   const [forms, setForms] = useState<readonly ApplicationForm[]>([]);
   const [selectedFormIndex, setSelectedFormIndex] = useState<number>(0);
   const [isInspecting, setIsInspecting] = useState(false);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [autoFillNotice, setAutoFillNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<CandidateProfile | null>(null);
   const [filter, setFilter] = useState<FieldFilter>('all');
@@ -121,6 +126,39 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
     }
   };
 
+  const handleOneClickAutoFill = async () => {
+    if (!activeForm) return;
+    setIsAutoFilling(true);
+    setAutoFillNotice(null);
+    setError(null);
+
+    try {
+      const res = await sendToBackground<
+        ExecuteOneClickAutoFillRequest,
+        ExecuteOneClickAutoFillResponse
+      >({
+        type: 'EXECUTE_ONE_CLICK_AUTO_FILL',
+        form: activeForm as ApplicationForm,
+        options: {
+          pacingDelayMs: 150,
+          highlightElements: true,
+        },
+      });
+
+      if (res.success && res.report) {
+        setAutoFillNotice(
+          `⚡ 1-Click Auto-Fill complete! ${res.report.executedCount} safe field(s) filled in sequence. Halting strictly at Anti-Autonomous Submit Gate for your manual review.`
+        );
+      } else {
+        setError(res.error || 'Auto-fill encountered an issue.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsAutoFilling(false);
+    }
+  };
+
   const activeForm = forms[selectedFormIndex] ?? null;
   const unmappedFields = activeForm ? getFormUnmappedRequiredFields(activeForm) : [];
   const readyForDryRun = activeForm ? isFormReadyForDryRun(activeForm) : false;
@@ -177,8 +215,36 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
         </div>
       )}
 
+      {autoFillNotice && (
+        <div className="alert-autofill-success" role="status">
+          <p className="alert-title">⚡ 1-Click Auto-Fill</p>
+          <p className="alert-message">{autoFillNotice}</p>
+        </div>
+      )}
+
       {activeForm ? (
         <div className="form-details-wrapper">
+          {/* 1-Click Auto-Fill Hero Banner */}
+          <div className="one-click-autofill-banner">
+            <div className="autofill-banner-text">
+              <span className="autofill-banner-title">⚡ 1-Click Complete Auto-Fill</span>
+              <span className="autofill-banner-sub">
+                Answers custom questions with AI, matches your verified profile, and fills all safe inputs sequentially. Strictly halts before submit.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-one-click-autofill"
+              disabled={isAutoFilling || activeForm.fields.length === 0}
+              onClick={handleOneClickAutoFill}
+            >
+              {isAutoFilling ? '⚡ Filling All Fields...' : '⚡ 1-Click Auto-Fill'}
+            </button>
+          </div>
+
+          {/* Instant Question Solver */}
+          <InstantQuestionSolver className="inspector-instant-solver" />
+
           {/* Form Selector (if multiple forms on page) */}
           {forms.length > 1 && (
             <div className="multi-form-tabs">
@@ -284,18 +350,28 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
             </div>
           )}
 
-          {/* Action Trigger: Generate Dry Run Plan */}
+          {/* Action Trigger: 1-Click Auto-Fill or Dry Run Plan */}
           <div className="plan-trigger-card">
-            <button
-              type="button"
-              className="btn-primary btn-generate-plan"
-              disabled={isPlanning || activeForm.fields.length === 0}
-              onClick={handleGeneratePlan}
-            >
-              {isPlanning ? 'Formulating Dry Run Plan...' : 'Generate Dry Run Plan'}
-            </button>
+            <div className="plan-trigger-buttons">
+              <button
+                type="button"
+                className="btn-one-click-hero"
+                disabled={isAutoFilling || activeForm.fields.length === 0}
+                onClick={handleOneClickAutoFill}
+              >
+                {isAutoFilling ? '⚡ Auto-Filling All Fields...' : '⚡ 1-Click Auto-Fill (All Safe Fields)'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary btn-generate-plan"
+                disabled={isPlanning || isAutoFilling || activeForm.fields.length === 0}
+                onClick={handleGeneratePlan}
+              >
+                {isPlanning ? 'Formulating Plan...' : 'Review Dry Run Plan First'}
+              </button>
+            </div>
             <p className="plan-trigger-hint">
-              Formulates explicit, reversible browser actions with risk checks and diff previews (ADR-0003).
+              1-Click Auto-Fill fills all safe fields in human-paced sequence and halts strictly before submit (Anti-Autonomous Submit Gate).
             </p>
           </div>
 
@@ -437,6 +513,23 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
               <span className="bullet-check">&#10003;</span>
               <span>Locks down submit controls to guarantee manual review</span>
             </div>
+          </div>
+
+          {/* Pipeline Forward Progression Card */}
+          <div className="pipeline-next-step-card">
+            <div className="next-step-info">
+              <span className="next-step-title">Form Filled &amp; Verified?</span>
+              <span className="next-step-desc">
+                Review your answers on the page, manually click send/submit, and track this application.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-next-step"
+              onClick={() => onNavigateToTab?.('history')}
+            >
+              Next Step: Application Tracker &rarr;
+            </button>
           </div>
         </div>
       )}

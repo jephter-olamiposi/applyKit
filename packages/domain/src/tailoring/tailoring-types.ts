@@ -77,6 +77,10 @@ export interface TailoredResume {
   readonly experiences: readonly TailoredExperience[];
   /** Projects ordered by requirement relevance. */
   readonly projects: readonly TailoredProject[];
+  /** Selected design template for rendering. */
+  readonly templateId?: ResumeTemplateId;
+  /** Quality audit report evaluating compliance with the 14-Point Resume Golden Standard. */
+  readonly qualityAudit?: ResumeQualityAuditReport;
   /** ISO 8601 generation timestamp. */
   readonly createdAt: string;
 }
@@ -159,4 +163,64 @@ export interface FactCheckReport {
   readonly unbackedStatements: readonly UnbackedStatement[];
   readonly recommendations: readonly string[];
   readonly auditedAt: string;
+}
+
+/**
+ * Pre-designed professional resume template identifiers.
+ */
+export type ResumeTemplateId = 'modern' | 'classic' | 'minimalist' | 'compact';
+
+/**
+ * Unique identifiers for the 14 rules of the Resume Golden Standard.
+ */
+export type ResumeAuditCheckId =
+  | 'template_selected'
+  | 'one_page_fit'
+  | 'job_keywords'
+  | 'company_name'
+  | 'first_item_aligned'
+  | 'title_demonstrates_value'
+  | 'online_links'
+  | 'no_pronoun_i'
+  | 'no_buzzwords'
+  | 'action_words'
+  | 'impact_measured'
+  | 'skills_and_impressive_years'
+  | 'impressive_sections'
+  | 'no_typos_grammar';
+
+/**
+ * Individual checklist evaluation item in the 14-Point Resume Golden Standard.
+ */
+export interface ResumeAuditCheckItem {
+  readonly id: ResumeAuditCheckId;
+  readonly name: string;
+  readonly status: 'passed' | 'warning' | 'failed';
+  /** Normalized score between 0 and 100. */
+  readonly score: number;
+  readonly description: string;
+  readonly recommendations: readonly string[];
+  readonly autoFixable: boolean;
+}
+
+/**
+ * Comprehensive 14-Point Resume Quality Audit Report.
+ */
+export interface ResumeQualityAuditReport {
+  /** Overall score computed as weighted average of all 14 criteria (0-100). */
+  readonly overallScore: number;
+  /** True when all 14 criteria achieve passed or warning status with 0 failures. */
+  readonly isReady: boolean;
+  readonly passedCount: number;
+  readonly totalCount: number;
+  readonly checks: Record<ResumeAuditCheckId, ResumeAuditCheckItem>;
+  readonly auditedAt: string;
+}
+
+/**
+ * Options for generating tailored resume PDFs.
+ */
+export interface ResumePdfOptions {
+  readonly templateId?: ResumeTemplateId;
+  readonly onePageFit?: boolean;
 }

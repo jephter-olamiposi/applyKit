@@ -8,7 +8,7 @@
 import { extractPageData } from './extractor.js';
 import { extractStructuredJob } from './adapters/index.js';
 import { inspectPageForms } from './form-crawler.js';
-import { executeBrowserPlan } from './action-interpreter.js';
+import { executeBrowserPlan, insertTextIntoActiveElement } from './action-interpreter.js';
 import {
   highlightTargetElement,
   clearTargetHighlight,
@@ -146,6 +146,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         count,
       };
       sendResponse(response);
+      return false;
+    }
+
+    if (requestType === 'INSERT_TEXT_INTO_ACTIVE_ELEMENT') {
+      const payload = message as { text: string };
+      const success = insertTextIntoActiveElement(payload.text, document);
+      sendResponse({
+        type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT',
+        success,
+      });
       return false;
     }
 

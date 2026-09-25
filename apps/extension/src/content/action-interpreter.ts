@@ -466,3 +466,35 @@ export async function executeBrowserPlan(
     completedAt: new Date().toISOString(),
   };
 }
+
+/**
+ * Inserts text directly into the currently focused or active element on the webpage.
+ *
+ * Dispatches the full synthetic event sequence (input, change) and bypasses
+ * React/Vue internal prototype setter interception.
+ *
+ * @param text The text content to insert.
+ * @param doc Document containing activeElement.
+ * @returns True if an editable element was focused and updated; false otherwise.
+ */
+export function insertTextIntoActiveElement(text: string, doc: Document = document): boolean {
+  const el = doc.activeElement as HTMLElement | null;
+  if (!el || el === doc.body) {
+    return false;
+  }
+
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    simulateTextInput(el, text);
+    return true;
+  }
+
+  if (el.getAttribute('contenteditable') === 'true' || el.getAttribute('role') === 'textbox') {
+    el.focus();
+    el.textContent = text;
+    el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    return true;
+  }
+
+  return false;
+}

@@ -21,18 +21,29 @@ import type {
   TailoredProject,
   TailoredHighlight,
   TailoredSkillsGroup,
+  ResumeTemplateId,
 } from './tailoring-types.js';
+import {
+  auditResumeQuality,
+  QUANTIFIED_METRIC_REGEX,
+  STRONG_ACTION_VERBS,
+  normalizeTechOrthography,
+} from './resume-rules.js';
 
 /**
  * Configuration options for the resume tailoring pipeline.
  */
 export interface ResumeTailoringOptions {
-  /** Maximum number of experiences to include (defaults to all). */
+  /** Maximum number of experiences to include (defaults to all or 3 in 1-page mode). */
   readonly maxExperiences?: number;
-  /** Maximum number of projects to include (defaults to 3). */
+  /** Maximum number of projects to include (defaults to 3 or 1 in 1-page mode). */
   readonly maxProjects?: number;
   /** Maximum number of bullet highlights per item (defaults to 4). */
   readonly maxBulletsPerItem?: number;
+  /** Constrain content budgeting strictly to ensure single-page fit. */
+  readonly onePageFit?: boolean;
+  /** Selected pre-designed template for layout budgeting. */
+  readonly templateId?: ResumeTemplateId;
   /** Candidate's writing style for natural human voice. */
   readonly writingStyle?: WritingStyleProfile;
 }
@@ -118,9 +129,10 @@ export function tailorCandidateResume(
   graph?: EvidenceGraph,
   options?: ResumeTailoringOptions
 ): TailoredResume {
-  const maxBullets = options?.maxBulletsPerItem ?? 4;
-  const maxProjects = options?.maxProjects ?? 3;
-  const maxExperiences = options?.maxExperiences ?? profile.experiences.length;
+  const isOnePage = options?.onePageFit ?? false;
+  const maxBullets = options?.maxBulletsPerItem ?? (isOnePage ? 3 : 4);
+  const maxProjects = options?.maxProjects ?? (isOnePage ? 1 : 3);
+  const maxExperiences = options?.maxExperiences ?? (isOnePage ? Math.min(3, profile.experiences.length) : profile.experiences.length);
 
   // 1. Partition Skills by Job Requirement Alignment
   const matchedRequiredSet = new Set<string>();
@@ -180,6 +192,17 @@ export function tailorCandidateResume(
           matchedReqs.push(req.normalizedSkillOrCompetency);
           bulletScore += req.importance === 'required' || req.importance === 'strongly_preferred' ? 10 : 5;
         }
+      }
+
+      // Boost bullets with quantified metrics (+8 points for proven impact)
+      if (QUANTIFIED_METRIC_REGEX.test(bullet)) {
+        bulletScore += 8;
+      }
+
+      // Boost bullets starting with strong action verbs (+5 points)
+      const firstWord = bullet.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') || '';
+      if (STRONG_ACTION_VERBS.has(firstWord)) {
+        bulletScore += 5;
       }
 
       const evidenceId = resolveBulletEvidenceId(bullet, index, exp, graph);
@@ -324,9 +347,12 @@ export function tailorCandidateResume(
     topAccomplishment = finalExperiences[0].rankedHighlights[0].text.replace(/\.$/, '');
   }
 
-  const summaryParts: string[] = [
-    `Results-driven ${candidateTitle} with ${verifiedYears}+ years of verified engineering experience, specializing in ${topSkills}.`,
-  ];
+  const openingStatement =
+    verifiedYears >= 3
+      ? `${candidateTitle} with ${verifiedYears}+ years of verified engineering experience, specializing in ${topSkills}.`
+      : `${candidateTitle} specializing in ${topSkills}.`;
+
+  const summaryParts: string[] = [openingStatement];
 
   if (topAccomplishment) {
     summaryParts.push(`Proven track record includes: ${topAccomplishment}.`);
@@ -337,6 +363,7 @@ export function tailorCandidateResume(
   );
 
   let tailoredSummary = summaryParts.join(' ');
+  tailoredSummary = normalizeTechOrthography(tailoredSummary);
 
   // Apply writing quality pass if writing style provided
   if (options?.writingStyle) {
@@ -344,13 +371,22 @@ export function tailorCandidateResume(
     tailoredSummary = cleanedText;
   }
 
-  return {
+  const selectedTemplate = options?.templateId || 'modern';
+  const preliminaryResume: TailoredResume = {
     targetJobTitle: job.title,
     companyName: job.companyName,
     tailoredSummary,
     skills: tailoredSkills,
     experiences: finalExperiences,
     projects: finalProjects,
+    templateId: selectedTemplate,
     createdAt: new Date().toISOString(),
+  };
+
+  const qualityAudit = auditResumeQuality(preliminaryResume, profile, job, selectedTemplate);
+
+  return {
+    ...preliminaryResume,
+    qualityAudit,
   };
 }

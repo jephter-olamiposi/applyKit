@@ -40,6 +40,7 @@ export interface BrowserAction {
 const SUBMIT_PATTERNS = [
   /submit/i,
   /apply\s*now/i,
+  /\bsend\b/i,
   /send\s*application/i,
   /finish\s*application/i,
   /complete\s*application/i,

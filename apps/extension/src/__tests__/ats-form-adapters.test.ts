@@ -15,6 +15,7 @@ import {
   LeverFormAdapter,
   AshbyFormAdapter,
   GenericFormAdapter,
+  RecruiteeFormAdapter,
   findMatchingFormAdapter,
   inspectPageWithAtsAdapters,
 } from '../content/adapters/form/index.js';
@@ -455,6 +456,12 @@ describe('ATS Form Adapters & Deep Integration Suite (Phase 13)', () => {
       expect(adapter.id).toBe('ashby');
     });
 
+    it('selects Recruitee adapter for Recruitee domains', () => {
+      const url = new URL('https://holepunch.recruitee.com/o/senior-node-engineer');
+      const adapter = findMatchingFormAdapter(url, document);
+      expect(adapter.id).toBe('recruitee');
+    });
+
     it('inspects page and returns structured forms with adapter metadata', () => {
       document.body.innerHTML = `
         <div id="grnhse_app">
@@ -476,6 +483,71 @@ describe('ATS Form Adapters & Deep Integration Suite (Phase 13)', () => {
       expect(forms.length).toBe(1);
       expect(forms[0]?.detectedAts).toBe('greenhouse');
       expect(forms[0]?.fields.length).toBe(2);
+    });
+  });
+
+  describe('RecruiteeFormAdapter', () => {
+    const adapter = new RecruiteeFormAdapter();
+
+    it('matches recruitee domains and form markers', () => {
+      const recruiteeUrl = new URL('https://holepunch.recruitee.com/o/senior-node-engineer');
+      const otherUrl = new URL('https://example.com/jobs/1');
+
+      expect(adapter.matches(recruiteeUrl, document)).toBe(true);
+      expect(adapter.matches(otherUrl, document)).toBe(false);
+
+      document.body.innerHTML = '<form id="offer-application-form"></form>';
+      expect(adapter.matches(otherUrl, document)).toBe(true);
+    });
+
+    it('crawls Recruitee form fields including radio groups and custom questions', () => {
+      document.body.innerHTML = `
+        <form id="offer-application-form">
+          <div>
+            <label for="name">Full name *</label>
+            <input id="name" name="candidate[name]" type="text" required />
+          </div>
+          <div>
+            <label for="email">Email *</label>
+            <input id="email" name="candidate[email]" type="email" required />
+          </div>
+          <div>
+            <label for="salary">What is your expected salary? (annual USD) *</label>
+            <input id="salary" name="candidate[salary]" type="number" required />
+          </div>
+          <fieldset>
+            <legend>How do you rate your own skills with Node.js? *</legend>
+            <label><input type="radio" name="candidate.skills.nodejs" value="Beginner" /> Beginner</label>
+            <label><input type="radio" name="candidate.skills.nodejs" value="Intermediate" /> Intermediate</label>
+            <label><input type="radio" name="candidate.skills.nodejs" value="Advanced" /> Advanced</label>
+          </fieldset>
+          <div>
+            <label for="why_holepunch">Why are you interested in Holepunch? *</label>
+            <textarea id="why_holepunch" name="candidate[why_holepunch]" required></textarea>
+          </div>
+          <button type="submit" class="sc-csisgn-0 cWtVVQ">Send</button>
+        </form>
+      `;
+
+      const form = adapter.crawlForm(document);
+      expect(form).not.toBeNull();
+      expect(form?.detectedAts).toBe('recruitee');
+      expect(form?.fields.length).toBe(5);
+
+      // Verify radio group extraction
+      const radioField = form?.fields.find((f) => f.fieldType === 'radio');
+      expect(radioField).toBeDefined();
+      expect(radioField?.label).toContain('Node.js');
+      expect(radioField?.options?.length).toBe(3);
+      expect(radioField?.options?.map((o) => o.value)).toEqual(['Beginner', 'Intermediate', 'Advanced']);
+
+      // Verify salary numeric field
+      const salaryField = form?.fields.find((f) => f.fieldType === 'number');
+      expect(salaryField).toBeDefined();
+      expect(salaryField?.inferredMappingKey).toBe('professional.targetSalary');
+
+      // Verify Send button identified
+      expect(form?.submitButtonSelector).toBe('button.sc-csisgn-0');
     });
   });
 

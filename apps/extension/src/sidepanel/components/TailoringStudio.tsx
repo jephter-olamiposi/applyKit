@@ -14,6 +14,8 @@ import type {
   TailoredCoverLetter,
   FactCheckReport,
   CandidateProfile,
+  ResumeTemplateId,
+  ResumeQualityAuditReport,
 } from '@applykit/domain';
 import {
   exportResumeAsMarkdown,
@@ -32,18 +34,25 @@ import type {
   FactCheckDocumentResponse,
   GetCandidateProfileResponse,
   ExtensionRequest,
+  AutoFixResumeRequest,
+  AutoFixResumeResponse,
 } from '../../messages/contracts.js';
 
 interface TailoringStudioProps {
   onNavigateToTab?: (tabId: any) => void;
 }
 
-export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
+export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTab }) => {
   const [activeMode, setActiveMode] = useState<'resume' | 'cover_letter'>('resume');
 
   // Resume State
   const [tailoredResume, setTailoredResume] = useState<TailoredResume | null>(null);
   const [resumeFactCheck, setResumeFactCheck] = useState<FactCheckReport | null>(null);
+  const [qualityAudit, setQualityAudit] = useState<ResumeQualityAuditReport | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<ResumeTemplateId>('modern');
+  const [onePageFit, setOnePageFit] = useState<boolean>(true);
+  const [isAutoFixing, setIsAutoFixing] = useState<boolean>(false);
+  const [showAuditDetails, setShowAuditDetails] = useState<boolean>(false);
   const [loadingResume, setLoadingResume] = useState(false);
 
   // Cover Letter State
@@ -83,10 +92,16 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
       setLoadingResume(true);
       setError(null);
       const res = await sendToBackground<
-        { type: 'GENERATE_TAILORED_RESUME' },
+        {
+          type: 'GENERATE_TAILORED_RESUME';
+          templateId?: ResumeTemplateId;
+          onePageFit?: boolean;
+        },
         GenerateTailoredResumeResponse
       >({
         type: 'GENERATE_TAILORED_RESUME',
+        templateId: selectedTemplate,
+        onePageFit,
       });
 
       if (!res.success || !res.tailoredResume) {
@@ -95,12 +110,44 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
 
       setTailoredResume(res.tailoredResume);
       setResumeFactCheck(res.factCheck || null);
+      setQualityAudit(res.qualityAudit || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingResume(false);
     }
-  }, []);
+  }, [selectedTemplate, onePageFit]);
+
+  // 1-Click Auto-Polish for 14-Point Resume Golden Standard
+  const handleAutoFix = async () => {
+    if (!tailoredResume) return;
+    try {
+      setIsAutoFixing(true);
+      setError(null);
+      const res = await sendToBackground<
+        AutoFixResumeRequest,
+        AutoFixResumeResponse
+      >({
+        type: 'AUTO_FIX_RESUME',
+        resume: tailoredResume,
+      });
+
+      if (!res.success || !res.tailoredResume) {
+        throw new Error(res.error || 'Failed to auto-polish resume.');
+      }
+
+      setTailoredResume(res.tailoredResume);
+      if (res.qualityAudit) {
+        setQualityAudit(res.qualityAudit);
+      }
+      setCopyFeedback('⚡ Auto-polished! 14-point golden standard applied (removed pronouns & buzzwords, improved metrics & action verbs, budgeted to 1 page).');
+      setTimeout(() => setCopyFeedback(null), 4500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsAutoFixing(false);
+    }
+  };
 
   // Fetch Tailored Cover Letter
   const generateLetter = useCallback(async () => {
@@ -319,6 +366,131 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
                 </button>
               </div>
 
+              {/* Template Selector & Layout Controls */}
+              <div className="resume-design-toolbar">
+                <div className="template-picker-group">
+                  <span className="template-picker-label">Design Template:</span>
+                  <div className="template-pill-buttons">
+                    {(['modern', 'classic', 'minimalist', 'compact'] as ResumeTemplateId[]).map((tId) => (
+                      <button
+                        key={tId}
+                        type="button"
+                        className={`template-pill ${selectedTemplate === tId ? 'template-pill-active' : ''}`}
+                        onClick={() => setSelectedTemplate(tId)}
+                      >
+                        {tId === 'modern' && '✨ Modern'}
+                        {tId === 'classic' && '🏛️ Classic'}
+                        {tId === 'minimalist' && '📄 Minimalist ATS'}
+                        {tId === 'compact' && '⚡ Compact'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="one-page-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={onePageFit}
+                    onChange={(e) => setOnePageFit(e.target.checked)}
+                  />
+                  <span>Enforce 1-Page Fit (US Letter 792pt budget)</span>
+                </label>
+              </div>
+
+              {/* 14-Point Resume Golden Standard Audit Dial */}
+              {qualityAudit && (() => {
+                const totalCount = qualityAudit.totalCount;
+                const passedCount = qualityAudit.passedCount;
+                const warningCount = Object.values(qualityAudit.checks).filter((c) => c.status === 'warning').length;
+                const failedCount = Object.values(qualityAudit.checks).filter((c) => c.status === 'failed').length;
+                const isGoldenStandard = passedCount === totalCount && warningCount === 0 && failedCount === 0;
+                const pageBudgetCheck = qualityAudit.checks.one_page_fit;
+
+                return (
+                  <div className="resume-quality-audit-card">
+                    <div className="quality-audit-header">
+                      <div className="quality-audit-score-group">
+                        <div className="quality-score-circle">
+                          <span className="quality-score-num">{qualityAudit.overallScore}</span>
+                          <span className="quality-score-max">/100</span>
+                        </div>
+                        <div className="quality-score-meta">
+                          <h4 className="quality-card-title">14-Point Golden Standard</h4>
+                          <div className="quality-status-pill-row">
+                            <span
+                              className={`quality-status-badge ${
+                                isGoldenStandard
+                                  ? 'quality-status-golden'
+                                  : qualityAudit.overallScore >= 80
+                                  ? 'quality-status-good'
+                                  : 'quality-status-warn'
+                              }`}
+                            >
+                              {isGoldenStandard
+                                ? '🏆 Golden Standard Met (14/14)'
+                                : `${passedCount}/14 Passed • ${warningCount + failedCount} to Polish`}
+                            </span>
+                            {pageBudgetCheck && (
+                              <span className={`budget-pill ${pageBudgetCheck.status === 'passed' ? 'budget-fit' : 'budget-over'}`}>
+                                {pageBudgetCheck.status === 'passed' ? '✓ Fits 1 Page' : '⚠️ Over budget'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="quality-actions-group">
+                        <button
+                          type="button"
+                          className="btn-auto-fix-golden"
+                          disabled={isAutoFixing}
+                          onClick={handleAutoFix}
+                          title="Automatically remove buzzwords, eliminate 'I', normalize typos, and budget to 1 page"
+                        >
+                          {isAutoFixing ? 'Polishing...' : '⚡ 1-Click Auto-Polish'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-toggle-audit-details"
+                          onClick={() => setShowAuditDetails(!showAuditDetails)}
+                        >
+                          {showAuditDetails ? '▲ Hide Checklist' : '▼ View 14 Checks'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Collapsible 14-Point Checklist */}
+                    {showAuditDetails && (
+                      <div className="quality-checklist-container">
+                        <div className="checklist-grid">
+                          {Object.values(qualityAudit.checks).map((check) => (
+                            <div key={check.id} className={`audit-item-card audit-item-${check.status}`}>
+                              <div className="audit-item-top">
+                                <span className="audit-check-icon">
+                                  {check.status === 'passed' ? '✅' : check.status === 'warning' ? '⚠️' : '❌'}
+                                </span>
+                                <span className="audit-item-name">{check.name}</span>
+                                <span className="audit-item-score">{check.score}pts</span>
+                              </div>
+                              <p className="audit-item-desc">{check.description}</p>
+                              {check.recommendations.length > 0 && (
+                                <div className="audit-item-recs">
+                                  {check.recommendations.map((rec, rIdx) => (
+                                    <span key={rIdx} className="audit-rec-chip">
+                                      💡 {rec}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Professional Summary */}
               <div className="tailored-section-card">
                 <h3 className="tailored-section-title">Tailored Professional Summary</h3>
@@ -485,15 +657,17 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
                         'GENERATE_RESUME_PDF',
                         {
                           jobId: undefined,
+                          templateId: selectedTemplate,
+                          onePageFit,
                           maxBulletsPerItem: undefined,
                           maxProjects: undefined,
                         },
-                        `resume-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                        `resume-${selectedTemplate}-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
                       );
                     }
                   }}
                 >
-                  Download PDF
+                  Download PDF ({selectedTemplate.toUpperCase()})
                 </button>
               </div>
             </div>
@@ -690,6 +864,23 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = () => {
           )}
         </div>
       )}
+
+      {/* Pipeline Forward Progression Card */}
+      <div className="pipeline-next-step-card">
+        <div className="next-step-info">
+          <span className="next-step-title">Materials Ready?</span>
+          <span className="next-step-desc">
+            Proceed to the application form to auto-fill all fields and custom questions in 1 click.
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn-primary btn-next-step"
+          onClick={() => onNavigateToTab?.('form')}
+        >
+          Next Step: Auto-Fill Application Form &rarr;
+        </button>
+      </div>
     </div>
   );
 };

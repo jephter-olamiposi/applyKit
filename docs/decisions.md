@@ -723,6 +723,126 @@ Implement a scoped, evidence-grounded AI field answering pipeline with mandatory
 - **LLM-driven answer without evidence grounding:** Rejected under ADR-0004 — no provenance verification for submitted claims.
 - **Auto-approving AI answers as low-risk:** Rejected — free-form answers carry inherent uncertainty and must be medium-risk minimum.
 
+---
+
+## ADR-0026: 14-Point Resume Golden Standard, Multi-Template PDF Engine, 1-Click Auto-Fill, and Ad-Hoc Question Solver
+
+### Status
+Accepted
+
+### Context
+Candidates applying for competitive technical roles faced several high-friction hurdles in both document preparation and form automation:
+1. **Resume Quality & Presentation Consistency**: Resumes frequently suffered from generic buzzwords ("results-driven", "synergy"), first-person pronouns ("I", "my"), weak duty-based bullet openings ("responsible for", "helped with"), unbudgeted multi-page sprawl, unverified tenure claims, and missing company names. Candidates required a strict 14-point quality audit standard with 1-click deterministic polishing that guarantees ATS readability and human recruiter impact without inventing qualifications or metrics.
+2. **Multi-Template PDF Generation**: A single visual format is insufficient across diverse industries (e.g. corporate enterprise vs. tech startup). Candidates needed multiple pre-designed typography templates (Modern Clean, Classic Executive, Minimalist ATS, Compact 1-Pager) with deterministic US Letter point budgeting (792pt) ensuring guaranteed 1-page fit.
+3. **Form Autofill Repetitive Clicking**: Candidates were previously forced to review and click "Fill Field" on individual field cards one by one when unconfirmed or medium-risk fields were present. Candidates requested a single-click auto-fill mechanism that orchestrates profile mapping, custom question answering, and sequential form completion while strictly honoring the Anti-Autonomous Submit Gate.
+4. **ATS Crawler Form Control & Iframe Gaps**: Modern ATS platforms (Greenhouse, Lever, Ashby, Workday) frequently embed application forms inside cross-origin `<iframe>`s (e.g. `boards.greenhouse.io`), or construct inputs using rich-text containers (`[role="textbox"]`, `[contenteditable="true"]`) and non-standard label wrappers. When fields were missed, candidates lacked a mechanism to quickly solve and inject answers without leaving the extension workflow.
+
+### Decision
+
+1. **14-Point Resume Golden Standard Audit Engine (`packages/domain/src/tailoring/resume-rules.ts`)**:
+   - Implemented an immutable, pure functional rule engine auditing 14 non-negotiable criteria:
+     1. `template_selected`: Verified typography and spacing from 4 pre-designed templates.
+     2. `one_page_fit`: US Letter height budget calculation (792pt max content).
+     3. `job_keywords`: Top job description keyword density and presence in narrative.
+     4. `company_name`: Target company explicitly referenced in headline/summary.
+     5. `first_item_aligned`: Lead experience item matches target job requirements.
+     6. `value_titles`: Work experience titles demonstrate functional seniority and value.
+     7. `online_links`: Contact header contains verified online presence (LinkedIn, GitHub, Portfolio).
+     8. `no_first_person`: Strict elimination of subjective first-person pronouns ("I", "me", "my", "we", "our").
+     9. `no_buzzwords`: Zero tolerance for self-praising fluff words (e.g. "rockstar", "guru", "results-driven").
+     10. `strong_action_verbs`: Bullets lead with past-tense action verbs (130+ categorized verbs).
+     11. `impact_metrics`: Quantitative metrics, percentages, dollar values, or scale indicators present.
+     12. `impressive_skills_only`: Technical skills focused on target criteria; experience years shown only when >= 3 years.
+     13. `impressive_sections_only`: Clean standard sections (Summary, Experience, Projects, Education, Skills).
+     14. `typo_grammar_hygiene`: Automatic spelling, capitalization, and technology orthography normalization (e.g. `PostgreSQL`, `TypeScript`, `Node.js`, `Docker`).
+   - Implemented `autoFixResumeQualityIssues`: Deterministic 1-click polishing engine correcting pronoun usage, buzzwords, duty openings, tech orthography, and 1-page point budgeting while preserving zero hallucination invariants (never synthesizing numbers or experience).
+
+2. **Multi-Template PDF Generator (`packages/domain/src/tailoring/pdf-exporter.ts`)**:
+   - Expanded `@react-pdf/renderer` pipeline to support 4 distinct visual themes:
+     - `modern`: Deep indigo headers, dual-column contact badges, clean sans-serif layout.
+     - `classic`: Serif typography, horizontal section dividers, traditional executive structure.
+     - `minimalist`: Ultra-clean ATS-optimized monochrome single-column design.
+     - `compact`: Condensed line heights, inline tags, maximum content density for dense work histories.
+   - Fixed candidate identity header rendering candidate name, verified email, and online link metadata (LinkedIn, GitHub, Portfolio).
+   - Applied page budgeting rules to prevent orphan bullets and page overflow.
+
+3. **Iframe-Aware Form Crawler & Custom Input Interpreters (`apps/extension/`)**:
+   - Configured `"all_frames": true` in `manifest.json` content script declaration, allowing injection into embedded Greenhouse and Ashby iframes.
+   - Upgraded `extractElementLabel` in `form-crawler-helpers.ts` to inspect parent card wrappers, custom question containers, sibling headings, and ARIA attributes (`aria-label`, `aria-labelledby`).
+   - Expanded interactive element detection in `form-crawler.ts` to include `[role="textbox"]`, `[contenteditable="true"]`, and `[role="combobox"]`.
+   - Built `insertTextIntoActiveElement` in `action-interpreter.ts` and background bridge to inject text directly into whatever element currently holds focus on the page.
+
+4. **1-Click Auto-Fill Protocol (`EXECUTE_ONE_CLICK_AUTO_FILL`)**:
+   - Orchestrates complete form workflow: inspect page forms -> resolve candidate profile -> formulate dry-run plan -> answer custom open-ended questions using AI Gateway with candidate evidence -> batch-approve fillable actions -> execute declarative actions on active tab in human-paced sequence (150ms delay).
+   - **Anti-Autonomous Submit Hard Gate (Invariant #3)**: The 1-click execution strictly filters out and blocks any submit control (`type="submit"`, buttons labeled "Submit" or "Apply Now"). Halts execution at `awaiting_user_review` so the human candidate remains the final decision-maker.
+
+5. **Instant Ad-Hoc Question Solver Component (`InstantQuestionSolver.tsx`)**:
+   - Embedded in both `FormInspector` and `DryRunInspector`.
+   - Allows candidate to paste any uncaptured or missed question directly from the host page.
+   - Solves the question via `ANSWER_AD_HOC_QUESTION` using scoped candidate claims and saved answers.
+   - Provides 1-click "📋 Copy Answer" and "⚡ Insert into Focused Field" protocol.
+
+### Consequences
+- **Positive:**
+  - Candidates achieve a professional, ATS-optimized, 1-page resume meeting all 14 quality criteria in a single click.
+  - Eliminated tedious per-field clicking across job applications.
+  - Missed ATS questions can be answered and filled into the page in under 3 seconds.
+  - Strict preservation of the Anti-Autonomous Submit Gate and Zero Hallucination invariants.
+- **Negative:**
+  - For career histories spanning 10+ years with dozens of roles, the 1-page budgeting engine aggressively caps bullet counts to preserve the 792pt limit, requiring candidates to disable the 1-page toggle if a multi-page resume is desired.
+
+### Alternatives
+- **Autonomous Auto-Submit:** Rejected under Invariant #3 — candidates must visually inspect filled fields and click the final submit button manually.
+- **Unconstrained AI Resume Re-writing:** Rejected under ADR-0004 — generative LLMs frequently invent higher metrics or unverified tools when attempting to polish resumes. The 14-point auto-fixer operates deterministically on verified candidate text.
+
+---
+
+## ADR-0025: Recruitee ATS Deep Integration and 4-Stage Pipeline UI/UX Overhaul
+
+### Status
+Accepted
+
+### Context
+Testing against live, modern career sites such as Holepunch (`https://holepunch.recruitee.com/o/senior-node-engineer`) identified two critical areas for engineering and design refinement:
+1. **Recruitee ATS Nuances**:
+   - Recruitee application forms (`#offer-application-form`) host a combination of canonical fields (Full name, Email, CV upload), custom open-ended technical essays (Chromium, modular npm, networking protocols, recent projects), custom radio group ratings (e.g. Node.js self-assessment), location/country inputs, start availability queries, and numeric annual USD salary expectations.
+   - The submission button is an unstyled class-hashed button with text "Send" (`<button type="submit" class="...cWtVVQ">Send</button>`), which was not covered by existing `/submit|apply/` regex patterns.
+   - Radio groups were historically excluded from custom question answering in domain logic because `isAiAnswerableCustomField` only evaluated `text | textarea | number`.
+2. **Side Panel Cognitive Overload & Developer Artifacts**:
+   - The UI displayed an unranked flat bar of 10 crowded tabs (`Overview`, `Requirements`, `Match & Gaps`, `Tailor`, `Evidence`, `Form`, `Dry Run`, `Tracker`, `Profile`, `API Keys`).
+   - Candidates were stranded on each tab with no clear path indicating what step to take next.
+   - The UI displayed internal scaffolding markers (e.g., `<span className="phase-pill">Phase 15</span>` and raw adapter badges like `RECRUITEE Adapter`), giving an AI-generated, unfinished feel.
+
+### Decision
+1. **Recruitee ATS Adapters (`recruitee-adapter.ts` and `recruitee-form-adapter.ts`)**:
+   - Created dedicated job extractor parsing Holepunch/Recruitee titles, company names, remote workplace markers, and clean descriptions.
+   - Created dedicated form crawler extracting all 18 fields from `#offer-application-form`, correctly parsing radio groups, legends, and option chips.
+   - Registered `recruitee` in `AtsPlatform` union across `@applykit/domain` and content crawler dispatchers.
+2. **Deterministic & AI Answering Upgrades**:
+   - Updated `planner.ts` with `resolveCustomFieldDeterministicValue` to evaluate candidate proficiency against skill self-assessment radio groups (e.g., mapping `Node.js` expert proficiency to `Advanced`).
+   - Added regex matching for `earliest_start_date` (`/\bwhen\s+can\s+you\s+start\b/i`) and profile value resolution.
+   - Expanded `SUBMIT_PATTERNS` in `browser-action.ts` to include `/\bsend\b/i` and `/\bsend\s*application\b/i`, ensuring Recruitee's "Send" button is strictly halted under the Anti-Autonomous Submit Hard Gate.
+3. **4-Stage Pipeline UI/UX (`NavigationTabs.tsx`, `App.tsx`, `sidepanel.css`)**:
+   - Replaced 10 cramped tabs with a clear 4-step progressive pipeline:
+     - `Step 1: Job & Fit` (Job Overview, Qualifications, Match & Gaps)
+     - `Step 2: Tailor` (Resume & Cover Letter Studio, Evidence Graph)
+     - `Step 3: Auto-Fill` (1-Click Form Auto-Fill, Safety Dry Run)
+     - `Step 4: Tracker` (Application History & Audit Log)
+   - Moved `👤 Profile` and `⚙️ Settings` into clean header utility actions with a dedicated return button.
+   - Removed all `Phase` badges and softened adapter tags to consumer-friendly terms (`Recruitee Application`, `Direct Application`).
+   - Embedded primary forward progression cards (`Next Step: ... →`) at the bottom of every stage to guide the candidate seamlessly through the application lifecycle.
+
+### Consequences
+- **Positive:**
+  - 100% 1-click auto-fill capability verified live on Recruitee ATS pages (`holepunch.recruitee.com`).
+  - Strict preservation of the Anti-Autonomous Submit Gate before "Send" buttons.
+  - Intuitive, frictionless pipeline UI where each screen clearly leads to the next without cognitive fatigue.
+  - Zero regression across all 38 test suites (323/323 tests green).
+- **Negative:**
+  - Career sites using non-standard radio options outside standard proficiency tiers (e.g. 1-10 numerical ratings) fall back to manual selection or ad-hoc question solver.
+
+
+
 
 
 

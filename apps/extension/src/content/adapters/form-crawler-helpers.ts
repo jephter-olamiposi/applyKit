@@ -147,18 +147,20 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
   }
 
   // 4. aria-label
-  const ariaLabel = element.getAttribute('aria-label');
+  const ariaLabel = element.getAttribute('aria-label') || element.getAttribute('aria-description');
   if (ariaLabel && ariaLabel.trim()) {
     return cleanLabelText(ariaLabel);
   }
 
   // 5. Immediate field container label/header (bounded to field-level containers)
   let parent = element.parentElement;
-  for (let depth = 0; depth < 3 && parent && parent !== root && parent !== document.body; depth++) {
+  for (let depth = 0; depth < 4 && parent && parent !== root && parent !== document.body; depth++) {
     // Avoid checking massive section containers that hold multiple fields
-    const siblingInputs = parent.querySelectorAll('input:not([type="hidden"]), textarea, select');
+    const siblingInputs = parent.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="textbox"], [contenteditable="true"]');
     if (siblingInputs.length <= 2) {
-      const header = parent.querySelector('label, [class*="label"], [class*="title"], [class*="header"]');
+      const header = parent.querySelector(
+        'label, [class*="label"], [class*="title"], [class*="header"], [class*="question"], [class*="prompt"], [data-qa*="question"], [data-testid*="question"], h2, h3, h4, h5'
+      );
       if (header && header !== element && !header.contains(element) && header.textContent && header.textContent.trim()) {
         return cleanLabelText(header.textContent);
       }
@@ -166,11 +168,22 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     parent = parent.parentElement;
   }
 
-  // 6. Preceding sibling element label or legend
+  // 6. Preceding sibling element label, heading, or question prompt
   const prevSibling = element.previousElementSibling;
   if (prevSibling && prevSibling.textContent && prevSibling.textContent.trim()) {
-    if (['LABEL', 'LEGEND', 'H3', 'H4', 'H5', 'P', 'SPAN', 'DIV'].includes(prevSibling.tagName)) {
+    if (['LABEL', 'LEGEND', 'H2', 'H3', 'H4', 'H5', 'P', 'SPAN', 'DIV'].includes(prevSibling.tagName)) {
       return cleanLabelText(prevSibling.textContent);
+    }
+  }
+
+  // 6b. Parent wrapper preceding sibling header (e.g. question header div preceding input div)
+  if (element.parentElement && element.parentElement.previousElementSibling) {
+    const parentPrev = element.parentElement.previousElementSibling;
+    if (['LABEL', 'LEGEND', 'H2', 'H3', 'H4', 'H5', 'P', 'SPAN', 'DIV'].includes(parentPrev.tagName)) {
+      const text = parentPrev.textContent?.trim();
+      if (text && text.length < 250) {
+        return cleanLabelText(text);
+      }
     }
   }
 
@@ -183,7 +196,7 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
   // 8. Fieldset legend fallback ONLY if fieldset wraps solely this field
   const fieldset = element.closest('fieldset');
   if (fieldset) {
-    const inputs = fieldset.querySelectorAll('input:not([type="hidden"]), textarea, select');
+    const inputs = fieldset.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="textbox"]');
     if (inputs.length <= 1) {
       const legend = fieldset.querySelector('legend');
       if (legend && legend.textContent && legend.textContent.trim()) {

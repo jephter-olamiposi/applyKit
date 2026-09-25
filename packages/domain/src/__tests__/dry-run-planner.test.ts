@@ -12,6 +12,7 @@ import {
   createSelectiveDryRunPlan,
   createEmptyProfile,
   createFieldId,
+  createSkillId,
   isAiAnswerableCustomField,
   withAiProposedFieldAnswers,
   type AiProposedFieldAnswer,
@@ -962,6 +963,76 @@ const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
 
       const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
       expect(updated).toBe(basePlan);
+    });
+  });
+
+  describe('Deterministic Custom Field Matching (Holepunch & Skill Self-Assessments)', () => {
+    it('deterministically resolves Node.js skill rating radio group to Advanced for experienced candidate', () => {
+      const profileWithNode: CandidateProfile = {
+        ...mockProfile,
+        skills: [
+          {
+            id: createSkillId('sk_node'),
+            name: 'Node.js',
+            normalizedName: 'nodejs',
+            category: 'framework',
+            proficiency: 'expert',
+            yearsOfExperience: 6,
+            evidenceRefs: [],
+          },
+        ],
+      };
+
+      const formWithRadio: ApplicationForm = {
+        id: 'recruitee_form',
+        url: 'https://holepunch.recruitee.com/o/senior-node-engineer',
+        detectedAts: 'recruitee',
+        submitButtonSelector: 'button[type="submit"]',
+        isMultiStep: false,
+        inspectedAt: new Date().toISOString(),
+        fields: [
+          {
+            id: createFieldId('fld_node_rating'),
+            selector: 'input[name="candidate.skills.nodejs"]',
+            fieldType: 'radio',
+            label: 'How do you rate your own skills with Node.js? *',
+            name: 'candidate.skills.nodejs',
+            isRequired: true,
+            options: [
+              { label: 'Beginner', value: 'Beginner' },
+              { label: 'Intermediate', value: 'Intermediate' },
+              { label: 'Advanced', value: 'Advanced' },
+            ],
+            confidenceScore: 0.1,
+          },
+          {
+            id: createFieldId('fld_start_date'),
+            selector: 'input[name="candidate.start_date"]',
+            fieldType: 'text',
+            label: 'Should we offer you a position, when can you start? *',
+            isRequired: true,
+            inferredMappingKey: 'professional.earliestStartDate',
+            confidenceScore: 0.9,
+          },
+        ],
+      };
+
+      const plan = generateDryRunPlan(formWithRadio, {
+        ...profileWithNode,
+        professional: {
+          ...profileWithNode.professional,
+          earliestStartDate: 'Immediately / 2 weeks',
+        },
+      });
+
+      const radioAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_node_rating'));
+      expect(radioAction).toBeDefined();
+      expect(radioAction?.candidateValueUsed).toBe('Advanced');
+      expect(radioAction?.action.actionType).toBe('click');
+
+      const dateAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_start_date'));
+      expect(dateAction).toBeDefined();
+      expect(dateAction?.candidateValueUsed).toBe('Immediately / 2 weeks');
     });
   });
 });

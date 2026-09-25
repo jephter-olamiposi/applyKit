@@ -12,6 +12,7 @@ import { WorkdayFormAdapter } from './workday-form-adapter.js';
 import { GreenhouseFormAdapter } from './greenhouse-form-adapter.js';
 import { LeverFormAdapter } from './lever-form-adapter.js';
 import { AshbyFormAdapter } from './ashby-form-adapter.js';
+import { RecruiteeFormAdapter } from './recruitee-form-adapter.js';
 import { GenericFormAdapter } from './generic-form-adapter.js';
 
 export * from './form-adapter.js';
@@ -19,6 +20,7 @@ export * from './workday-form-adapter.js';
 export * from './greenhouse-form-adapter.js';
 export * from './lever-form-adapter.js';
 export * from './ashby-form-adapter.js';
+export * from './recruitee-form-adapter.js';
 export * from './generic-form-adapter.js';
 
 /**
@@ -29,6 +31,7 @@ const FORM_ADAPTERS: readonly AtsFormAdapter[] = [
   new GreenhouseFormAdapter(),
   new LeverFormAdapter(),
   new AshbyFormAdapter(),
+  new RecruiteeFormAdapter(),
   new GenericFormAdapter(),
 ].sort((a, b) => b.priority - a.priority);
 

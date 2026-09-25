@@ -287,11 +287,13 @@ const CLASSIFICATION_RULES: readonly FieldPatternRule[] = [
     path: 'professional.earliestStartDate',
     patterns: [
       /\b(?:earliest\s+)?start\s*date\b/i,
+      /\bwhen\s+can\s+you\s+start\b/i,
+      /\bhow\s+soon\s+can\s+you\s+start\b/i,
       /\bavailable\s+to\s+start\b/i,
       /\bnotice\s+period\b/i,
       /\bavailability\b/i,
     ],
-    baseConfidence: 0.88,
+    baseConfidence: 0.90,
   },
   {
     key: 'eeo_gender',
@@ -567,6 +569,15 @@ export function resolveProfileValueForField(
       }
       return '140000';
     }
+
+    case 'earliest_start_date':
+    case 'professional.earliestStartDate':
+      return (
+        profile.professional.earliestStartDate ||
+        (profile.professional.noticePeriodDays
+          ? `${profile.professional.noticePeriodDays} days notice`
+          : 'Immediately upon offer or standard 2 weeks notice')
+      );
 
     case 'referral_source':
     case 'professional.referralSource':

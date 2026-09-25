@@ -28,5 +28,6 @@ export interface ProfessionalProfile {
   readonly workplacePreference: WorkplacePreference;
   readonly compensationExpectation?: CompensationExpectation;
   readonly noticePeriodDays?: number;
+  readonly earliestStartDate?: string;
   readonly isOpenToRelocation: boolean;
 }

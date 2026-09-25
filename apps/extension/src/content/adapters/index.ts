@@ -13,6 +13,7 @@ import { JsonLdJobSiteAdapter } from './jsonld-adapter.js';
 import { GreenhouseJobSiteAdapter } from './greenhouse-adapter.js';
 import { LeverJobSiteAdapter } from './lever-adapter.js';
 import { WorkdayJobSiteAdapter } from './workday-adapter.js';
+import { RecruiteeJobSiteAdapter } from './recruitee-adapter.js';
 import { GenericJobSiteAdapter } from './generic-adapter.js';
 
 export * from './adapter.js';
@@ -20,6 +21,7 @@ export * from './jsonld-adapter.js';
 export * from './greenhouse-adapter.js';
 export * from './lever-adapter.js';
 export * from './workday-adapter.js';
+export * from './recruitee-adapter.js';
 export * from './generic-adapter.js';
 
 const REGISTERED_ADAPTERS: readonly JobSiteAdapter[] = [
@@ -27,6 +29,7 @@ const REGISTERED_ADAPTERS: readonly JobSiteAdapter[] = [
   new GreenhouseJobSiteAdapter(),
   new LeverJobSiteAdapter(),
   new WorkdayJobSiteAdapter(),
+  new RecruiteeJobSiteAdapter(),
   new GenericJobSiteAdapter(),
 ];
 

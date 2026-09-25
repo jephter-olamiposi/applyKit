@@ -61,6 +61,9 @@ export function detectAtsPlatform(doc: Document, url: string): AtsPlatform {
   if (normUrl.includes('smartrecruiters.com')) {
     return 'smartrecruiters';
   }
+  if (normUrl.includes('recruitee.com')) {
+    return 'recruitee';
+  }
 
   // Check DOM markers if custom domain is used
   if (doc.querySelector('#grnhse_app, form#application_form, [data-greenhouse]')) {
@@ -77,6 +80,9 @@ export function detectAtsPlatform(doc: Document, url: string): AtsPlatform {
   }
   if (doc.querySelector('[data-smartrecruiters], .smartr-form')) {
     return 'smartrecruiters';
+  }
+  if (doc.querySelector('#offer-application-form, [data-recruitee], form[action*="recruitee"]')) {
+    return 'recruitee';
   }
 
   return 'generic';
@@ -157,9 +163,9 @@ export function crawlFormContainer(
     });
   }
 
-  // 2. Process Standard Inputs, Textareas, Selects, and File Uploaders
+  // 2. Process Standard Inputs, Textareas, Selects, and Rich Content Controls
   const interactiveElements = container.querySelectorAll<HTMLElement>(
-    'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select, [role="combobox"]'
+    'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select, [role="combobox"], [role="textbox"], [contenteditable="true"]'
   );
 
   for (const el of Array.from(interactiveElements)) {
@@ -168,9 +174,9 @@ export function crawlFormContainer(
     const name = el.getAttribute('name') || undefined;
     const id = el.id || undefined;
     const label = extractElementLabel(el, container);
-    const placeholder = (el as HTMLInputElement).placeholder || undefined;
+    const placeholder = (el as HTMLInputElement).placeholder || el.getAttribute('data-placeholder') || undefined;
     const autocomplete = el.getAttribute('autocomplete') || undefined;
-    const ariaLabel = el.getAttribute('aria-label') || undefined;
+    const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('aria-description') || undefined;
     const required = isElementRequired(el, label);
     const selector = generateElementSelector(el, container);
 
@@ -178,7 +184,7 @@ export function crawlFormContainer(
     let fieldType: FieldType = 'text';
     let options: readonly SelectOption[] | undefined;
 
-    if (tag === 'textarea') {
+    if (tag === 'textarea' || el.getAttribute('role') === 'textbox' || el.getAttribute('contenteditable') === 'true') {
       fieldType = 'textarea';
     } else if (tag === 'select') {
       fieldType = 'select';

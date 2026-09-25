@@ -39,6 +39,7 @@ import type {
   ExecuteSelectiveActionResponse,
 } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
+import { InstantQuestionSolver } from './InstantQuestionSolver.js';
 
 interface DryRunInspectorProps {
   onNavigateToTab?: (tab: TabId) => void;
@@ -328,6 +329,50 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
     }
   };
 
+  const handleAutoApproveAndExecuteAll = async () => {
+    if (!plan) return;
+    try {
+      setIsExecuting(true);
+      setFeedbackNotice('⚡ Batch-approving all actions and executing in sequence...');
+
+      const approveRes = await sendToBackground<
+        BatchApprovePlanActionsRequest,
+        BatchApprovePlanActionsResponse
+      >({
+        type: 'BATCH_APPROVE_PLAN_ACTIONS',
+        mode: 'all',
+      });
+
+      if (!approveRes.success || !approveRes.plan) {
+        throw new Error(approveRes.error || 'Failed to approve actions');
+      }
+      setPlan(approveRes.plan);
+      if (onPlanUpdated) onPlanUpdated(approveRes.plan);
+
+      const execRes = await sendToBackground<ExecutePlanRequest, ExecutePlanResponse>({
+        type: 'EXECUTE_PLAN',
+        planId: approveRes.plan.id,
+        options: {
+          pacingDelayMs: 150,
+          highlightElements: true,
+        },
+      });
+
+      if (execRes.success && execRes.report) {
+        setExecutionReport(execRes.report);
+        setFeedbackNotice(
+          `⚡ 1-Click execution complete! ${execRes.report.executedCount} action(s) executed safely. Halting strictly at Anti-Autonomous Submit Gate.`
+        );
+      } else {
+        setFeedbackNotice(`Execution failed: ${execRes.error || 'Unknown execution error.'}`);
+      }
+    } catch (err) {
+      setFeedbackNotice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
   if (loading) {
     return <div className="dry-run-loading">Loading planned actions...</div>;
   }
@@ -388,6 +433,27 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
         </div>
       )}
 
+      {/* 1-Click Fill Hero Banner */}
+      <div className="one-click-autofill-banner">
+        <div className="autofill-banner-text">
+          <span className="autofill-banner-title">⚡ 1-Click Auto-Fill (All Fields)</span>
+          <span className="autofill-banner-sub">
+            Batch-approves all safe actions and fills them sequentially into the webpage. Halts strictly at submission gate.
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn-one-click-autofill"
+          disabled={isExecuting || plan.actions.length === 0}
+          onClick={handleAutoApproveAndExecuteAll}
+        >
+          {isExecuting ? '⚡ Filling All Fields...' : '⚡ 1-Click Auto-Fill'}
+        </button>
+      </div>
+
+      {/* Instant Question Solver */}
+      <InstantQuestionSolver className="dry-run-instant-solver" />
+
       {/* Execution Report Card */}
       {executionReport && (
         <div className="execution-report-card">
@@ -431,6 +497,24 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
                   <span className="failure-reason">{fail.error}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {onNavigateToTab && (
+            <div className="pipeline-next-step-card" style={{ marginTop: '12px' }}>
+              <div className="next-step-info">
+                <span className="next-step-title">Form Actions Executed</span>
+                <span className="next-step-desc">
+                  Review the page and submit manually, then track this application.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-primary btn-next-step"
+                onClick={() => onNavigateToTab('history')}
+              >
+                Next Step: Application Tracker &rarr;
+              </button>
             </div>
           )}
         </div>
@@ -797,6 +881,15 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
               Back to Form
             </button>
           )}
+          <button
+            type="button"
+            className="btn-one-click-hero"
+            disabled={isExecuting || plan.actions.length === 0}
+            onClick={handleAutoApproveAndExecuteAll}
+            title="Batch-approve all fields and fill them sequentially in one single click"
+          >
+            {isExecuting ? '⚡ Filling All Fields...' : '⚡ 1-Click Auto-Fill (All Fields)'}
+          </button>
           <button
             type="button"
             className="btn-primary"

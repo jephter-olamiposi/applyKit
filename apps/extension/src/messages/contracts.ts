@@ -35,6 +35,8 @@ import type {
   TailoredResume,
   TailoredCoverLetter,
   FactCheckReport,
+  ResumeTemplateId,
+  ResumeQualityAuditReport,
 } from '@applykit/domain';
 import type { StorageUsageSummary, PurgeResult } from '../storage/purge-engine.js';
 
@@ -729,6 +731,8 @@ export interface GenerateTailoredResumeRequest {
   jobId?: string;
   maxBulletsPerItem?: number;
   maxProjects?: number;
+  templateId?: ResumeTemplateId;
+  onePageFit?: boolean;
 }
 
 export interface GenerateTailoredResumeResponse {
@@ -736,6 +740,78 @@ export interface GenerateTailoredResumeResponse {
   success: boolean;
   tailoredResume?: TailoredResume;
   factCheck?: FactCheckReport;
+  qualityAudit?: ResumeQualityAuditReport;
+  error?: string;
+}
+
+/**
+ * Deterministically auto-fix quality issues in a tailored resume according to 14-point standard.
+ */
+export interface AutoFixResumeRequest {
+  type: 'AUTO_FIX_RESUME';
+  resume: TailoredResume;
+  jobId?: string;
+}
+
+export interface AutoFixResumeResponse {
+  type: 'AUTO_FIX_RESUME_RESULT';
+  success: boolean;
+  tailoredResume?: TailoredResume;
+  qualityAudit?: ResumeQualityAuditReport;
+  error?: string;
+}
+
+/**
+ * Ad-hoc question answering for questions missed by the form crawler.
+ */
+export interface AnswerAdHocQuestionRequest {
+  type: 'ANSWER_AD_HOC_QUESTION';
+  question: string;
+  maxLength?: number;
+  tone?: 'technical' | 'conversational' | 'executive';
+}
+
+export interface AnswerAdHocQuestionResponse {
+  type: 'ANSWER_AD_HOC_QUESTION_RESULT';
+  success: boolean;
+  answerText?: string;
+  confidence?: number;
+  supportingClaimIds?: string[];
+  notes?: string;
+  error?: string;
+}
+
+/**
+ * Request to insert text into the active/focused element on the webpage.
+ */
+export interface InsertTextIntoActiveElementRequest {
+  type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT';
+  text: string;
+}
+
+export interface InsertTextIntoActiveElementResponse {
+  type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT';
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * 1-Click execution request to inspect, answer, approve, and fill all safe fields.
+ */
+export interface ExecuteOneClickAutoFillRequest {
+  type: 'EXECUTE_ONE_CLICK_AUTO_FILL';
+  form?: ApplicationForm;
+  options?: {
+    pacingDelayMs?: number;
+    highlightElements?: boolean;
+  };
+}
+
+export interface ExecuteOneClickAutoFillResponse {
+  type: 'EXECUTE_ONE_CLICK_AUTO_FILL_RESULT';
+  success: boolean;
+  report?: ExecutionReport;
+  plan?: DryRunPlan;
   error?: string;
 }
 
@@ -782,6 +858,8 @@ export interface GenerateResumePdfRequest {
   jobId?: string;
   maxBulletsPerItem?: number;
   maxProjects?: number;
+  templateId?: ResumeTemplateId;
+  onePageFit?: boolean;
 }
 
 export interface GenerateResumePdfResponse {
@@ -850,6 +928,10 @@ export type ExtensionRequest =
   | BatchApprovePlanActionsRequest
   | ExecuteSelectiveActionRequest
   | GenerateTailoredResumeRequest
+  | AutoFixResumeRequest
+  | AnswerAdHocQuestionRequest
+  | InsertTextIntoActiveElementRequest
+  | ExecuteOneClickAutoFillRequest
   | GenerateCoverLetterRequest
   | FactCheckDocumentRequest
   | AnswerCustomFieldsRequest
@@ -898,6 +980,10 @@ export type ExtensionResponse =
   | BatchApprovePlanActionsResponse
   | ExecuteSelectiveActionResponse
   | GenerateTailoredResumeResponse
+  | AutoFixResumeResponse
+  | AnswerAdHocQuestionResponse
+  | InsertTextIntoActiveElementResponse
+  | ExecuteOneClickAutoFillResponse
   | GenerateCoverLetterResponse
   | GenerateCoverLetterPdfResponse
   | GenerateResumePdfResponse

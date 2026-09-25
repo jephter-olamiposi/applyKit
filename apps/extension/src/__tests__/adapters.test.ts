@@ -18,6 +18,7 @@ import {
   LeverJobSiteAdapter,
   WorkdayJobSiteAdapter,
   GenericJobSiteAdapter,
+  RecruiteeJobSiteAdapter,
   findMatchingAdapter,
   extractStructuredJob,
 } from '../content/adapters/index.js';
@@ -382,6 +383,47 @@ describe('ATS Job Site Adapters & Normalization Suite', () => {
         expect(kafkaReq?.importance).toBe('preferred');
         expect(kafkaReq?.isRequired).toBe(false);
       });
+    });
+  });
+
+  describe('RecruiteeJobSiteAdapter', () => {
+    const adapter = new RecruiteeJobSiteAdapter();
+
+    it('matches recruitee domains and open offer URLs', () => {
+      const url = new URL('https://holepunch.recruitee.com/o/senior-node-engineer');
+      const otherUrl = new URL('https://unknown.com/job/1');
+
+      expect(adapter.matches(url, document)).toBe(true);
+      expect(adapter.matches(otherUrl, document)).toBe(false);
+    });
+
+    it('extracts Holepunch job metadata and requirements', () => {
+      const html = `
+        <html>
+          <head><title>Holepunch - Senior Node.js Software Engineer</title></head>
+          <body>
+            <h1>Senior Node.js Software Engineer</h1>
+            <div>
+              <span>Remote</span>
+              <span>Full-time</span>
+            </div>
+            <div class="description">
+              <h3>Requirements:</h3>
+              <ul>
+                <li>Strong background with Node.js and Chromium.</li>
+                <li>Experience with P2P and distributed systems.</li>
+              </ul>
+            </div>
+          </body>
+        </html>
+      `;
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const job = adapter.extract(doc, new URL('https://holepunch.recruitee.com/o/senior-node-engineer'));
+
+      expect(job.title).toBe('Senior Node.js Software Engineer');
+      expect(job.companyName).toBe('Holepunch');
+      expect(job.workplaceType).toBe('remote');
+      expect(job.requirements.length).toBeGreaterThanOrEqual(1);
     });
   });
 });
