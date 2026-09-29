@@ -27,10 +27,14 @@ import type {
   ApplicationField,
   ApplicationForm,
   WritingStyleProfile,
+  SavedAnswer,
+  AnswerCategory,
+  EvidenceId,
 } from '@applykit/domain';
 import {
   parsePlainTextResume,
   createProfileFromParsedResume,
+  bootstrapProfileFromResume,
   deriveClaimsFromEvidence,
   buildEvidenceGraph,
   auditEvidenceGraphGrounding,
@@ -51,6 +55,8 @@ import {
   createApplicationId,
   createProfileId,
   createJobPostingId,
+  createSavedAnswerId,
+  matchSavedAnswer,
   exportAuditTrailAsJson,
   exportAuditTrailAsCsv,
   tailorCandidateResume,
@@ -125,6 +131,9 @@ import type {
   AutoFixResumeResponse,
   AnswerAdHocQuestionRequest,
   AnswerAdHocQuestionResponse,
+  GroundedEvidenceCitation,
+  SaveReusableAnswerRequest,
+  SaveReusableAnswerResponse,
   InsertTextIntoActiveElementRequest,
   InsertTextIntoActiveElementResponse,
   ExecuteOneClickAutoFillRequest,
@@ -134,7 +143,18 @@ import type {
   GenerateResumePdfResponse,
   FactCheckDocumentResponse,
   GetStorageUsageResponse,
+  BootstrapProfileFromResumeRequest,
+  BootstrapProfileFromResumeResponse,
+  CommitBootstrappedProfileRequest,
+  CommitBootstrappedProfileResponse,
+  SubmissionDetectedNotification,
+  SubmissionDetectedResponse,
 } from '../messages/contracts.js';
+
+import {
+  processSubmissionDetection,
+  isSubmissionConfirmationUrl,
+} from './submission-detector.js';
 
 import {
   IndexedDbProfileRepository,
@@ -483,7 +503,7 @@ async function runAiJobExtractionFallback(
  * the (possibly refined) response.
  *
  * Deterministic extraction stays authoritative whenever it produces usable requirements;
- * the LLM is only consulted to rescue empty signal (Phase 2 fallback, ADR-0020).
+ * the LLM is only consulted to rescue empty signal when deterministic extraction yields insufficient content.
  */
 async function maybeAiRefineExtraction(
   tabId: number,
@@ -1006,8 +1026,32 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             const { profile, evidence } = createProfileFromParsedResume(parsed);
             const claims = deriveClaimsFromEvidence(evidence);
 
+            const existingProfile = await profileRepo.getProfile();
             const profileWithClaims: CandidateProfile = {
               ...profile,
+              id: existingProfile ? existingProfile.id : profile.id,
+              identity: {
+                ...profile.identity,
+                legalFirstName: profile.identity.legalFirstName || existingProfile?.identity.legalFirstName || '',
+                legalLastName: profile.identity.legalLastName || existingProfile?.identity.legalLastName || '',
+                email: profile.identity.email || existingProfile?.identity.email || '',
+                phone: profile.identity.phone || existingProfile?.identity.phone || '',
+                location: {
+                  city: profile.identity.location?.city || existingProfile?.identity.location?.city || '',
+                  stateOrProvince: profile.identity.location?.stateOrProvince || existingProfile?.identity.location?.stateOrProvince,
+                  country: profile.identity.location?.country || existingProfile?.identity.location?.country || '',
+                  addressLine1: existingProfile?.identity.location?.addressLine1,
+                  postalCode: existingProfile?.identity.location?.postalCode,
+                },
+                workAuthorization: existingProfile?.identity.workAuthorization ?? profile.identity.workAuthorization,
+              },
+              professional: {
+                ...profile.professional,
+                compensationExpectation: existingProfile?.professional.compensationExpectation ?? profile.professional.compensationExpectation,
+                noticePeriodDays: existingProfile?.professional.noticePeriodDays ?? profile.professional.noticePeriodDays,
+                earliestStartDate: existingProfile?.professional.earliestStartDate ?? profile.professional.earliestStartDate,
+              },
+              savedAnswers: existingProfile?.savedAnswers ?? [],
               claims,
             };
 
@@ -1033,6 +1077,97 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
           } catch (err) {
             sendResponse({
               type: 'INGEST_RESUME_TEXT_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return true;
+      }
+
+      case 'BOOTSTRAP_PROFILE_FROM_RESUME': {
+        const payload = message as BootstrapProfileFromResumeRequest;
+        (async () => {
+          try {
+            let inputData: Uint8Array | string;
+            if (payload.isBase64 || payload.fileName.toLowerCase().endsWith('.pdf')) {
+              // Decode base64 payload into binary bytes
+              const binaryString = atob(payload.fileData);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              inputData = bytes;
+            } else {
+              inputData = payload.fileData;
+            }
+
+            const existingProfile = await profileRepo.getProfile();
+            const bootstrapped = await bootstrapProfileFromResume(
+              inputData,
+              payload.fileName,
+              existingProfile?.id
+            );
+
+            const claims = deriveClaimsFromEvidence(bootstrapped.evidence);
+            const profileWithClaims: CandidateProfile = {
+              ...bootstrapped.profile,
+              claims,
+            };
+
+            const response: BootstrapProfileFromResumeResponse = {
+              type: 'BOOTSTRAP_PROFILE_FROM_RESUME_RESULT',
+              success: true,
+              result: {
+                rawText: bootstrapped.rawText,
+                profile: profileWithClaims,
+                evidenceCount: bootstrapped.evidence.length,
+                experiencesCount: bootstrapped.profile.experiences.length,
+                skillsCount: bootstrapped.profile.skills.length,
+                educationCount: bootstrapped.profile.education.length,
+                evidence: [...bootstrapped.evidence],
+                claims: [...claims],
+              },
+            };
+            sendResponse(response);
+          } catch (err) {
+            sendResponse({
+              type: 'BOOTSTRAP_PROFILE_FROM_RESUME_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return true;
+      }
+
+      case 'COMMIT_BOOTSTRAPPED_PROFILE': {
+        const payload = message as CommitBootstrappedProfileRequest;
+        (async () => {
+          try {
+            const claims = payload.claims ?? deriveClaimsFromEvidence(payload.evidence);
+            const fullProfile: CandidateProfile = {
+              ...payload.profile,
+              claims,
+              updatedAt: new Date().toISOString(),
+            };
+
+            await Promise.all([
+              profileRepo.saveProfile(fullProfile),
+              evidenceRepo.saveEvidenceBatch(payload.evidence),
+              evidenceRepo.saveClaimBatch(claims),
+            ]);
+
+            const response: CommitBootstrappedProfileResponse = {
+              type: 'COMMIT_BOOTSTRAPPED_PROFILE_RESULT',
+              success: true,
+              profileId: fullProfile.id,
+              evidenceCount: payload.evidence.length,
+            };
+            sendResponse(response);
+          } catch (err) {
+            sendResponse({
+              type: 'COMMIT_BOOTSTRAPPED_PROFILE_RESULT',
               success: false,
               error: err instanceof Error ? err.message : String(err),
             });
@@ -1237,7 +1372,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               };
 
               const aiReq = buildRequirementMatchingPrompt(matchingContext);
-              const aiRes = await aiGateway.executeRequest(aiReq);
+              // Invariant (ADR-0013): Optional AI matching must not block deterministic evaluation or exceed Chrome MV3 SW limits
+              const aiPromise = aiGateway.executeRequest(aiReq);
+              const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('AI semantic requirement matching timed out')), 5000)
+              );
+              const aiRes = await Promise.race([aiPromise, timeoutPromise]);
 
               function isAiRequirementAnalysis(value: unknown): value is AiRequirementAnalysisResult {
                 if (typeof value !== 'object' || value === null) return false;
@@ -1845,6 +1985,9 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             ...(payload.interviewStage ? { interviewStage: payload.interviewStage } : {}),
             ...(payload.nextFollowUpDate ? { nextFollowUpDate: payload.nextFollowUpDate } : {}),
             ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
+            ...(payload.recruiterName !== undefined ? { recruiterName: payload.recruiterName } : {}),
+            ...(payload.recruiterEmail !== undefined ? { recruiterEmail: payload.recruiterEmail } : {}),
+            ...(payload.expectedSalary !== undefined ? { expectedSalary: payload.expectedSalary } : {}),
           })
           .then((application) => {
             const res: UpdateApplicationStatusResponse = {
@@ -2055,6 +2198,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               const pdfBlob = await generateResumePdfBlob(tailoredResume, profile, {
                 templateId: payload?.templateId,
                 onePageFit: payload?.onePageFit,
+                density: payload?.density,
+                showTargetBadge: payload?.showTargetBadge,
               });
               const arrayBuffer = await pdfBlob.arrayBuffer();
               const pdfBase64 = encodeBytesToBase64(arrayBuffer);
@@ -2082,6 +2227,30 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         return true;
       }
 
+      case 'SUBMISSION_DETECTED': {
+        const payload = message as SubmissionDetectedNotification;
+        processSubmissionDetection(payload.url, payload.title, payload.atsType)
+          .then((result) => {
+            const res: SubmissionDetectedResponse = {
+              type: 'SUBMISSION_DETECTED_RESULT',
+              success: result.success,
+              applicationId: result.applicationId,
+              previousStatus: result.previousStatus,
+              newStatus: result.newStatus,
+              error: result.error,
+            };
+            sendResponse(res);
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'SUBMISSION_DETECTED_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
       case 'ANSWER_AD_HOC_QUESTION': {
         const payload = message as AnswerAdHocQuestionRequest;
         (async () => {
@@ -2096,17 +2265,116 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               return;
             }
 
+            const questionText = (payload.question || '').trim();
+            const questionLower = questionText.toLowerCase();
+
+            // ---------------------------------------------------------
+            // Stage 1: Fast-Path Deterministic Match (0ms offline, 0 API keys)
+            // ---------------------------------------------------------
+            // 1a. Check candidate's saved reusable answers
+            const savedMatch = matchSavedAnswer(profile.savedAnswers || [], questionText);
+            if (savedMatch && savedMatch.answerText.trim().length > 0) {
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: true,
+                answerText: savedMatch.answerText.trim(),
+                confidence: 1.0,
+                supportingClaimIds: [],
+                notes: 'Retrieved instantly from your verified saved answers (0ms offline).',
+              });
+              return;
+            }
+
+            // 1b. Check deterministic profile attributes
+            let fastPathAnswer: string | undefined;
+
+            if ((questionLower.includes('country') || questionLower.includes('nation')) && !questionLower.includes('code')) {
+              fastPathAnswer = profile.identity.location?.country;
+            } else if ((questionLower.includes('state') || questionLower.includes('province') || questionLower.includes('region')) && (questionLower.includes('located') || questionLower.includes('live') || questionLower.includes('which') || questionLower.includes('what'))) {
+              fastPathAnswer = profile.identity.location?.stateOrProvince;
+            } else if (questionLower.includes('city') && (questionLower.includes('located') || questionLower.includes('live') || questionLower.includes('which') || questionLower.includes('what'))) {
+              fastPathAnswer = profile.identity.location?.city;
+            } else if (questionLower.includes('where') && (questionLower.includes('located') || questionLower.includes('live') || questionLower.includes('based') || questionLower.includes('reside'))) {
+              fastPathAnswer = [profile.identity.location?.city, profile.identity.location?.stateOrProvince, profile.identity.location?.country].filter(Boolean).join(', ');
+            } else if (questionLower.includes('phone') || questionLower.includes('telephone') || questionLower.includes('mobile')) {
+              fastPathAnswer = profile.identity.phone;
+            } else if (questionLower.includes('email')) {
+              fastPathAnswer = profile.identity.email;
+            } else if (questionLower.includes('current company') || questionLower.includes('current employer') || questionLower.includes('present employer')) {
+              const curExp = profile.experiences.find((e) => e.isCurrent) || profile.experiences[0];
+              fastPathAnswer = curExp?.company;
+            } else if (questionLower.includes('current role') || questionLower.includes('current title') || questionLower.includes('current job') || questionLower.includes('present title')) {
+              const curExp = profile.experiences.find((e) => e.isCurrent) || profile.experiences[0];
+              fastPathAnswer = profile.professional.currentTitle || curExp?.title || profile.professional.headline;
+            } else if (questionLower.includes('hear about') || questionLower.includes('referral source')) {
+              fastPathAnswer = profile.professional.referralSource || (profile.links?.linkedin ? 'LinkedIn' : undefined);
+            } else if ((questionLower.includes('authorized') || questionLower.includes('authorization') || questionLower.includes('right to work') || questionLower.includes('eligible to work')) && !questionLower.includes('sponsor')) {
+              if (profile.identity.workAuthorization) {
+                fastPathAnswer = profile.identity.workAuthorization.isAuthorizedInCountry
+                  ? 'Yes, I am legally authorized to work in this country.'
+                  : 'No, I am not currently authorized to work in this country.';
+              }
+            } else if (questionLower.includes('sponsor') || questionLower.includes('sponsorship')) {
+              if (profile.identity.workAuthorization) {
+                fastPathAnswer = profile.identity.workAuthorization.requiresSponsorship
+                  ? 'Yes, I will require employment visa sponsorship now or in the future.'
+                  : 'No, I do not require employment visa sponsorship now or in the future.';
+              }
+            } else if (questionLower.includes('salary') || questionLower.includes('compensation') || questionLower.includes('expected pay') || questionLower.includes('desired pay')) {
+              if (profile.professional.compensationExpectation?.targetSalaryMin) {
+                fastPathAnswer = `${profile.professional.compensationExpectation.currency || 'USD'} ${profile.professional.compensationExpectation.targetSalaryMin.toLocaleString()}`;
+              }
+            } else if (questionLower.includes('notice') || questionLower.includes('notice period') || questionLower.includes('how much notice')) {
+              if (profile.professional.noticePeriodDays != null) {
+                fastPathAnswer = profile.professional.noticePeriodDays === 0
+                  ? 'Immediate — I can start right away without a notice period.'
+                  : `${profile.professional.noticePeriodDays} days notice period.`;
+              }
+            } else if (questionLower.includes('start date') || (questionLower.includes('start') && (questionLower.includes('when') || questionLower.includes('how soon')))) {
+              fastPathAnswer = profile.professional.earliestStartDate || (profile.professional.noticePeriodDays != null ? `${profile.professional.noticePeriodDays} days notice` : undefined);
+            } else if (questionLower.includes('relocat')) {
+              fastPathAnswer = profile.professional.isOpenToRelocation
+                ? 'Yes, I am open to relocating for the right opportunity.'
+                : 'No, I am currently seeking remote roles or roles in my current location.';
+            } else if (questionLower.includes('linkedin')) {
+              fastPathAnswer = profile.links.linkedin;
+            } else if (questionLower.includes('github')) {
+              fastPathAnswer = profile.links.github;
+            } else if (questionLower.includes('portfolio') || questionLower.includes('website')) {
+              fastPathAnswer = profile.links.portfolio || profile.links.personalBlog;
+            }
+
+            if (fastPathAnswer && fastPathAnswer.trim().length > 0) {
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: true,
+                answerText: fastPathAnswer.trim(),
+                confidence: 1.0,
+                supportingClaimIds: [],
+                notes: 'Resolved deterministically from verified profile attributes (0ms offline).',
+              });
+              return;
+            }
+
+            // ---------------------------------------------------------
+            // Stage 2: Grounded AI Synthesis
+            // ---------------------------------------------------------
+            // Check if any AI provider is configured
+            const keysStatus = await getApiKeysStatus();
+            const hasAnyKey = keysStatus.openai || keysStatus.anthropic || keysStatus.gemini || keysStatus.openrouter;
+            if (!hasAnyKey) {
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: false,
+                error: 'No AI provider API key configured. You can get a free Google Gemini key in 1 click at https://aistudio.google.com/app/apikey (100% free) and add it in Settings, or configure your profile answers to enable offline fast-path answering.',
+              });
+              return;
+            }
+
             const evidenceGraph = await evidenceRepo.getEvidenceGraph();
             const savedAnswers = profile.savedAnswers || [];
             const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
             const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : (profile.claims || []);
-
-            // Check if saved answers have an exact match or pattern match
-            const questionLower = payload.question.toLowerCase();
-            const directMatch = savedAnswers.find((ans) =>
-              questionLower.includes(ans.canonicalKey.toLowerCase()) ||
-              ans.promptPatterns.some((pattern) => questionLower.includes(pattern.toLowerCase()))
-            );
 
             // Tokenize question for keyword matching against evidence claims
             const qTokens = questionLower.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2);
@@ -2120,13 +2388,29 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               ? matchedClaims.slice(0, 10)
               : [...matchedClaims, ...candidateClaims.slice(0, 10)].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
 
+            // Build tone instructions
+            let toneInstruction = '';
+            if (payload.tone === 'star') {
+              toneInstruction = ' Structure the response using the STAR method (Situation, Task, Action, Result).';
+            } else if (payload.tone === 'concise') {
+              toneInstruction = ' Keep the response extremely concise, direct, and factual.';
+            } else if (payload.tone === 'motivational') {
+              toneInstruction = ' Use an engaging, enthusiastic, and forward-looking tone.';
+            } else if (payload.tone === 'bullets') {
+              toneInstruction = ' Format the response using concise, impact-oriented bullet points.';
+            }
+
             const context: FieldAnsweringContext = {
-              fieldLabel: payload.question,
+              fieldLabel: `${payload.question}${toneInstruction}${payload.maxLength ? ` (Strict limit: max ${payload.maxLength} characters)` : ''}`,
               fieldType: 'textarea',
-              relevantAnswers: directMatch ? [directMatch] : savedAnswers.slice(0, 5),
+              relevantAnswers: savedAnswers.slice(0, 5),
               relevantClaims,
               writingStyle: getWritingStyleFromProfile(profile),
-              answerLengthPreference: payload.maxLength && payload.maxLength < 150 ? 'short' : 'normal',
+              answerLengthPreference: payload.maxLength && payload.maxLength < 200 ? 'short' : 'normal',
+              candidateExperiences: profile.experiences,
+              candidateSkills: profile.skills,
+              candidateEducation: profile.education,
+              candidateSummary: profile.professional?.summary || profile.professional?.headline,
             };
 
             const request = buildFieldAnsweringPrompt(context);
@@ -2144,8 +2428,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               return (
                 typeof value === 'object' &&
                 value !== null &&
-                typeof (value as Record<string, unknown>).answerText === 'string' &&
-                typeof (value as Record<string, unknown>).confidence === 'number'
+                typeof (value as Record<string, unknown>).answerText === 'string'
               );
             }
 
@@ -2154,32 +2437,102 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               isFieldAnsweringResult
             );
 
-            if (parsed.success && parsed.data) {
-              const answerText = parsed.data.answerText.trim();
-              const res: AnswerAdHocQuestionResponse = {
-                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
-                success: true,
-                answerText,
-                confidence: parsed.data.confidence ?? 0.85,
-                supportingClaimIds: parsed.data.supportingClaimIds || [],
-                notes: parsed.data.notes || '',
-              };
-              sendResponse(res);
-            } else {
-              const raw = response.rawText.trim();
-              const res: AnswerAdHocQuestionResponse = {
-                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
-                success: true,
-                answerText: raw,
-                confidence: 0.7,
-                supportingClaimIds: relevantClaims.slice(0, 3).map((c) => c.id),
-                notes: 'Generated from verified candidate evidence.',
-              };
-              sendResponse(res);
+            let finalAnswer = parsed.success && parsed.data ? parsed.data.answerText.trim() : '';
+            if (!finalAnswer) {
+              try {
+                const cleaned = response.rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+                const obj = JSON.parse(cleaned);
+                if (obj && typeof obj.answerText === 'string') {
+                  finalAnswer = obj.answerText.trim();
+                } else if (obj && typeof obj.answer === 'string') {
+                  finalAnswer = obj.answer.trim();
+                }
+              } catch {
+                finalAnswer = response.rawText.trim();
+              }
             }
+
+            const confidence = parsed.success && parsed.data ? (parsed.data.confidence ?? 0.85) : 0.85;
+            const supportingClaimIds = parsed.success && parsed.data ? (parsed.data.supportingClaimIds || []) : relevantClaims.slice(0, 3).map((c) => c.id);
+
+            // Enforce character limit if specified
+            if (payload.maxLength && finalAnswer.length > payload.maxLength) {
+              const truncated = finalAnswer.slice(0, payload.maxLength);
+              const lastPeriod = truncated.lastIndexOf('.');
+              if (lastPeriod > payload.maxLength * 0.7) {
+                finalAnswer = truncated.slice(0, lastPeriod + 1);
+              } else {
+                finalAnswer = truncated.trim();
+              }
+            }
+
+            sendResponse({
+              type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+              success: true,
+              answerText: finalAnswer,
+              confidence,
+              supportingClaimIds,
+              notes: 'Synthesized with AI strictly grounded in verified evidence claims.',
+            });
           } catch (err) {
             sendResponse({
               type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+        return true;
+      }
+
+      case 'SAVE_REUSABLE_ANSWER': {
+        const payload = message as SaveReusableAnswerRequest;
+        (async () => {
+          try {
+            const profile = await profileRepo.getProfile();
+            if (!profile) {
+              sendResponse({
+                type: 'SAVE_REUSABLE_ANSWER_RESULT',
+                success: false,
+                error: 'Candidate profile not initialized.',
+              });
+              return;
+            }
+
+            const now = new Date().toISOString();
+            const newAnswer: SavedAnswer = {
+              id: createSavedAnswerId(),
+              canonicalKey: payload.question.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 50),
+              promptPatterns: [payload.question.trim()],
+              answerText: payload.answerText.trim(),
+              category: (payload.category as AnswerCategory) || 'custom',
+              tags: ['copilot_qa'],
+              evidenceRefs: [],
+              createdAt: now,
+              updatedAt: now,
+            };
+
+            const existingAnswers = profile.savedAnswers || [];
+            const filteredAnswers = existingAnswers.filter(
+              (ans) => !ans.promptPatterns.some((p) => p.toLowerCase() === payload.question.trim().toLowerCase())
+            );
+
+            const updatedProfile: CandidateProfile = {
+              ...profile,
+              savedAnswers: [newAnswer, ...filteredAnswers],
+              updatedAt: now,
+            };
+
+            await profileRepo.saveProfile(updatedProfile);
+
+            sendResponse({
+              type: 'SAVE_REUSABLE_ANSWER_RESULT',
+              success: true,
+              savedAnswerId: newAnswer.id,
+            });
+          } catch (err) {
+            sendResponse({
+              type: 'SAVE_REUSABLE_ANSWER_RESULT',
               success: false,
               error: err instanceof Error ? err.message : String(err),
             });
@@ -2240,7 +2593,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         const payload = message as ExecuteOneClickAutoFillRequest;
         (async () => {
           try {
-            // 1. Resolve target application form
+            // Resolve target application form from payload or active DOM
             let targetForm = payload.form;
             if (!targetForm) {
               const inspectResult = await inspectFormsFromActiveTab();
@@ -2266,7 +2619,6 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               return;
             }
 
-            // 2. Load candidate profile and evidence
             const profile = await profileRepo.getProfile();
             if (!profile) {
               const res: ExecuteOneClickAutoFillResponse = {
@@ -2278,97 +2630,98 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               return;
             }
 
-            // 3. Generate initial deterministic dry-run plan
             let plan = generateDryRunPlan(targetForm, profile);
 
-            // 4. Answer custom open fields using AI when applicable
+            // Synthesize grounded answers for custom questions where deterministic mappings do not apply
             const aiAnswerableFields = targetForm.fields.filter(isAiAnswerableCustomField);
             if (aiAnswerableFields.length > 0) {
               try {
                 const evidenceGraph = await evidenceRepo.getEvidenceGraph();
                 const savedAnswers = profile.savedAnswers || [];
                 const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
-                const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : [];
+                const candidateClaims = evidenceList.length > 0
+                  ? deriveClaimsFromEvidence(evidenceList)
+                  : (profile.claims || []);
 
-                const answers: AiProposedFieldAnswer[] = [];
-                for (const field of aiAnswerableFields) {
-                  const relevantAnswers = savedAnswers.filter((ans) =>
-                    field.label.toLowerCase().includes(ans.canonicalKey.toLowerCase()) ||
-                    ans.promptPatterns.some((pattern) => field.label.toLowerCase().includes(pattern.toLowerCase()))
-                  );
-
-                  const labelKeywords = field.label
-                    .toLowerCase()
-                    .replace(/[^a-z0-9\s]/g, ' ')
-                    .split(/\s+/)
-                    .filter((w) => w.length > 2);
-
-                  const keywordMatchedClaims = candidateClaims.filter((claim) => {
-                    const statementLower = claim.statement.toLowerCase();
-                    const tagsLower = (claim.tags || []).map((t) => t.toLowerCase());
-                    return labelKeywords.some(
-                      (kw) => statementLower.includes(kw) || tagsLower.some((t) => t.includes(kw))
+                const answerPromises = aiAnswerableFields.map(async (field) => {
+                  try {
+                    const relevantAnswers = savedAnswers.filter((ans) =>
+                      field.label.toLowerCase().includes(ans.canonicalKey.toLowerCase()) ||
+                      ans.promptPatterns.some((pattern) => field.label.toLowerCase().includes(pattern.toLowerCase()))
                     );
-                  });
 
-                  const relevantClaims = keywordMatchedClaims.length >= 3
-                    ? keywordMatchedClaims
-                    : [
-                        ...keywordMatchedClaims,
-                        ...candidateClaims.slice(0, 10),
-                      ].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+                    const labelKeywords = field.label
+                      .toLowerCase()
+                      .replace(/[^a-z0-9\s]/g, ' ')
+                      .split(/\s+/)
+                      .filter((w) => w.length > 2);
 
-                  const context: FieldAnsweringContext = {
-                    fieldLabel: field.label,
-                    fieldType: field.fieldType,
-                    options: field.options,
-                    placeholder: field.placeholder,
-                    relevantAnswers,
-                    relevantClaims,
-                    writingStyle: getWritingStyleFromProfile(profile),
-                    answerLengthPreference: 'normal',
-                  };
+                    const keywordMatchedClaims = candidateClaims.filter((claim) => {
+                      const statementLower = claim.statement.toLowerCase();
+                      const tagsLower = (claim.tags || []).map((t) => t.toLowerCase());
+                      return labelKeywords.some(
+                        (kw) => statementLower.includes(kw) || tagsLower.some((t) => t.includes(kw))
+                      );
+                    });
 
-                  const request = buildFieldAnsweringPrompt(context);
-                  const response = await aiGateway.executeRequest(request);
+                    const relevantClaims = keywordMatchedClaims.length >= 3
+                      ? keywordMatchedClaims
+                      : [
+                          ...keywordMatchedClaims,
+                          ...candidateClaims.slice(0, 10),
+                        ].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
 
-                  interface FieldAnsweringResult {
-                    answerText: string;
-                    confidence: number;
-                    supportingClaimIds: string[];
-                    isGrounded: boolean;
-                    notes: string;
-                  }
+                    const context: FieldAnsweringContext = {
+                      fieldLabel: field.label,
+                      fieldType: field.fieldType,
+                      options: field.options,
+                      placeholder: field.placeholder,
+                      relevantAnswers,
+                      relevantClaims,
+                      writingStyle: getWritingStyleFromProfile(profile),
+                      answerLengthPreference: 'normal',
+                      candidateExperiences: profile.experiences,
+                      candidateSkills: profile.skills,
+                      candidateEducation: profile.education,
+                      candidateSummary: profile.professional?.summary || profile.professional?.headline,
+                    };
 
-                  function isFieldAnsweringResult(value: unknown): value is FieldAnsweringResult {
-                    return (
-                      typeof value === 'object' &&
-                      value !== null &&
-                      typeof (value as Record<string, unknown>).answerText === 'string' &&
-                      typeof (value as Record<string, unknown>).confidence === 'number' &&
-                      Array.isArray((value as Record<string, unknown>).supportingClaimIds)
-                    );
-                  }
+                    const request = buildFieldAnsweringPrompt(context);
+                    const response = await aiGateway.executeRequest(request);
 
-                  const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
-                    response.rawText,
-                    isFieldAnsweringResult
-                  );
+                    let answerText = '';
+                    try {
+                      const cleaned = response.rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+                      const obj = JSON.parse(cleaned);
+                      if (obj && typeof obj.answerText === 'string') {
+                        answerText = obj.answerText.trim();
+                      } else if (obj && typeof obj.answer === 'string') {
+                        answerText = obj.answer.trim();
+                      }
+                    } catch {
+                      answerText = response.rawText.trim();
+                    }
 
-                  if (parsed.success && parsed.data) {
-                    const answerText = parsed.data.answerText.trim();
-                    if (answerText) {
-                      const confidence = Math.min(1, Math.max(0, parsed.data.confidence ?? 0.8));
-                      const supportingClaimIds = parsed.data.supportingClaimIds?.length > 0
-                        ? parsed.data.supportingClaimIds
-                        : relevantClaims.slice(0, 3).map((c) => c.id);
-                      answers.push({
+                    if (answerText && answerText.length > 0) {
+                      return {
                         fieldId: field.id,
                         answerText,
-                        confidence,
-                        supportingClaimIds,
-                      });
+                        confidence: 0.85,
+                        supportingClaimIds: relevantClaims.slice(0, 3).map((c) => c.id),
+                      };
                     }
+                    return null;
+                  } catch (err) {
+                    console.warn(`Failed to synthesize answer for field ${field.label}:`, err);
+                    return null;
+                  }
+                });
+
+                const settled = await Promise.allSettled(answerPromises);
+                const answers: AiProposedFieldAnswer[] = [];
+                for (const item of settled) {
+                  if (item.status === 'fulfilled' && item.value) {
+                    answers.push(item.value);
                   }
                 }
 
@@ -2380,12 +2733,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               }
             }
 
-            // 5. Batch-approve all planned actions for single-click execution
+            // Batch-approve planned candidate actions for single-click dispatch
             plan = approveAllActions(plan);
             activeDryRunPlan = plan;
             persistActivePlan();
 
-            // 6. Execute actions on active tab DOM (Strictly halts at Submission Gate)
+            // Submission Hard Gate: execute approved actions on active tab while strictly halting before application submit controls
             const result = await executePlanOnActiveTab(plan, payload.options);
             if (result.success && result.report) {
               await recordApplicationExecution(plan, result.report);
@@ -2483,87 +2836,18 @@ async function loadTailoringContext(jobId?: string) {
 }
 
 /**
- * Automatically seeds Jephter Olamiposi Olaifa's profile, claims, evidence graph,
- * and Gemini API key on first launch if storage is uninitialized.
+ * Monitors navigation events to detect ATS confirmation / thank-you pages automatically (Phase 20).
  */
-async function bootstrapInitialCandidateData(): Promise<void> {
-  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
-
-  try {
-    // 1. Seed Gemini API key if not configured
-    const keyData = await chrome.storage.local.get(STORAGE_KEYS.PROVIDER_KEYS);
-    const existingKeys = (keyData[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, string>) || {};
-    if (!existingKeys.gemini) {
-      await chrome.storage.local.set({ [STORAGE_KEYS.PROVIDER_KEYS]: existingKeys });
+if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab && tab.url) {
+      if (isSubmissionConfirmationUrl(tab.url).isConfirmation) {
+        processSubmissionDetection(tab.url, tab.title).catch(() => {
+          // Non-critical background observation
+        });
+      }
     }
-
-    // 2. Seed profile if no candidate profile exists
-    const existingProfile = await profileRepo.getProfile();
-    if (!existingProfile) {
-      const RAW_RESUME_TEXT = `Jephter Olamiposi Olaifa
-jephterolaifa@gmail.com  |  github.com/jephter-olamiposi  |  linkedin.com/in/jephter-olaifa  |  dev.to/iamjephter
-SKILLS
-Languages: Rust, TypeScript, JavaScript, Python
-Frameworks: Axum, Tokio, Node.js, Express, NestJS, gRPC, React, Next.js
-Databases: PostgreSQL, SurrealDB, Redis, MongoDB
-Infrastructure & Tools: AWS, Docker, Kubernetes, CI/CD, GitHub Actions
-Focus Areas: System Design, Distributed Systems, Financial Systems, Observability
-WORK EXPERIENCE
-Software Engineer — CoreServe — Rust
-Feb 2026 – Aug 2026
-* Engineered a production-grade, multi-tenant backend for a waste recycling and logistics platform using Rust, Axum, Tokio, SQLx, and PostgreSQL.
-* Designed transaction-safe wallet, billing, settlement, and payout workflows with maker-checker approval, idempotent processing, cancellation lifecycles, and automated reconciliation.
-* Built asynchronous workers for billing, payout dispatch, settlement, reporting, scheduled pickups, notifications, and reconciliation with bounded concurrency and retry handling; implemented tenant-isolated data access, role-based authorization, and JWT authentication.
-* Developed APIs for marketplace orders, inventory, pickup scheduling, dashboards, and operational metrics across administrators, aggregators, clients, and field staff.
-Backend Engineer — GeoResinStore
-Mar 2025 – Feb 2026
-* Architected a modular e-commerce backend for a leading Nigerian resin art supplier using Node.js and PostgreSQL.
-* Implemented server-side Paystack and Flutterwave webhook verification to prevent payment tampering and automate order confirmation.
-* Architected a multi-tenant invoicing backend with isolated business profiles, role-based access control, and configurable branding using NestJS.
-* Engineered an inventory state machine with checkout-time stock reservations to prevent overselling under concurrent demand.
-* Built administrative APIs for order processing, status tracking, inventory operations, and automated logistics email notifications.
-Software Engineer — Internet Number Technologies — Rust
-Feb 2025 – Oct 2025
-* Architected the control plane for a production-grade telephony platform orchestrating real-time communication, subscriptions, and billing for thousands of users.
-* Engineered a high-throughput signaling backend with Rust and Axum to manage session lifecycles for Web-to-PSTN calls.
-* Designed a type-safe SurrealDB persistence layer for subscription models and automated top-ups, protecting financial state across complex billing flows.
-* Implemented dynamic codec negotiation and SIP bridging logic to support reliable, low-latency audio delivery.
-Software Engineer — Billeva
-May 2024 – Present
-* Engineered an asynchronous streaming CSV import pipeline for processing large customer datasets without blocking request workflows.
-* Designed a configurable mapping engine that transformed arbitrary CSV columns into validated internal data models.
-Software Engineer — Freelance
-Mar 2023 – Feb 2025
-* Developed backend services for decentralized applications, creating an interoperability layer between React clients and Rust-based Solana smart contracts.
-* Established reusable GitHub Actions CI/CD pipelines to automate testing and deployment across client projects.
-Software Engineer — B-glow Creations
-Aug 2022 – Feb 2023
-* Built a fashion e-commerce website in React, including the customer-facing storefront and an admin dashboard for managing products, orders, and inventory.
-PERSONAL PROJECTS
-* wsblast (Rust) — Built a high-performance WebSocket load-testing CLI with zero-allocation hot paths, lock-free task-local latency histograms (HdrHistogram), and CI/CD SLO gating (p50/p95/p99/p99.9, error-rate budgets) that fails builds on regression; published on crates.io with a Ratatui live dashboard and JSON/Markdown reporting.
-* Echo (Rust, Tauri, SQLite) — Built a cross-platform clipboard synchronization engine with a low-memory Rust daemon that captures OS-level clipboard events and synchronizes history across desktop and mobile clients.
-* Real-Time Multiplayer Game Engine (Rust, Axum, Tokio, Egui) — Engineered a distributed multiplayer system with a native desktop client and an asynchronous Axum WebSocket server for low-latency game-state synchronization.
-EDUCATION
-Ladoke Akintola University of Technology — BSc, Information Systems`;
-
-      const parsed = parsePlainTextResume(RAW_RESUME_TEXT);
-      const { profile, evidence } = createProfileFromParsedResume(parsed);
-      const claims = deriveClaimsFromEvidence(evidence);
-
-      await Promise.all([
-        profileRepo.saveProfile({ ...profile, claims }),
-        evidenceRepo.saveEvidenceBatch(evidence),
-        evidenceRepo.saveClaimBatch(claims),
-        chrome.storage.local.set({ applykit_onboarding_completed: true }),
-      ]);
-    }
-  } catch (err) {
-    console.error('Failed to bootstrap initial candidate profile:', err);
-  }
+  });
 }
 
-// Run bootstrap when background script initializes in extension runtime
-if (typeof process === 'undefined' || !process.env || (process.env.NODE_ENV !== 'test' && !process.env.VITEST)) {
-  void bootstrapInitialCandidateData();
-}
 

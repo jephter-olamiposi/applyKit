@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit and integration tests for Tailoring Engine & Fact-Checking Flow (Phase 12).
+ * @fileoverview Unit and integration tests for Tailoring Engine & Fact-Checking Flow.
  *
  * Verifies:
  * 1. Resume tailoring integration: experiences and projects ranked by job criteria alignment.
@@ -36,7 +36,7 @@ import {
   deleteDatabase,
 } from '../storage/index.js';
 
-describe('Evidence-Grounded Tailoring & Fact-Checking Flow (Phase 12)', () => {
+describe('Evidence-Grounded Tailoring & Fact-Checking Flow', () => {
   let profileRepo: IndexedDbProfileRepository;
   let jobRepo: IndexedDbJobRepository;
   let evidenceRepo: IndexedDbEvidenceRepository;

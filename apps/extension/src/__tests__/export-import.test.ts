@@ -43,7 +43,6 @@ describe('Data Sovereignty & Privacy Engine Suite', () => {
 
   describe('Backup Export & Import', () => {
     it('exports a complete valid JSON backup and restores it into IndexedDB', async () => {
-      // 1. Populate some data
       const profileRepo = new IndexedDbProfileRepository(indexedDB);
       const jobRepo = new IndexedDbJobRepository(indexedDB);
       const evidenceRepo = new IndexedDbEvidenceRepository(indexedDB);
@@ -102,7 +101,6 @@ describe('Data Sovereignty & Privacy Engine Suite', () => {
       jobRepo.close();
       evidenceRepo.close();
 
-      // 2. Export backup
       const backupJson = await exportCandidateBackup(indexedDB);
       expect(backupJson).toBeDefined();
 
@@ -112,7 +110,6 @@ describe('Data Sovereignty & Privacy Engine Suite', () => {
       expect(parsed.jobs.length).toBe(1);
       expect(parsed.evidence.length).toBe(1);
 
-      // 3. Purge existing data
       await purgeAllLocalData(indexedDB);
 
       // Verify empty after purge
@@ -121,7 +118,6 @@ describe('Data Sovereignty & Privacy Engine Suite', () => {
       expect(purgedProfile).toBeNull();
       checkRepo.close();
 
-      // 4. Restore backup
       const importResult = await importCandidateBackup(backupJson, indexedDB);
       expect(importResult.success).toBe(true);
 

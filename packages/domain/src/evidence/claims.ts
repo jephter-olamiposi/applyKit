@@ -76,7 +76,7 @@ export function deriveClaimsFromEvidence(evidenceList: readonly Evidence[]): Can
   const claims: CandidateClaim[] = [];
   const now = new Date().toISOString();
 
-  // 1. Group evidence by technology tags for Skill Proficiency claims
+  // Group evidence by technology tags for Skill Proficiency claims
   const skillEvidenceMap = new Map<string, EvidenceId[]>();
 
   for (const ev of evidenceList) {
@@ -109,7 +109,7 @@ export function deriveClaimsFromEvidence(evidenceList: readonly Evidence[]): Can
     });
   }
 
-  // 2. Derive Achievement and Leadership claims from individual bullet evidence
+  // Derive Achievement and Leadership claims from individual bullet evidence
   for (const ev of evidenceList) {
     // Credential claims from diplomas
     if (ev.source.type === 'diploma' || ev.source.type === 'third_party_credential') {

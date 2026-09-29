@@ -179,7 +179,7 @@ export function factCheckTailoredDocument(
     const sentenceTokens = tokenize(sentence);
     const sentenceMetrics = extractMetrics(sentence);
 
-    // 1. Metric Provenance Audit
+    // Metric provenance audit: flag any numbers or percentages not verified in evidence pool
     let metricMissing = false;
     for (const metric of sentenceMetrics) {
       const metricFoundInPool = evidencePool.some((item) => item.text.includes(metric));
@@ -201,7 +201,7 @@ export function factCheckTailoredDocument(
       continue;
     }
 
-    // 2. Evidence Corroboration via Semantic Overlap
+    // Evidence corroboration via semantic overlap
     let bestMatch: { id?: EvidenceId; text: string; overlap: number } | null = null;
 
     for (const item of evidencePool) {

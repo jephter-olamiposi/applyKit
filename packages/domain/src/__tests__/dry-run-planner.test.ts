@@ -24,7 +24,7 @@ import type {
   CandidateProfile,
 } from '../index.js';
 
-describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planner (Phase 8)', () => {
+describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planner', () => {
   const mockProfile: CandidateProfile = {
     ...createEmptyProfile(),
     identity: {
@@ -217,7 +217,6 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       expect(plan.submitButtonSelector).toBe('#submit_app');
       expect(plan.actions.length).toBe(4);
 
-      // 1. Text action
       const firstAction = plan.actions[0]!;
       expect(firstAction.action.actionType).toBe('fill_text');
       expect(firstAction.action.selector).toBe('#first_name');
@@ -225,20 +224,17 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       expect(firstAction.riskLevel).toBe('low');
       expect(firstAction.userConfirmed).toBe(true); // Low risk auto-approved
 
-      // 2. Select action
       const selectAction = plan.actions[1]!;
       expect(selectAction.action.actionType).toBe('select_option');
       expect(selectAction.action.value).toBe('US');
       expect(selectAction.candidateValueUsed).toBe('United States');
 
-      // 3. Radio action
       const radioAction = plan.actions[2]!;
       expect(radioAction.action.actionType).toBe('click');
       expect(radioAction.action.selector).toBe('#sponsorship_group input[value="no"]');
       expect(radioAction.riskLevel).toBe('high');
       expect(radioAction.userConfirmed).toBe(false); // High risk requires explicit user confirmation
 
-      // 4. File action
       const fileAction = plan.actions[3]!;
       expect(fileAction.action.actionType).toBe('upload_file');
       expect(fileAction.action.value).toBe('Alex_Rivera_Resume_2026.pdf');
@@ -426,7 +422,7 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
     });
   });
 
-  describe('Human-in-the-Loop Review UI & Selective Execution (Phase 10)', () => {
+  describe('Human-in-the-Loop Review UI & Selective Execution', () => {
     it('resolveEvidenceSourceTitle maps inferred keys to ground truth categories', () => {
       expect(
         resolveEvidenceSourceTitle({

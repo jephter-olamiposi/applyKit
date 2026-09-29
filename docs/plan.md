@@ -230,3 +230,123 @@ ApplyKit is a local-first, privacy-respecting browser extension and engine that 
   - **Iframe & Custom Input Crawler**:
     - Content script configured with `"all_frames": true` to inspect embedded Greenhouse/Ashby iframes, plus support for `[role="textbox"]`, `[contenteditable="true"]`, and `[role="combobox"]`.
 - **Exit Criteria:** 14-point audit scores 100/100 on polished resumes; 1-click auto-fill completes all fields safely without submitting; all 317 tests pass.
+
+---
+
+## Phase 17: In-Page Floating Assistant Hub & Active Field Pills — ✅ Complete
+- **Objective:** Provide zero-friction, in-page interaction by injecting an isolated Shadow DOM action hub and active field pills directly on job application pages.
+- **Deliverables:**
+  - Closed Shadow DOM container (`<applykit-in-page-hub>`) ensuring complete CSS isolation and preventing style contamination from or to the host webpage.
+  - Active field focus pill (`[⚡ Auto-Fill]` and `[💡 Answer]`): appears above focused inputs, textareas, and comboboxes.
+  - 1-Click floating action pill at bottom-right of detected forms (`[⚡ ApplyKit: 14 Fields Detected — Review & Fill]`).
+  - Strict security adherence: API keys isolated to background worker; submission hard gate maintained.
+- **Exit Criteria:** In-page floating pill appears on Greenhouse, Lever, and Workday forms without breaking host DOM; clicking pill fills target input safely.
+
+---
+
+## Phase 18: Smart PDF Resume Importer & Profile Bootstrapper — ✅ Complete
+- **Objective:** Provide a 1-click onboarding experience where new users upload an existing PDF/DOCX resume to automatically construct their `CandidateProfile` and `EvidenceGraph`.
+- **Deliverables:**
+  - Client-side PDF text extractor and section segmenter.
+  - Structured extraction mapping raw resume text to `CandidateIdentity`, `WorkExperience[]`, `CandidateProject[]`, `EducationRecord[]`, and `CandidateSkill[]`.
+  - Automated `EvidenceGraph` decomposer creating verifiable claims with source citations.
+  - Visual verification modal allowing candidates to inspect and refine parsed history before saving to local IndexedDB.
+- **Exit Criteria:** Ingesting arbitrary PDF resume populates complete profile aggregate and generates >15 verifiable evidence nodes in < 3 seconds.
+
+---
+
+## Phase 19: Live Interactive PDF Preview Canvas & Styling Controls — ✅ Complete
+- **Objective:** Provide an embedded, real-time vector PDF preview canvas in the Side Panel with zoom, template switching, and page-budget diagnostics.
+- **Deliverables:**
+  - Interactive PDF viewer canvas embedded inside `TailoringStudio.tsx` rendering live generated Blob URL.
+  - Zoom and page flip controls (Fit, 75%, 100%, 125%, Next/Prev page).
+  - Real-time template switcher (Modern Clean, Classic Executive, Minimalist ATS, Compact 1-Pager).
+  - Dynamic single-page budget diagnostic flagging content spillover before export.
+- **Exit Criteria:** Side Panel displays sharp vector PDF preview within 400ms of resume modifications with seamless template switching.
+
+---
+
+## Phase 20: Automated Submission Detector, Kanban Pipeline & Recruiter Notes — ✅ Complete
+- **Objective:** Transform ApplyKit into an automatic application CRM by detecting submissions and organizing opportunities in a visual Kanban board.
+- **Deliverables:**
+  - Background WebNavigation listener detecting ATS confirmation and thank-you redirect routes.
+  - Automated state advance: transitioning job status from `In Progress` to `Applied` with timestamp and immutable tailored resume snapshot.
+  - Interactive 5-column Kanban pipeline board in Side Panel (`Saved` ➔ `Applied` ➔ `Interviewing` ➔ `Offer` ➔ `Archived`).
+  - Recruiter contact notes, interview date reminders, and CSV/JSON export.
+- **Exit Criteria:** Completing a real application automatically creates an applied record with the exact resume used and appears on the Kanban board.
+
+---
+
+## Phase 21: Targeted Company Mission & Cultural Alignment Engine — ✅ Complete
+- **Objective:** Extract organizational culture, mission statements, and engineering principles from job descriptions and synthesize authentic, evidence-backed motivation pitches and cover letter alignment paragraphs.
+- **Deliverables:**
+  - Deterministic culture and values parser identifying core cultural values, engineering principles, and product ecosystem references.
+  - Evidence alignment evaluator linking candidate verified accomplishments to employer values.
+  - Grounded cover letter integration weaving an organizational alignment paragraph.
+  - In-Page Assistant Hub dropzone pill for 1-click tailored resume PDF attachment.
+- **Exit Criteria:** Analyzes employer posting, scores cultural alignment, generates authentic "Why Us?" narrative without hallucination, and attaches tailored PDF smoothly.
+
+---
+
+## Phase 22: Download Manager & Native Chrome Downloads API Integration — ✅ Complete
+- **Objective:** Resolve browser-level PDF download failures in Chrome MV3 Extension Side Panels by declaring the `"downloads"` permission and integrating `chrome.downloads.download()` with persistent Base64 Data URLs and 60-second fallback Object URL lifespans.
+- **Deliverables:**
+  - Added `"downloads"` permission in `manifest.json` for reliable background file saving.
+  - Built `download-manager.ts` (`downloadPdfBlob`, `blobToDataUrl`) handling blob URL lifetime, filename sanitization, and fallback DOM click anchoring with 60-second cleanup.
+  - Integrated native download manager into `TailoringStudio.tsx`, eliminating synchronous blob URL revocation.
+  - Unit test suite: 5/5 tests passing in `download-manager.test.ts`.
+- **Exit Criteria:** Side Panel generates and saves vector PDF directly to user's local Downloads folder with descriptive filename (`resume-[name]-[company].pdf`) without premature blob revocation.
+
+---
+
+## Phase 23: Canonical Distributed Systems Engineer Real-World Simulation & Quality Verification — ✅ Complete
+- **Objective:** Rigorously validate the end-to-end ApplyKit pipeline against Canonical's live careers portal (`https://canonical.com/careers/4581200` - Distributed Systems Engineer).
+- **Deliverables:**
+  - **Stage 1 (Culture Extraction, Matching & Vector PDF)**: Extracted Canonical culture (Ubuntu, Open Source & Transparency, Distributed Systems & Reliability), verified requirement matching (Go, Raft, Kafka, Linux), tailored 14-point Golden Resume with vector PDF compilation (`%PDF-`), and synthesized grounded cover letter.
+  - **Stage 2 (Greenhouse Form Crawling & Submission Hard Gate)**: Mapped all standard applicant fields, staged dry-run plan with 6 actions, strictly excluded submission button, and verified system halt at `awaiting_user_review`.
+  - **Stage 3 (Automated ATS Confirmation & Kanban Pipeline)**: Verified redirect detection on `/confirmation`, advanced Kanban status to `submitted`, stamped applied timestamp, and demonstrated idempotent handling.
+  - Full workspace quality audit: 47 test files passing (383/383 tests 100% green), zero TypeScript errors (`tsc -b`), and packaged release archive (`applykit-extension-v0.1.0.zip`, 660.76 KB).
+- **Exit Criteria:** All 3 stages pass deterministically with full adherence to ADR-0004 (Zero Hallucination) and ADR-0006 (Submission Hard Gate).
+
+---
+
+## Phase 24: Recruiter Email & Interview Invitation Auto-Detector (ADR-0035) — ✅ Complete
+- **Objective:** Enable automatic detection of recruiter interview invitations and scheduling links without requiring privacy-invasive background webmail permissions.
+- **Deliverables:**
+  - Built deterministic detector in `email-detector.ts` classifying interview types (`phone_screen`, `technical`, `manager`, `onsite`, `take_home`).
+  - Extracted scheduling links from Calendly, GoodTime, Greenhouse, Lever, Cronofy, Zoom, and Google Meet.
+  - Correlated incoming messages with active IndexedDB applications and updated statuses to `interviewing`.
+  - Integrated in-panel quick scanner (`[📧 Scan Invite]`) in `ApplicationTracker.tsx`.
+- **Exit Criteria:** Tested and verified with 3/3 tests green.
+
+---
+
+## Phase 25: Evidence-Grounded Interview Prep & STAR Story Generator (ADR-0036) — ✅ Complete
+- **Objective:** Generate role-specific technical deep-dive questions and verified STAR behavioral narratives directly from candidate evidence without hallucination.
+- **Deliverables:**
+  - Built interview prep engine in `interview-prep.ts` linking job requirements to verified evidence nodes.
+  - Synthesized structured STAR stories (Situation, Task, Action, Result) citing verified evidence IDs.
+  - Formulated reverse interview questions to ask hiring managers tailored to company culture.
+  - Built interactive `InterviewPrepModal.tsx` launched from Kanban cards (`[🎯 Prep]`) and the detail drawer with 1-click clipboard copy.
+- **Exit Criteria:** Tested and verified with 6/6 tests green across domain and component test suites.
+
+---
+
+## Phase 26: Deterministic Salary & Compensation Benchmark Extractor (ADR-0037) — ✅ Complete
+- **Objective:** Automatically extract structured compensation data from job postings to populate Kanban cards and recruiter notes.
+- **Deliverables:**
+  - Built regex compensation parser in `salary-extractor.ts` supporting USD ($), GBP (£), EUR (€), CAD, and AUD ranges, hourly rates, and equity mentions.
+  - Formatted human-readable compensation badges on Kanban cards.
+- **Exit Criteria:** Tested and verified with 5/5 tests green.
+
+---
+
+## Phase 27: Client-Side Image Resume Ingestion Engine (ADR-0037) — ✅ Complete
+- **Objective:** Support client-side onboarding for candidates with image-based resumes (.png, .jpg, .jpeg, .webp, .bmp) or scanned documents.
+- **Deliverables:**
+  - Built image inspector and bitmap text extractor in `image-resume-parser.ts` detecting magic bytes and extracting printable text/contact information.
+  - Integrated image support into `bootstrapProfileFromResume`, `OnboardingWizard.tsx`, and `ProfileSummary.tsx`.
+- **Exit Criteria:** Tested and verified with 4/4 tests green.
+
+
+

@@ -1,7 +1,7 @@
 /**
  * @fileoverview DOM Extraction and sanitization engine for content script contexts.
  *
- * Implements Phase 1 content extraction while maintaining security boundaries:
+ * Extracts structured job posting content from DOM while enforcing security boundaries:
  * 1. Indirect prompt injection mitigation by sanitizing and XML-wrapping third-party text.
  * 2. Complete absence of any credential or API key dependencies (ADR-0002).
  * 3. Pure DOM traversal decoupled from external network requests.

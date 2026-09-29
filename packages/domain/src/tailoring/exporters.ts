@@ -28,7 +28,6 @@ export function exportResumeAsMarkdown(
 ): string {
   const lines: string[] = [];
 
-  // 1. Candidate Header
   const name = getPreferredOrLegalName(profile.identity) || 'Candidate';
   lines.push(`# ${name}`);
 
@@ -51,12 +50,10 @@ export function exportResumeAsMarkdown(
 
   lines.push('');
 
-  // 2. Executive Summary
   lines.push('## Professional Summary');
   lines.push(resume.tailoredSummary);
   lines.push('');
 
-  // 3. Technical Skills
   lines.push('## Technical Skills');
   if (resume.skills.matchedRequired.length > 0) {
     lines.push(`- **Core Competencies:** ${resume.skills.matchedRequired.join(', ')}`);
@@ -69,7 +66,6 @@ export function exportResumeAsMarkdown(
   }
   lines.push('');
 
-  // 4. Professional Experience
   lines.push('## Professional Experience');
   for (const exp of resume.experiences) {
     const dates = `${exp.startDate} – ${exp.isCurrent ? 'Present' : exp.endDate || 'N/A'}`;
@@ -81,7 +77,6 @@ export function exportResumeAsMarkdown(
     lines.push('');
   }
 
-  // 5. Projects
   if (resume.projects.length > 0) {
     lines.push('## Notable Projects');
     for (const proj of resume.projects) {
@@ -97,7 +92,6 @@ export function exportResumeAsMarkdown(
     }
   }
 
-  // 6. Education
   if (profile.education.length > 0) {
     lines.push('## Education');
     for (const edu of profile.education) {

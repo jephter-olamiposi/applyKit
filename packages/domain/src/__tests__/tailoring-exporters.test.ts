@@ -11,7 +11,7 @@ import {
   type CandidateProfile,
 } from '../index.js';
 
-describe('Tailoring Exporters Suite (Phase 12)', () => {
+describe('Tailoring Exporters Suite', () => {
   const profile: CandidateProfile = {
     ...createEmptyProfile(createProfileId('prof_sam')),
     identity: {

@@ -11,10 +11,16 @@
  */
 
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet, Font, renderToStream } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Font, pdf } from '@react-pdf/renderer';
 import type { CandidateProfile } from '../candidate/profile.js';
 import { getPreferredOrLegalName } from '../candidate/identity.js';
-import type { TailoredCoverLetter, TailoredResume, ResumePdfOptions, ResumeTemplateId } from './tailoring-types.js';
+import type {
+  TailoredCoverLetter,
+  TailoredResume,
+  ResumePdfOptions,
+  ResumeTemplateId,
+  SpacingDensity,
+} from './tailoring-types.js';
 
 Font.register({
   family: 'Helvetica',
@@ -188,6 +194,15 @@ const modernResumeStyles = StyleSheet.create({
     fontSize: 8.5,
     color: '#64748b',
   },
+  footer: {
+    position: 'absolute',
+    bottom: 14,
+    left: 40,
+    right: 40,
+    textAlign: 'center',
+    fontSize: 7.5,
+    color: '#94a3b8',
+  },
 });
 
 // Template 2: Classic Executive
@@ -330,6 +345,15 @@ const classicResumeStyles = StyleSheet.create({
     fontSize: 8.5,
     color: '#4b5563',
   },
+  footer: {
+    position: 'absolute',
+    bottom: 16,
+    left: 42,
+    right: 42,
+    textAlign: 'center',
+    fontSize: 7.5,
+    color: '#6b7280',
+  },
 });
 
 // Template 3: Minimalist ATS
@@ -462,6 +486,15 @@ const minimalistResumeStyles = StyleSheet.create({
   eduYear: {
     fontSize: 8.5,
     color: '#000000',
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 14,
+    left: 36,
+    right: 36,
+    textAlign: 'center',
+    fontSize: 7.5,
+    color: '#555555',
   },
 });
 
@@ -598,20 +631,102 @@ const compactResumeStyles = StyleSheet.create({
     fontSize: 7.5,
     color: '#64748b',
   },
+  footer: {
+    position: 'absolute',
+    bottom: 10,
+    left: 30,
+    right: 30,
+    textAlign: 'center',
+    fontSize: 7,
+    color: '#94a3b8',
+  },
 });
 
-function resolveResumeStyles(templateId: ResumeTemplateId = 'modern') {
+function applyDensityOverrides(baseStyles: Record<string, any>, density?: SpacingDensity): Record<string, any> {
+  if (!density || density === 'standard') {
+    return baseStyles;
+  }
+  if (density === 'tight') {
+    return {
+      ...baseStyles,
+      page: {
+        ...baseStyles.page,
+        paddingTop: Math.max(16, Math.round((baseStyles.page?.paddingTop ?? 32) * 0.75)),
+        paddingBottom: Math.max(16, Math.round((baseStyles.page?.paddingBottom ?? 32) * 0.75)),
+        paddingHorizontal: Math.max(20, Math.round((baseStyles.page?.paddingHorizontal ?? 36) * 0.8)),
+        lineHeight: 1.2,
+      },
+      paragraph: {
+        ...baseStyles.paragraph,
+        marginBottom: Math.max(2, Math.round((baseStyles.paragraph?.marginBottom ?? 5) * 0.65)),
+        lineHeight: 1.2,
+      },
+      sectionTitle: {
+        ...baseStyles.sectionTitle,
+        marginTop: Math.max(5, Math.round((baseStyles.sectionTitle?.marginTop ?? 9) * 0.65)),
+        marginBottom: Math.max(1, Math.round((baseStyles.sectionTitle?.marginBottom ?? 3) * 0.65)),
+      },
+      experience: {
+        ...baseStyles.experience,
+        marginBottom: Math.max(3, Math.round((baseStyles.experience?.marginBottom ?? 7) * 0.65)),
+      },
+      bullet: {
+        ...baseStyles.bullet,
+        marginBottom: 1,
+      },
+    };
+  }
+  if (density === 'relaxed') {
+    return {
+      ...baseStyles,
+      page: {
+        ...baseStyles.page,
+        paddingTop: Math.round((baseStyles.page?.paddingTop ?? 32) * 1.2),
+        paddingBottom: Math.round((baseStyles.page?.paddingBottom ?? 32) * 1.2),
+        paddingHorizontal: Math.round((baseStyles.page?.paddingHorizontal ?? 36) * 1.15),
+        lineHeight: 1.45,
+      },
+      paragraph: {
+        ...baseStyles.paragraph,
+        marginBottom: Math.round((baseStyles.paragraph?.marginBottom ?? 5) * 1.35),
+        lineHeight: 1.45,
+      },
+      sectionTitle: {
+        ...baseStyles.sectionTitle,
+        marginTop: Math.round((baseStyles.sectionTitle?.marginTop ?? 9) * 1.35),
+        marginBottom: Math.round((baseStyles.sectionTitle?.marginBottom ?? 3) * 1.35),
+      },
+      experience: {
+        ...baseStyles.experience,
+        marginBottom: Math.round((baseStyles.experience?.marginBottom ?? 7) * 1.35),
+      },
+      bullet: {
+        ...baseStyles.bullet,
+        marginBottom: 3,
+      },
+    };
+  }
+  return baseStyles;
+}
+
+function resolveResumeStyles(templateId: ResumeTemplateId = 'modern', density?: SpacingDensity) {
+  let base: Record<string, any>;
   switch (templateId) {
     case 'classic':
-      return classicResumeStyles;
+      base = classicResumeStyles;
+      break;
     case 'minimalist':
-      return minimalistResumeStyles;
+      base = minimalistResumeStyles;
+      break;
     case 'compact':
-      return compactResumeStyles;
+      base = compactResumeStyles;
+      break;
     case 'modern':
     default:
-      return modernResumeStyles;
+      base = modernResumeStyles;
+      break;
   }
+  return applyDensityOverrides(base, density);
 }
 
 function formatDate(isoString?: string): string {
@@ -676,8 +791,11 @@ function buildResumeDocument(
   profile?: CandidateProfile,
   options?: ResumePdfOptions
 ) {
-  const templateId = options?.templateId || resume.templateId || 'modern';
-  const styles = resolveResumeStyles(templateId);
+  const isOnePage = options?.onePageFit ?? false;
+  const templateId = options?.templateId || resume.templateId || (isOnePage ? 'compact' : 'modern');
+  const density = options?.density;
+  const showTargetBadge = options?.showTargetBadge ?? true;
+  const styles = resolveResumeStyles(templateId, density);
 
   // Candidate Name & Contact Details
   const candidateName = profile ? getPreferredOrLegalName(profile.identity) || 'Candidate' : 'Candidate';
@@ -701,31 +819,43 @@ function buildResumeDocument(
 
   const contactString = [contactItems.join(' • '), linkItems.join(' • ')].filter(Boolean).join(' | ');
 
+  // Budget content based on onePageFit option
+  const experiencesToRender = isOnePage
+    ? resume.experiences.slice(0, 3)
+    : resume.experiences;
+
+  const projectsToRender = isOnePage
+    ? resume.projects.slice(0, 1)
+    : resume.projects;
+
+  const certifications = profile?.documents?.filter(
+    (d) => d.documentType === 'certification_credential'
+  ) || [];
+
   return React.createElement(
     Document,
     {},
     React.createElement(
       Page,
       { size: 'LETTER', style: styles.page },
-      // 1. Candidate Header
       React.createElement(
         View,
         { style: styles.header },
         React.createElement(Text, { style: styles.name }, candidateName),
         React.createElement(Text, { style: styles.title }, candidateTitle),
         contactString ? React.createElement(Text, { style: styles.contact }, contactString) : null,
-        React.createElement(
-          Text,
-          { style: styles.targetBadge },
-          `Tailored for ${resume.targetJobTitle} at ${resume.companyName}`
-        )
+        showTargetBadge
+          ? React.createElement(
+              Text,
+              { style: styles.targetBadge },
+              `Tailored for ${resume.targetJobTitle} at ${resume.companyName}`
+            )
+          : null
       ),
 
-      // 2. Executive Summary
       React.createElement(Text, { style: styles.sectionTitle }, 'PROFESSIONAL SUMMARY'),
       React.createElement(Text, { style: styles.paragraph }, resume.tailoredSummary),
 
-      // 3. Technical Skills
       React.createElement(Text, { style: styles.sectionTitle }, 'TECHNICAL SKILLS'),
       React.createElement(
         View,
@@ -748,62 +878,40 @@ function buildResumeDocument(
           ? React.createElement(
               Text,
               { style: styles.skillCategory },
-              `Additional Proficiencies: ${resume.skills.additionalSkills.slice(0, 10).join(', ')}`
+              `Additional Proficiencies: ${isOnePage ? resume.skills.additionalSkills.slice(0, 10).join(', ') : resume.skills.additionalSkills.join(', ')}`
             )
           : null
       ),
 
-      // 4. Experience Section
-      React.createElement(Text, { style: styles.sectionTitle }, 'WORK EXPERIENCE'),
-      resume.experiences.map((exp, i) =>
-        React.createElement(
-          View,
-          { key: i, style: styles.experience },
-          React.createElement(
-            View,
-            { style: styles.expHeader },
-            React.createElement(
-              Text,
-              { style: styles.expTitle },
-              `${exp.title} — `,
-              React.createElement(Text, { style: styles.expCompany }, exp.company)
-            ),
-            React.createElement(
-              Text,
-              { style: styles.expDates },
-              `${formatDate(exp.startDate)} – ${exp.isCurrent ? 'Present' : formatDate(exp.endDate)}`
-            )
-          ),
-          exp.rankedHighlights.map((h, j) =>
-            React.createElement(
-              View,
-              { key: j, style: styles.bullet },
-              React.createElement(Text, { style: styles.bulletMarker }, '•'),
-              React.createElement(Text, { style: styles.bulletText }, h.text)
-            )
-          )
-        )
-      ),
-
-      // 5. Projects Section (if present)
-      resume.projects.length > 0
+      experiencesToRender.length > 0
         ? React.createElement(
             View,
             {},
-            React.createElement(Text, { style: styles.sectionTitle }, 'NOTABLE PROJECTS'),
-            resume.projects.map((proj, i) =>
-              React.createElement(
+            React.createElement(Text, { style: styles.sectionTitle }, 'WORK EXPERIENCE'),
+            experiencesToRender.map((exp, i) => {
+              const profileExp = profile?.experiences.find((pe) => pe.id === exp.experienceId);
+              const locString = profileExp?.location ? ` • ${profileExp.location}` : '';
+              const bullets = isOnePage ? exp.rankedHighlights.slice(0, 3) : exp.rankedHighlights;
+
+              return React.createElement(
                 View,
-                { key: i, style: styles.project },
-                React.createElement(Text, { style: styles.projectTitle }, proj.title),
-                proj.technologiesUsed.length > 0
-                  ? React.createElement(
-                      Text,
-                      { style: styles.projectTech },
-                      `Technologies: ${proj.technologiesUsed.join(', ')}`
-                    )
-                  : null,
-                proj.rankedHighlights.map((h, j) =>
+                { key: i, style: styles.experience, wrap: false },
+                React.createElement(
+                  View,
+                  { style: styles.expHeader },
+                  React.createElement(
+                    Text,
+                    { style: styles.expTitle },
+                    `${exp.title} — `,
+                    React.createElement(Text, { style: styles.expCompany }, `${exp.company}${locString}`)
+                  ),
+                  React.createElement(
+                    Text,
+                    { style: styles.expDates },
+                    `${formatDate(exp.startDate)} – ${exp.isCurrent ? 'Present' : formatDate(exp.endDate)}`
+                  )
+                ),
+                bullets.map((h, j) =>
                   React.createElement(
                     View,
                     { key: j, style: styles.bullet },
@@ -811,12 +919,51 @@ function buildResumeDocument(
                     React.createElement(Text, { style: styles.bulletText }, h.text)
                   )
                 )
-              )
-            )
+              );
+            })
           )
         : null,
 
-      // 6. Education Section (if present in CandidateProfile)
+      projectsToRender.length > 0
+        ? React.createElement(
+            View,
+            {},
+            React.createElement(Text, { style: styles.sectionTitle }, 'NOTABLE PROJECTS'),
+            projectsToRender.map((proj, i) => {
+              const profileProj = profile?.projects.find((pp) => pp.id === proj.projectId);
+              const linkUrl = profileProj?.url || profileProj?.repoUrl;
+              const linkDisplay = linkUrl ? ` • ${linkUrl}` : '';
+              const roleDisplay = proj.role ? ` (${proj.role})` : '';
+              const bullets = isOnePage ? proj.rankedHighlights.slice(0, 2) : proj.rankedHighlights;
+
+              return React.createElement(
+                View,
+                { key: i, style: styles.project, wrap: false },
+                React.createElement(
+                  Text,
+                  { style: styles.projectTitle },
+                  `${proj.title}${roleDisplay}${linkDisplay}`
+                ),
+                proj.technologiesUsed.length > 0
+                  ? React.createElement(
+                      Text,
+                      { style: styles.projectTech },
+                      `Technologies: ${proj.technologiesUsed.join(', ')}`
+                    )
+                  : null,
+                bullets.map((h, j) =>
+                  React.createElement(
+                    View,
+                    { key: j, style: styles.bullet },
+                    React.createElement(Text, { style: styles.bulletMarker }, '•'),
+                    React.createElement(Text, { style: styles.bulletText }, h.text)
+                  )
+                )
+              );
+            })
+          )
+        : null,
+
       profile && profile.education.length > 0
         ? React.createElement(
             View,
@@ -825,12 +972,20 @@ function buildResumeDocument(
             profile.education.map((edu, i) =>
               React.createElement(
                 View,
-                { key: i, style: styles.eduItem },
+                { key: i, style: styles.eduItem, wrap: false },
                 React.createElement(
                   View,
                   {},
-                  React.createElement(Text, { style: styles.eduDegree }, `${edu.degree} in ${edu.fieldOfStudy}`),
-                  React.createElement(Text, { style: styles.eduInstitution }, edu.institution)
+                  React.createElement(
+                    Text,
+                    { style: styles.eduDegree },
+                    `${edu.degree} in ${edu.fieldOfStudy}${edu.gpa ? ` (GPA: ${edu.gpa})` : ''}`
+                  ),
+                  React.createElement(
+                    Text,
+                    { style: styles.eduInstitution },
+                    `${edu.institution}${edu.honors && edu.honors.length > 0 ? ` • Honors: ${edu.honors.join(', ')}` : ''}`
+                  )
                 ),
                 React.createElement(
                   Text,
@@ -840,20 +995,48 @@ function buildResumeDocument(
               )
             )
           )
-        : null
+        : null,
+
+      certifications.length > 0
+        ? React.createElement(
+            View,
+            {},
+            React.createElement(Text, { style: styles.sectionTitle }, 'CERTIFICATIONS & CREDENTIALS'),
+            certifications.map((cert, i) =>
+              React.createElement(
+                View,
+                { key: i, style: styles.eduItem, wrap: false },
+                React.createElement(
+                  Text,
+                  { style: styles.eduDegree },
+                  cert.fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+                ),
+                React.createElement(
+                  Text,
+                  { style: styles.eduYear },
+                  cert.uploadedAt ? formatDate(cert.uploadedAt) : ''
+                )
+              )
+            )
+          )
+        : null,
+
+      React.createElement(
+        Text,
+        {
+          style: styles.footer,
+          render: ({ pageNumber, totalPages }) =>
+            totalPages > 1 ? `Page ${pageNumber} of ${totalPages}` : '',
+          fixed: true,
+        }
+      )
     )
   );
 }
 
 export async function generateCoverLetterPdfBlob(letter: TailoredCoverLetter): Promise<Blob> {
-  const stream = await renderToStream(buildCoverLetterDocument(letter));
-
-  return new Promise<Blob>((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
-    stream.on('end', () => resolve(new Blob(chunks, { type: 'application/pdf' })));
-    stream.on('error', reject);
-  });
+  const doc = buildCoverLetterDocument(letter);
+  return await pdf(doc).toBlob();
 }
 
 export async function generateResumePdfBlob(
@@ -861,12 +1044,6 @@ export async function generateResumePdfBlob(
   profile?: CandidateProfile,
   options?: ResumePdfOptions
 ): Promise<Blob> {
-  const stream = await renderToStream(buildResumeDocument(resume, profile, options));
-
-  return new Promise<Blob>((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
-    stream.on('end', () => resolve(new Blob(chunks, { type: 'application/pdf' })));
-    stream.on('error', reject);
-  });
+  const doc = buildResumeDocument(resume, profile, options);
+  return await pdf(doc).toBlob();
 }

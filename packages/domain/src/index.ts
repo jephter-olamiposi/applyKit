@@ -26,6 +26,8 @@ export * from './evidence/parser.js';
 export * from './evidence/decomposer.js';
 export * from './evidence/claims.js';
 export * from './evidence/grounding.js';
+export * from './evidence/pdf-text-extractor.js';
+export * from './evidence/image-resume-parser.js';
 
 export * from './job/requirement.js';
 export * from './job/job-posting.js';
@@ -33,6 +35,8 @@ export * from './job/synonyms.js';
 export * from './job/matching.js';
 export * from './job/gap-analysis.js';
 export * from './job/highlight-engine.js';
+export * from './job/company-culture.js';
+export * from './job/salary-extractor.js';
 
 export * from './form/field-type.js';
 export * from './form/canonical-fields.js';
@@ -47,6 +51,7 @@ export * from './form/execution.js';
 export * from './application/state.js';
 export * from './application/record.js';
 export * from './application/audit-exporter.js';
+export * from './application/email-detector.js';
 
 export * from './ai/contexts.js';
 export * from './ai/provider.js';

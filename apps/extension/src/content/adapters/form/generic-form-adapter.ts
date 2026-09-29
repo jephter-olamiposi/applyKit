@@ -116,12 +116,55 @@ export class GenericFormAdapter implements AtsFormAdapter {
   }
 
   crawlForm(doc: Document, container?: HTMLElement): ApplicationForm | null {
-    const root =
-      container ||
-      doc.querySelector<HTMLElement>(
-        'form#application, form.application, [data-qa="job-application"], main form, form'
-      ) ||
-      doc.body;
+    let root = container;
+
+    if (!root) {
+      const forms = Array.from(doc.querySelectorAll<HTMLFormElement>('form'));
+      const candidates = forms.filter((f) => {
+        const id = (f.getAttribute('id') || '').toLowerCase();
+        const action = (f.getAttribute('action') || '').toLowerCase();
+        const cls = (f.getAttribute('class') || '').toLowerCase();
+
+        const isSearch =
+          id.includes('search') ||
+          action.includes('search') ||
+          cls.includes('search') ||
+          (f.querySelector('input[type="search"]') !== null && f.querySelectorAll('input:not([type="hidden"]), textarea').length <= 2);
+
+        const isNewsletter = id.includes('newsletter') || cls.includes('newsletter') || action.includes('subscribe');
+        const inputs = f.querySelectorAll(
+          'input:not([type="hidden"]):not([type="search"]), textarea, select, [role="combobox"]'
+        );
+
+        return !isSearch && !isNewsletter && inputs.length >= 2;
+      });
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => {
+          const aId = `${a.getAttribute('id') || ''} ${a.getAttribute('class') || ''} ${a.getAttribute('action') || ''}`.toLowerCase();
+          const bId = `${b.getAttribute('id') || ''} ${b.getAttribute('class') || ''} ${b.getAttribute('action') || ''}`.toLowerCase();
+          const aHasKeyword = aId.includes('apply') || aId.includes('career') || aId.includes('job') || aId.includes('application');
+          const bHasKeyword = bId.includes('apply') || bId.includes('career') || bId.includes('job') || bId.includes('application');
+
+          if (aHasKeyword && !bHasKeyword) return -1;
+          if (!aHasKeyword && bHasKeyword) return 1;
+
+          const aCount = a.querySelectorAll('input:not([type="hidden"]), textarea, select').length;
+          const bCount = b.querySelectorAll('input:not([type="hidden"]), textarea, select').length;
+          return bCount - aCount;
+        });
+
+        root = candidates[0];
+      }
+    }
+
+    if (!root) {
+      root =
+        doc.querySelector<HTMLElement>(
+          'form#job-apply-form, form#application_form, form#application, form.application, [data-qa="job-application"], main'
+        ) ||
+        doc.body;
+    }
 
     const fields: ApplicationField[] = [];
     const validationErrors = this.detectValidationErrors(doc);
@@ -138,7 +181,7 @@ export class GenericFormAdapter implements AtsFormAdapter {
       }
     }
 
-    // 1. Process Radio Button Groups
+    // Radio button groups
     const radioInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     const radioGroups = new Map<string, HTMLInputElement[]>();
     for (const radio of radioInputs) {
@@ -184,7 +227,6 @@ export class GenericFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 2. Standard Inputs, Textareas, Native Selects, File Uploaders
     const interactiveElements = root.querySelectorAll<HTMLElement>(
       'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select, [role="combobox"]'
     );
@@ -258,7 +300,10 @@ export class GenericFormAdapter implements AtsFormAdapter {
     }
 
     return {
-      id: root instanceof HTMLElement && root.id ? root.id : `generic_form_${Date.now()}`,
+      id:
+        (root instanceof HTMLElement && root.getAttribute('id')) ||
+        (typeof root?.id === 'string' ? root.id : undefined) ||
+        `generic_form_${Date.now()}`,
       url: doc.location ? doc.location.href : '',
       detectedAts: this.id,
       fields,

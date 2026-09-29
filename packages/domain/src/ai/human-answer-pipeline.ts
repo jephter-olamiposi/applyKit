@@ -80,17 +80,11 @@ export const HUMAN_ANSWER_PIPELINE_STEPS: readonly PipelineStep[] = [
   },
   {
     name: 'find_company_context',
-    execute: async (ctx) => ({
-      ...ctx,
-      // Company research happens before pipeline if needed
-    }),
+    execute: async (ctx) => ({ ...ctx }),
   },
   {
     name: 'draft_natural_answer',
-    execute: async (ctx) => {
-      // This step is implemented via AI prompt
-      return ctx;
-    },
+    execute: async (ctx) => ctx,
   },
   {
     name: 'remove_generic_ai_language',

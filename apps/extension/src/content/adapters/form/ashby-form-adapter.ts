@@ -124,7 +124,7 @@ export class AshbyFormAdapter implements AtsFormAdapter {
       submitButtonSelector = generateElementSelector(submitBtn, root);
     }
 
-    // 1. Process Radio Button Groups
+    // Radio button groups
     const radioInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     const radioGroups = new Map<string, HTMLInputElement[]>();
     for (const radio of radioInputs) {
@@ -170,7 +170,6 @@ export class AshbyFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 2. Standard Inputs, Textareas, Native Selects, File Uploaders
     const interactiveElements = root.querySelectorAll<HTMLElement>(
       'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select, [role="combobox"]'
     );
@@ -250,8 +249,13 @@ export class AshbyFormAdapter implements AtsFormAdapter {
       return null;
     }
 
+    const formId =
+      (root.getAttribute && root.getAttribute('id')) ||
+      (typeof root.id === 'string' ? root.id : undefined) ||
+      `ashby_form_${Date.now()}`;
+
     return {
-      id: root.id || `ashby_form_${Date.now()}`,
+      id: formId,
       url: doc.location ? doc.location.href : '',
       detectedAts: this.id,
       fields,

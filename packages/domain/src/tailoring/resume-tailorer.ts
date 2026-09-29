@@ -134,7 +134,7 @@ export function tailorCandidateResume(
   const maxProjects = options?.maxProjects ?? (isOnePage ? 1 : 3);
   const maxExperiences = options?.maxExperiences ?? (isOnePage ? Math.min(3, profile.experiences.length) : profile.experiences.length);
 
-  // 1. Partition Skills by Job Requirement Alignment
+  // Partition skills by job requirement alignment
   const matchedRequiredSet = new Set<string>();
   const matchedPreferredSet = new Set<string>();
   const matchedAllSet = new Set<string>();
@@ -172,7 +172,7 @@ export function tailorCandidateResume(
     additionalSkills,
   };
 
-  // 2. Rank and Filter Work Experiences
+  // Rank and filter work experiences based on requirement overlap
   const tailoredExperiences: TailoredExperience[] = [];
 
   for (const exp of profile.experiences) {
@@ -259,7 +259,7 @@ export function tailorCandidateResume(
 
   const finalExperiences = tailoredExperiences.slice(0, maxExperiences);
 
-  // 3. Rank and Filter Candidate Projects
+  // Rank and filter candidate projects based on requirement overlap
   const tailoredProjects: TailoredProject[] = [];
 
   for (const proj of profile.projects) {
@@ -324,7 +324,7 @@ export function tailorCandidateResume(
   tailoredProjects.sort((a, b) => b.relevanceScore - a.relevanceScore);
   const finalProjects = tailoredProjects.slice(0, maxProjects);
 
-  // 4. Synthesize Evidence-Grounded Professional Summary
+  // Synthesize evidence-grounded professional summary
   const candidateTitle = profile.professional.currentTitle || profile.professional.headline || job.title;
   const verifiedYears = calculateVerifiedExperienceYears(profile.experiences);
   const topSkills = tailoredSkills.matchedRequired.length > 0

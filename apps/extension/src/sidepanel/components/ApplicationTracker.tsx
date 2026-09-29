@@ -10,7 +10,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ApplicationRecord, ApplicationState, ApplicationId } from '@applykit/domain';
+import { detectInterviewInvite } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
+import { InterviewPrepModal } from './InterviewPrepModal.js';
 import type {
   ListApplicationsResponse,
   UpdateApplicationStatusResponse,
@@ -103,12 +105,52 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
   const [selectedAppId, setSelectedAppId] = useState<ApplicationId | null>(null);
 
   // Edit / drawer state
+  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
   const [activeNotes, setActiveNotes] = useState('');
   const [activeFollowUp, setActiveFollowUp] = useState('');
   const [selectedStage, setSelectedStage] = useState<string>('');
+  const [activeRecruiterName, setActiveRecruiterName] = useState<string>('');
+  const [activeRecruiterEmail, setActiveRecruiterEmail] = useState<string>('');
+  const [activeExpectedSalary, setActiveExpectedSalary] = useState<string>('');
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Interview Prep & Email Scanner State (Phase 24, Phase 25)
+  const [prepModalApp, setPrepModalApp] = useState<ApplicationRecord | null>(null);
+  const [showEmailScanner, setShowEmailScanner] = useState(false);
+  const [emailInputText, setEmailInputText] = useState('');
+  const [emailScanResult, setEmailScanResult] = useState<string | null>(null);
+
+  const handleScanEmail = async () => {
+    if (!emailInputText.trim()) return;
+    const lines = emailInputText.trim().split('\n');
+    const subject = lines[0] || 'Recruiter Communication';
+    const bodyText = lines.slice(1).join('\n') || emailInputText;
+
+    const result = detectInterviewInvite({ subject, bodyText }, applications);
+    if (result.isInterviewInvite) {
+      if (result.matchedApplicationId) {
+        await handleTransitionStatus(
+          result.matchedApplicationId,
+          'interviewing',
+          result.recruiterNotesSnippet || 'Interview invite detected from recruiter email',
+          {
+            notes: result.recruiterNotesSnippet,
+          }
+        );
+        setEmailScanResult(
+          `✓ Detected ${result.interviewType} interview invite for ${result.companyName || 'tracked application'}! Advanced to Interviewing.`
+        );
+      } else {
+        setEmailScanResult(
+          `✓ Detected ${result.interviewType} interview invite with scheduling link: ${result.schedulingUrl || 'detected'}. Link manually to an application.`
+        );
+      }
+    } else {
+      setEmailScanResult('ℹ️ No clear interview scheduling invitations detected in the provided text.');
+    }
+  };
 
   const loadApplications = useCallback(async () => {
     try {
@@ -147,6 +189,9 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
       setActiveNotes(selectedApp.notes || '');
       setActiveFollowUp(selectedApp.nextFollowUpDate || '');
       setSelectedStage(selectedApp.interviewStage || INTERVIEW_STAGES[0]);
+      setActiveRecruiterName(selectedApp.recruiterName || '');
+      setActiveRecruiterEmail(selectedApp.recruiterEmail || '');
+      setActiveExpectedSalary(selectedApp.expectedSalary || '');
     }
   }, [selectedApp]);
 
@@ -190,6 +235,27 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
     });
   }, [applications, statusFilter, searchTerm]);
 
+  // 5-Column Kanban Pipeline Data (Phase 20)
+  const kanbanColumns = useMemo(() => {
+    const saved = filteredApps.filter((a) =>
+      ['idle', 'detected_job', 'extracting_job', 'matching_profile', 'ready_to_fill'].includes(a.currentStatus)
+    );
+    const applied = filteredApps.filter((a) =>
+      ['dry_run_review', 'executing_actions', 'awaiting_user_review', 'submitted'].includes(a.currentStatus)
+    );
+    const interviewing = filteredApps.filter((a) => a.currentStatus === 'interviewing');
+    const offered = filteredApps.filter((a) => a.currentStatus === 'offered');
+    const closed = filteredApps.filter((a) => ['rejected', 'archived', 'failed'].includes(a.currentStatus));
+
+    return [
+      { id: 'saved', title: 'Saved / Draft', apps: saved, color: '#64748b' },
+      { id: 'applied', title: 'Applied', apps: applied, color: '#3b82f6' },
+      { id: 'interviewing', title: 'Interviewing', apps: interviewing, color: '#8b5cf6' },
+      { id: 'offered', title: 'Offer Extended', apps: offered, color: '#10b981' },
+      { id: 'closed', title: 'Archived / Rejected', apps: closed, color: '#ef4444' },
+    ];
+  }, [filteredApps]);
+
   // Transitions application state
   const handleTransitionStatus = async (
     targetAppId: ApplicationId,
@@ -208,6 +274,9 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
           interviewStage?: string;
           nextFollowUpDate?: string;
           notes?: string;
+          recruiterName?: string;
+          recruiterEmail?: string;
+          expectedSalary?: string;
         },
         UpdateApplicationStatusResponse
       >({
@@ -218,6 +287,9 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
         interviewStage: updates?.interviewStage,
         nextFollowUpDate: updates?.nextFollowUpDate,
         notes: updates?.notes,
+        recruiterName: updates?.recruiterName,
+        recruiterEmail: updates?.recruiterEmail,
+        expectedSalary: updates?.expectedSalary,
       });
 
       if (res && res.success && res.application) {
@@ -233,17 +305,20 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
     }
   };
 
-  // Saves notes and follow-up date without state transition
+  // Saves notes, recruiter CRM fields, and follow-up date without state transition
   const handleSaveNotesAndSchedule = async () => {
     if (!selectedApp) return;
     await handleTransitionStatus(
       selectedApp.id,
       selectedApp.currentStatus,
-      'Updated notes and follow-up schedule',
+      'Updated recruiter notes and follow-up schedule',
       {
         notes: activeNotes,
         nextFollowUpDate: activeFollowUp,
         interviewStage: selectedStage,
+        recruiterName: activeRecruiterName,
+        recruiterEmail: activeRecruiterEmail,
+        expectedSalary: activeExpectedSalary,
       }
     );
   };
@@ -382,6 +457,79 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
         </div>
       </div>
 
+      {/* View Mode Switcher: Kanban vs Audit Table (Phase 20) */}
+      <div className="tracker-view-mode-bar">
+        <div className="tracker-view-tabs" role="tablist" aria-label="Tracker View Mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === 'kanban'}
+            className={`tracker-view-tab ${viewMode === 'kanban' ? 'tracker-view-tab-active' : ''}`}
+            onClick={() => setViewMode('kanban')}
+          >
+            📋 Kanban Pipeline
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === 'table'}
+            className={`tracker-view-tab ${viewMode === 'table' ? 'tracker-view-tab-active' : ''}`}
+            onClick={() => setViewMode('table')}
+          >
+            📑 Audit Table
+          </button>
+          <button
+            type="button"
+            className={`tracker-view-tab ${showEmailScanner ? 'tracker-view-tab-active' : ''}`}
+            onClick={() => setShowEmailScanner((prev) => !prev)}
+            title="Scan recruiter email or interview invitation"
+          >
+            📧 Scan Invite
+          </button>
+        </div>
+      </div>
+
+      {/* Recruiter Email & Interview Invitation Scanner (Phase 24) */}
+      {showEmailScanner && (
+        <div className="p-4 mb-4 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+              <span>📧</span> Recruiter Email & Interview Invite Auto-Detector
+            </h4>
+            <button
+              onClick={() => setShowEmailScanner(false)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-slate-600 dark:text-slate-400 mb-2">
+            Paste recruiter email body or interview invitation text to automatically extract scheduling links and advance application status to <strong>Interviewing</strong>.
+          </p>
+          <textarea
+            className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs focus:ring-1 focus:ring-indigo-500 font-mono"
+            rows={3}
+            placeholder="Paste email text here (e.g. 'We would like to invite you to an interview... https://calendly.com/...')"
+            value={emailInputText}
+            onChange={(e) => setEmailInputText(e.target.value)}
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <button
+              onClick={handleScanEmail}
+              disabled={!emailInputText.trim()}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold transition-colors"
+            >
+              ⚡ Detect & Link Invite
+            </button>
+            {emailScanResult && (
+              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                {emailScanResult}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
       <div className="tracker-filter-bar">
         <div className="tracker-search-wrap">
@@ -456,6 +604,127 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               ? 'Execute a form filling plan or extract a job posting to begin tracking your applications.'
               : 'No applications matched your search or status filter.'}
           </p>
+        </div>
+      ) : viewMode === 'kanban' ? (
+        <div className="kanban-pipeline-board" role="region" aria-label="Kanban Application Pipeline">
+          {kanbanColumns.map((col) => (
+            <div key={col.id} className="kanban-column">
+              <div className="kanban-column-header">
+                <div className="kanban-column-title-group">
+                  <span className="kanban-column-dot" style={{ backgroundColor: col.color }} />
+                  <h4 className="kanban-column-title">{col.title}</h4>
+                </div>
+                <span className="kanban-column-count">{col.apps.length}</span>
+              </div>
+
+              <div className="kanban-column-cards">
+                {col.apps.length === 0 ? (
+                  <div className="kanban-empty-col">
+                    <span>No applications in this stage</span>
+                  </div>
+                ) : (
+                  col.apps.map((app) => {
+                    const isSelected = selectedAppId === app.id;
+                    const badge = getStatusBadgeProps(app.currentStatus);
+
+                    return (
+                      <div
+                        key={app.id}
+                        className={`kanban-card ${isSelected ? 'kanban-card-selected' : ''}`}
+                        onClick={() => setSelectedAppId(isSelected ? null : app.id)}
+                      >
+                        <div className="kanban-card-top">
+                          <h5 className="kanban-card-company">{app.companyName}</h5>
+                          <span className={`status-badge-sm ${badge.className}`}>{badge.label}</span>
+                        </div>
+                        <p className="kanban-card-role">{app.jobTitle}</p>
+
+                        <div className="kanban-card-chips">
+                          {app.matchedRequirementsScore > 0 && (
+                            <span className="kanban-chip chip-match">
+                              {Math.round(app.matchedRequirementsScore * 100)}% Match
+                            </span>
+                          )}
+                          {app.recruiterName && (
+                            <span className="kanban-chip chip-recruiter" title={`Recruiter: ${app.recruiterName}`}>
+                              👤 {app.recruiterName}
+                            </span>
+                          )}
+                          {app.expectedSalary && (
+                            <span className="kanban-chip chip-salary" title={`Salary: ${app.expectedSalary}`}>
+                              💰 {app.expectedSalary}
+                            </span>
+                          )}
+                          {app.interviewStage && (
+                            <span className="kanban-chip chip-stage">
+                              🎯 {app.interviewStage}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="kanban-card-footer">
+                          <span className="kanban-date">
+                            {formatDate(app.appliedAt || app.createdAt)}
+                          </span>
+
+                          <div className="kanban-quick-actions" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className="kanban-advance-btn kanban-prep-btn"
+                              onClick={() => setPrepModalApp(app)}
+                              title="Open Role Interview Prep Kit & STAR Stories"
+                            >
+                              🎯 Prep
+                            </button>
+                            {col.id === 'saved' && (
+                              <button
+                                type="button"
+                                className="kanban-advance-btn"
+                                onClick={() => handleTransitionStatus(app.id, 'submitted', 'Candidate advanced to submitted')}
+                                title="Advance to Applied"
+                              >
+                                → Applied
+                              </button>
+                            )}
+                            {col.id === 'applied' && (
+                              <button
+                                type="button"
+                                className="kanban-advance-btn"
+                                onClick={() => handleTransitionStatus(app.id, 'interviewing', 'Advanced to interviewing stage')}
+                                title="Advance to Interviewing"
+                              >
+                                → Interview
+                              </button>
+                            )}
+                            {col.id === 'interviewing' && (
+                              <button
+                                type="button"
+                                className="kanban-advance-btn kanban-advance-offer"
+                                onClick={() => handleTransitionStatus(app.id, 'offered', 'Offer received from employer')}
+                                title="Advance to Offer"
+                              >
+                                ★ Offer
+                              </button>
+                            )}
+                            {col.id === 'offered' && (
+                              <button
+                                type="button"
+                                className="kanban-advance-btn"
+                                onClick={() => handleTransitionStatus(app.id, 'archived', 'Archived after offer')}
+                                title="Archive application"
+                              >
+                                Archive
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div className="tracker-list">
@@ -572,6 +841,17 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                 </div>
               )}
 
+              {/* Role Interview Prep Kit Launcher (Phase 25) */}
+              <div className="drawer-section">
+                <button
+                  type="button"
+                  className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  onClick={() => setPrepModalApp(selectedApp)}
+                >
+                  🎯 Open Role Interview Prep Kit & STAR Stories
+                </button>
+              </div>
+
               {/* Status Management Bar */}
               <div className="drawer-section">
                 <h4 className="section-title">Status & Lifecycle Management</h4>
@@ -653,6 +933,45 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                 </div>
               </div>
 
+              {/* Recruiter & Compensation Details (Phase 20 CRM) */}
+              <div className="drawer-section">
+                <h4 className="section-title">Recruiter & Target Compensation</h4>
+                <div className="stage-schedule-grid">
+                  <div className="form-group">
+                    <label className="form-label">Recruiter / Contact Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Jane Smith"
+                      value={activeRecruiterName}
+                      onChange={(e) => setActiveRecruiterName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Recruiter Contact Email</label>
+                    <input
+                      type="email"
+                      className="form-input"
+                      placeholder="e.g. jsmith@company.com"
+                      value={activeRecruiterEmail}
+                      onChange={(e) => setActiveRecruiterEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '8px' }}>
+                  <label className="form-label">Target / Negotiated Compensation</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. $165,000 base + equity"
+                    value={activeExpectedSalary}
+                    onChange={(e) => setActiveExpectedSalary(e.target.value)}
+                  />
+                </div>
+              </div>
+
               {/* Interview Stage & Follow-Up Reminders */}
               <div className="drawer-section">
                 <h4 className="section-title">Interview Stage & Next Follow-Up</h4>
@@ -699,7 +1018,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                       onClick={handleSaveNotesAndSchedule}
                       disabled={statusUpdating}
                     >
-                      Save Notes & Schedule
+                      Save Pipeline Details & Notes
                     </button>
                   </div>
                 </div>
@@ -780,6 +1099,13 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {prepModalApp && (
+        <InterviewPrepModal
+          application={prepModalApp}
+          onClose={() => setPrepModalApp(null)}
+        />
       )}
     </div>
   );

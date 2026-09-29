@@ -87,7 +87,7 @@ export class RecruiteeFormAdapter implements AtsFormAdapter {
     const fields: ApplicationField[] = [];
     let submitButtonSelector: string | undefined;
 
-    // 1. Locate Application Submission Control ('Send' button)
+    // Locate candidate submission control to register selector for Submission Hard Gate enforcement
     const submitBtn =
       formEl.querySelector('button[type="submit"]') ||
       formEl.querySelector('input[type="submit"]') ||
@@ -99,7 +99,7 @@ export class RecruiteeFormAdapter implements AtsFormAdapter {
       submitButtonSelector = generateElementSelector(submitBtn as HTMLElement, formEl);
     }
 
-    // 2. Process Radio Groups First
+    // Process radio groups first so subsequent input queries do not treat radio choices as individual text fields
     const radioInputs = Array.from(formEl.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     const processedRadioNames = new Set<string>();
 
@@ -171,7 +171,6 @@ export class RecruiteeFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 3. Process Interactive Text, Number, Textarea, and File Inputs
     const interactiveEls = formEl.querySelectorAll<HTMLElement>(
       'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select'
     );

@@ -122,8 +122,10 @@ export function evaluateJobRequirements(
 
     const normTarget = normalizeSkillName(req.normalizedSkillOrCompetency);
 
+    const skills = profile.skills || [];
+
     // Tier 1 & 2: Skill matching (Exact and Synonyms)
-    let matchedSkill = profile.skills.find((s) => {
+    let matchedSkill = skills.find((s) => {
       const rawKey = normalizeSkillName(s.name);
       const normKey = normalizeSkillName(s.normalizedName);
       return rawKey === normTarget || normKey === normTarget;
@@ -131,7 +133,7 @@ export function evaluateJobRequirements(
 
     let isSynonym = false;
     if (!matchedSkill) {
-      matchedSkill = profile.skills.find((s) =>
+      matchedSkill = skills.find((s) =>
         areCompetenciesEquivalent(s.name, req.normalizedSkillOrCompetency) ||
         areCompetenciesEquivalent(s.normalizedName, req.normalizedSkillOrCompetency)
       );
@@ -144,7 +146,7 @@ export function evaluateJobRequirements(
     if (!matchedSkill) {
       const reqRawToken = normalizeCompetencyToken(req.rawText);
       const reqNormToken = normalizeCompetencyToken(req.normalizedSkillOrCompetency);
-      matchedSkill = profile.skills.find((s) => {
+      matchedSkill = skills.find((s) => {
         const sToken = normalizeCompetencyToken(s.name);
         if (sToken.length < 3) return false;
         const escaped = sToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

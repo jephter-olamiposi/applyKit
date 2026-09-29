@@ -89,3 +89,26 @@ export class IndexedDbApplicationRepository implements IApplicationRepository {
     }
   }
 }
+
+let defaultApplicationRepository: IApplicationRepository | null = null;
+
+/**
+ * Retrieves the application repository instance, using a singleton by default
+ * or instantiating a scoped instance when a custom IDBFactory is provided.
+ */
+export function getApplicationRepository(customFactory?: IDBFactory): IApplicationRepository {
+  if (customFactory) {
+    return new IndexedDbApplicationRepository(customFactory);
+  }
+  if (!defaultApplicationRepository) {
+    defaultApplicationRepository = new IndexedDbApplicationRepository();
+  }
+  return defaultApplicationRepository;
+}
+
+/**
+ * Sets or resets the active application repository instance (primarily used for unit testing).
+ */
+export function setApplicationRepository(repo: IApplicationRepository | null): void {
+  defaultApplicationRepository = repo;
+}

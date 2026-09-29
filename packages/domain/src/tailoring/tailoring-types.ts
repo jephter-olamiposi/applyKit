@@ -218,9 +218,19 @@ export interface ResumeQualityAuditReport {
 }
 
 /**
+ * Spacing density level for fine-tuning resume vertical rhythm and page budgets.
+ */
+export type SpacingDensity = 'tight' | 'standard' | 'relaxed';
+
+/**
  * Options for generating tailored resume PDFs.
  */
 export interface ResumePdfOptions {
   readonly templateId?: ResumeTemplateId;
   readonly onePageFit?: boolean;
+  /** Vertical rhythm and padding density ('tight', 'standard', or 'relaxed'). */
+  readonly density?: SpacingDensity;
+  /** Whether to render the targeted job title badge in the document header. Defaults to true. */
+  readonly showTargetBadge?: boolean;
 }
+

@@ -37,6 +37,8 @@ import type {
   FactCheckReport,
   ResumeTemplateId,
   ResumeQualityAuditReport,
+  AnswerCategory,
+  SpacingDensity,
 } from '@applykit/domain';
 import type { StorageUsageSummary, PurgeResult } from '../storage/purge-engine.js';
 
@@ -109,10 +111,6 @@ export interface CandidateProfileSummary {
   /** Whether core identity and at least one experience or skill are populated. */
   isComplete: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Request / Response Message Definitions
-// ---------------------------------------------------------------------------
 
 /**
  * Ping message used for context handshake and liveness detection.
@@ -320,6 +318,51 @@ export interface IngestResumeResponse {
   claimsCount?: number;
   profileSummary?: CandidateProfileSummary;
   auditReport?: GroundingAuditReport;
+  error?: string;
+}
+
+/**
+ * Parse an uploaded resume (PDF base64, TXT, MD, or JSON) into a full CandidateProfile
+ * and decomposed EvidenceGraph preview before user approval (Phase 18).
+ */
+export interface BootstrapProfileFromResumeRequest {
+  type: 'BOOTSTRAP_PROFILE_FROM_RESUME';
+  fileData: string;
+  fileName: string;
+  isBase64?: boolean;
+}
+
+export interface BootstrapProfileFromResumeResponse {
+  type: 'BOOTSTRAP_PROFILE_FROM_RESUME_RESULT';
+  success: boolean;
+  result?: {
+    rawText: string;
+    profile: CandidateProfile;
+    evidenceCount: number;
+    experiencesCount: number;
+    skillsCount: number;
+    educationCount: number;
+    evidence: Evidence[];
+    claims: CandidateClaim[];
+  };
+  error?: string;
+}
+
+/**
+ * Commit a reviewed and approved bootstrapped candidate profile and evidence graph into IndexedDB.
+ */
+export interface CommitBootstrappedProfileRequest {
+  type: 'COMMIT_BOOTSTRAPPED_PROFILE';
+  profile: CandidateProfile;
+  evidence: Evidence[];
+  claims?: CandidateClaim[];
+}
+
+export interface CommitBootstrappedProfileResponse {
+  type: 'COMMIT_BOOTSTRAPPED_PROFILE_RESULT';
+  success: boolean;
+  profileId?: string;
+  evidenceCount?: number;
   error?: string;
 }
 
@@ -683,6 +726,9 @@ export interface UpdateApplicationStatusRequest {
   interviewStage?: string;
   nextFollowUpDate?: string;
   notes?: string;
+  recruiterName?: string;
+  recruiterEmail?: string;
+  expectedSalary?: string;
 }
 
 export interface UpdateApplicationStatusResponse {
@@ -762,13 +808,24 @@ export interface AutoFixResumeResponse {
 }
 
 /**
- * Ad-hoc question answering for questions missed by the form crawler.
+ * Verifiable evidence citation linking an assistant answer back to the candidate's resume or profile.
+ */
+export interface GroundedEvidenceCitation {
+  readonly id: string;
+  readonly statement: string;
+  readonly sourceTitle?: string;
+  readonly sourceSnippet?: string;
+  readonly confidence: number;
+}
+
+/**
+ * Ad-hoc question answering for questions missed by the form crawler or user prompts.
  */
 export interface AnswerAdHocQuestionRequest {
   type: 'ANSWER_AD_HOC_QUESTION';
   question: string;
   maxLength?: number;
-  tone?: 'technical' | 'conversational' | 'executive';
+  tone?: 'concise' | 'star' | 'motivational' | 'bullets' | 'technical' | 'conversational' | 'executive';
 }
 
 export interface AnswerAdHocQuestionResponse {
@@ -777,7 +834,26 @@ export interface AnswerAdHocQuestionResponse {
   answerText?: string;
   confidence?: number;
   supportingClaimIds?: string[];
+  supportingCitations?: GroundedEvidenceCitation[];
+  sourceResumeName?: string;
   notes?: string;
+  error?: string;
+}
+
+/**
+ * Persists an ad-hoc or custom question answer into the candidate's verified savedAnswers.
+ */
+export interface SaveReusableAnswerRequest {
+  type: 'SAVE_REUSABLE_ANSWER';
+  question: string;
+  answerText: string;
+  category?: AnswerCategory | string;
+}
+
+export interface SaveReusableAnswerResponse {
+  type: 'SAVE_REUSABLE_ANSWER_RESULT';
+  success: boolean;
+  savedAnswerId?: string;
   error?: string;
 }
 
@@ -860,12 +936,33 @@ export interface GenerateResumePdfRequest {
   maxProjects?: number;
   templateId?: ResumeTemplateId;
   onePageFit?: boolean;
+  density?: SpacingDensity;
+  showTargetBadge?: boolean;
 }
 
 export interface GenerateResumePdfResponse {
   type: 'GENERATE_RESUME_PDF_RESULT';
   success: boolean;
   pdfBase64?: string;
+  error?: string;
+}
+
+/**
+ * Automated ATS submission detected by content script observer or background navigation (Phase 20).
+ */
+export interface SubmissionDetectedNotification {
+  type: 'SUBMISSION_DETECTED';
+  url: string;
+  title: string;
+  atsType?: string;
+}
+
+export interface SubmissionDetectedResponse {
+  type: 'SUBMISSION_DETECTED_RESULT';
+  success: boolean;
+  applicationId?: string;
+  previousStatus?: string;
+  newStatus?: string;
   error?: string;
 }
 
@@ -930,12 +1027,18 @@ export type ExtensionRequest =
   | GenerateTailoredResumeRequest
   | AutoFixResumeRequest
   | AnswerAdHocQuestionRequest
+  | SaveReusableAnswerRequest
   | InsertTextIntoActiveElementRequest
   | ExecuteOneClickAutoFillRequest
   | GenerateCoverLetterRequest
   | FactCheckDocumentRequest
   | AnswerCustomFieldsRequest
-  | GetActiveFormRequest;
+  | GetActiveFormRequest
+  | BootstrapProfileFromResumeRequest
+  | CommitBootstrappedProfileRequest
+  | GenerateCoverLetterPdfRequest
+  | GenerateResumePdfRequest
+  | SubmissionDetectedNotification;
 
 /**
  * Discriminated union of all extension RPC response types.
@@ -982,6 +1085,7 @@ export type ExtensionResponse =
   | GenerateTailoredResumeResponse
   | AutoFixResumeResponse
   | AnswerAdHocQuestionResponse
+  | SaveReusableAnswerResponse
   | InsertTextIntoActiveElementResponse
   | ExecuteOneClickAutoFillResponse
   | GenerateCoverLetterResponse
@@ -989,7 +1093,10 @@ export type ExtensionResponse =
   | GenerateResumePdfResponse
   | FactCheckDocumentResponse
   | AnswerCustomFieldsResponse
-  | GetActiveFormResponse;
+  | GetActiveFormResponse
+  | BootstrapProfileFromResumeResponse
+  | CommitBootstrappedProfileResponse
+  | SubmissionDetectedResponse;
 
 
 

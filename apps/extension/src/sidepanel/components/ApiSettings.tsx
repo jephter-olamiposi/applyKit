@@ -22,6 +22,7 @@ interface ApiSettingsProps {
   keysStatus: ApiKeysStatus;
   onSaveKey: (provider: AIProviderName, apiKey: string) => Promise<boolean>;
   onRerunOnboarding?: () => void;
+  onPurged?: () => void;
 }
 
 const PROVIDERS: { id: AIProviderName; label: string; desc: string }[] = [
@@ -39,6 +40,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
   keysStatus,
   onSaveKey,
   onRerunOnboarding,
+  onPurged,
 }) => {
   const [selectedProvider, setSelectedProvider] = useState<AIProviderName>('openai');
   const [keyValue, setKeyValue] = useState('');
@@ -161,6 +163,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
         setStatusMessage('All local candidate data and credentials have been permanently erased.');
         await loadStorageUsage();
         await loadMetrics();
+        onPurged?.();
       }
     } catch (err) {
       setStatusMessage('Purge error: ' + (err instanceof Error ? err.message : String(err)));

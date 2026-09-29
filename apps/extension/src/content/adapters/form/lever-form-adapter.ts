@@ -94,7 +94,7 @@ export class LeverFormAdapter implements AtsFormAdapter {
       submitButtonSelector = generateElementSelector(submitBtn, root);
     }
 
-    // 1. Process Radio Button Groups (e.g. EEO or yes/no custom questions)
+    // Radio button groups (e.g. EEO or yes/no custom questions)
     const radioInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     const radioGroups = new Map<string, HTMLInputElement[]>();
     for (const radio of radioInputs) {
@@ -140,7 +140,6 @@ export class LeverFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 2. Standard Inputs, Textareas, Selects, File Uploaders
     const interactiveElements = root.querySelectorAll<HTMLElement>(
       'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select'
     );
@@ -243,8 +242,13 @@ export class LeverFormAdapter implements AtsFormAdapter {
       return null;
     }
 
+    const formId =
+      (root.getAttribute && root.getAttribute('id')) ||
+      (typeof root.id === 'string' ? root.id : undefined) ||
+      `lever_form_${Date.now()}`;
+
     return {
-      id: root.id || `lever_form_${Date.now()}`,
+      id: formId,
       url: doc.location ? doc.location.href : '',
       detectedAts: this.id,
       fields,

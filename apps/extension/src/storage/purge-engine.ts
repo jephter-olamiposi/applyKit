@@ -166,7 +166,7 @@ export async function purgeAllCandidateData(
     STORES.CLAIMS,
   ];
 
-  // 1. Clear records from all object stores directly to ensure immediate erasure even if connections are open
+  // Clear records from all object stores directly to ensure immediate erasure even if connections are open
   try {
     const db = await openDatabase(customFactory);
     const existingStores = purgedStores.filter((s) => db.objectStoreNames.contains(s));
@@ -186,14 +186,14 @@ export async function purgeAllCandidateData(
     // Proceed to drop database
   }
 
-  // 2. Delete IndexedDB Database
+  // Delete IndexedDB database instance
   try {
     await deleteDatabase(customFactory);
   } catch {
     // Continue with storage.local clear even if IndexedDB delete threw
   }
 
-  // 3. Wipe chrome.storage.local
+  // Wipe chrome.storage.local encrypted keys and cached state
   let keysCleared = false;
   try {
     await clearAllApiKeys();

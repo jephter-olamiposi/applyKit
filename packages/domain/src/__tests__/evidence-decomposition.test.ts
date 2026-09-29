@@ -45,7 +45,7 @@ Frameworks: React, Node.js, Next.js, Express
 Tools & Cloud: Docker, Kubernetes, AWS, PostgreSQL, Redis, Git
 `;
 
-describe('Evidence & Claim Verification Engine (Phase 4)', () => {
+describe('Evidence & Claim Verification Engine', () => {
   describe('parsePlainTextResume', () => {
     it('accurately parses identity, contact, links, and summary from markdown resume', () => {
       const parsed = parsePlainTextResume(SAMPLE_MARKDOWN_RESUME);
@@ -161,6 +161,12 @@ Go, Python, Kubernetes, GCP
       const eduEv = evidence.find((e) => e.id === profile.education[0]?.evidenceRefs[0]);
       expect(eduEv?.source.type).toBe('diploma');
       expect(eduEv?.confidenceScore).toBe(0.95);
+
+      // Verify master resume document persistence
+      expect(profile.documents.length).toBe(1);
+      expect(profile.documents[0]?.isPrimaryResume).toBe(true);
+      expect(profile.documents[0]?.fileName).toBe('Master_Resume.txt');
+      expect(profile.documents[0]?.extractedText).toBe(SAMPLE_MARKDOWN_RESUME);
     });
 
     it('links candidate skills to supporting evidence nodes', () => {
@@ -283,8 +289,8 @@ Go, Python, Kubernetes, GCP
   });
 
   describe('Em-Dash & Advanced Resume Format Parsing', () => {
-    const REALISTIC_RESUME = `Jephter Olamiposi Olaifa
-jephterolaifa@gmail.com  |  github.com/jephter-olamiposi  |  linkedin.com/in/jephter-olaifa  |  dev.to/iamjephter
+    const REALISTIC_RESUME = `Jordan Alex Taylor
+jordan.taylor@example.com  |  github.com/jordantaylor-dev  |  linkedin.com/in/jordan-taylor-dev  |  dev.to/jordantaylor
 
 SKILLS
 Languages: Rust, TypeScript, JavaScript, Python
@@ -293,51 +299,51 @@ Databases: PostgreSQL, SurrealDB, Redis
 Infrastructure & Tools: AWS, Docker, Kubernetes, CI/CD, GitHub Actions
 
 WORK EXPERIENCE
-Software Engineer — CoreServe — Rust
+Software Engineer — ApexFlow — Rust
 Feb 2026 – Aug 2026
 * Engineered a production-grade multi-tenant backend for logistics platform using Rust, Axum, and PostgreSQL.
 * Designed transaction-safe wallet, billing, and settlement workflows.
 
-Backend Engineer — GeoResinStore
+Backend Engineer — CloudResin
 Mar 2025 – Feb 2026
 * Architected a modular e-commerce backend using Node.js and PostgreSQL.
 
 PERSONAL PROJECTS
-* wsblast (Rust) — Built a high-performance WebSocket load-testing CLI with zero allocations.
-* Echo (Rust, Tauri, SQLite) — Built a cross-platform clipboard synchronization engine.
+* loadblast (Rust) — Built a high-performance WebSocket load-testing CLI with zero allocations.
+* SyncClip (Rust, Tauri, SQLite) — Built a cross-platform clipboard synchronization engine.
 
 EDUCATION
-Ladoke Akintola University of Technology — BSc, Information Systems
+Metro Institute of Technology — BSc, Information Systems
 `;
 
     it('correctly parses em-dash experiences, bulleted projects, and education', () => {
       const parsed = parsePlainTextResume(REALISTIC_RESUME);
 
-      expect(parsed.identity.fullName).toBe('Jephter Olamiposi Olaifa');
-      expect(parsed.identity.email).toBe('jephterolaifa@gmail.com');
-      expect(parsed.identity.links.github).toBe('https://github.com/jephter-olamiposi');
-      expect(parsed.identity.links.linkedin).toBe('https://linkedin.com/in/jephter-olaifa');
-      expect(parsed.identity.links.portfolio).toBe('https://dev.to/iamjephter');
+      expect(parsed.identity.fullName).toBe('Jordan Alex Taylor');
+      expect(parsed.identity.email).toBe('jordan.taylor@example.com');
+      expect(parsed.identity.links.github).toBe('https://github.com/jordantaylor-dev');
+      expect(parsed.identity.links.linkedin).toBe('https://linkedin.com/in/jordan-taylor-dev');
+      expect(parsed.identity.links.portfolio).toBe('https://dev.to/jordantaylor');
 
       expect(parsed.experiences.length).toBe(2);
       expect(parsed.experiences[0]?.title).toBe('Software Engineer');
-      expect(parsed.experiences[0]?.company).toBe('CoreServe');
+      expect(parsed.experiences[0]?.company).toBe('ApexFlow');
       expect(parsed.experiences[0]?.startDate).toBe('2026-02');
       expect(parsed.experiences[0]?.endDate).toBe('2026-08');
       expect(parsed.experiences[0]?.highlights.length).toBe(2);
 
       expect(parsed.experiences[1]?.title).toBe('Backend Engineer');
-      expect(parsed.experiences[1]?.company).toBe('GeoResinStore');
+      expect(parsed.experiences[1]?.company).toBe('CloudResin');
       expect(parsed.experiences[1]?.startDate).toBe('2025-03');
       expect(parsed.experiences[1]?.endDate).toBe('2026-02');
 
       expect(parsed.projects.length).toBe(2);
-      expect(parsed.projects[0]?.title).toBe('wsblast (Rust)');
+      expect(parsed.projects[0]?.title).toBe('loadblast (Rust)');
       expect(parsed.projects[0]?.description).toContain('WebSocket load-testing CLI');
-      expect(parsed.projects[1]?.title).toBe('Echo (Rust, Tauri, SQLite)');
+      expect(parsed.projects[1]?.title).toBe('SyncClip (Rust, Tauri, SQLite)');
 
       expect(parsed.education.length).toBe(1);
-      expect(parsed.education[0]?.institution).toBe('Ladoke Akintola University of Technology');
+      expect(parsed.education[0]?.institution).toBe('Metro Institute of Technology');
       expect(parsed.education[0]?.degree).toBe('BSc');
       expect(parsed.education[0]?.fieldOfStudy).toBe('Information Systems');
 

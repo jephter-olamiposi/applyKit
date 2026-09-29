@@ -44,12 +44,14 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
     const host = url.hostname.toLowerCase();
     const search = url.search.toLowerCase();
 
-    if (host.includes('greenhouse.io') || search.includes('gh_jid')) {
+    if (host.includes('greenhouse.io') || search.includes('gh_jid') || host.includes('canonical.com')) {
       return true;
     }
 
     return Boolean(
-      doc.querySelector('#grnhse_app, form#application_form, [data-greenhouse], #main_fields, #eeo_questions')
+      doc.querySelector(
+        '#grnhse_app, form#application_form, form#job-apply-form, [data-greenhouse], #main_fields, #eeo_questions, input#gh_src'
+      )
     );
   }
 
@@ -104,23 +106,25 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
   crawlForm(doc: Document, container?: HTMLElement): ApplicationForm | null {
     const root =
       container ||
-      doc.querySelector<HTMLElement>('#grnhse_app, form#application_form, #main_fields') ||
+      doc.querySelector<HTMLElement>(
+        '#grnhse_app, form#application_form, form#job-apply-form, #main_fields'
+      ) ||
       doc.body;
 
     const fields: ApplicationField[] = [];
     const validationErrors = this.detectValidationErrors(doc);
     const wizardState = this.detectWizardState(doc);
 
-    // Identify submit button (e.g. #submit_app)
+    // Identify submit button (e.g. #submit_app, .js-submit-button)
     let submitButtonSelector: string | undefined;
     const submitBtn = root.querySelector<HTMLElement>(
-      'input#submit_app, button#submit_app, input[type="submit"], [data-qa="submit-button"]'
+      'input#submit_app, button#submit_app, input[name="submit_button"], .js-submit-button, input[type="submit"], [data-qa="submit-button"]'
     );
     if (submitBtn && isSubmitElement(submitBtn)) {
       submitButtonSelector = generateElementSelector(submitBtn, root);
     }
 
-    // 1. Radio Button Groups (including EEO yes/no radios)
+    // Radio button groups (including EEO choices)
     const radioInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     const radioGroups = new Map<string, HTMLInputElement[]>();
     for (const radio of radioInputs) {
@@ -166,7 +170,6 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 2. Standard Inputs, Textareas, Native Selects, File Uploaders
     const interactiveElements = root.querySelectorAll<HTMLElement>(
       'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select'
     );
@@ -270,8 +273,13 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
       return null;
     }
 
+    const formId =
+      (root.getAttribute && root.getAttribute('id')) ||
+      (typeof root.id === 'string' ? root.id : undefined) ||
+      `greenhouse_form_${Date.now()}`;
+
     return {
-      id: root.id || `greenhouse_form_${Date.now()}`,
+      id: formId,
       url: doc.location ? doc.location.href : '',
       detectedAts: this.id,
       fields,

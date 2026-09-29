@@ -16,6 +16,7 @@ import { ApplicationTracker } from './components/ApplicationTracker.js';
 import { TailoringStudio } from './components/TailoringStudio.js';
 import { ApiSettings } from './components/ApiSettings.js';
 import { OnboardingWizard } from './components/OnboardingWizard.js';
+import { InstantQuestionSolver } from './components/InstantQuestionSolver.js';
 import { sendToBackground } from '../messages/bridge.js';
 import type {
   ExtractedPageData,
@@ -50,7 +51,6 @@ export const App: React.FC = () => {
   });
 
   const loadInitialData = useCallback(async () => {
-    // 1. Fetch Profile Summary
     try {
       setProfileLoading(true);
       const res = await sendToBackground<
@@ -61,12 +61,11 @@ export const App: React.FC = () => {
         setProfile(res.summary);
       }
     } catch {
-      // Background might not have profile yet
+      // Profile repository may not be initialized yet
     } finally {
       setProfileLoading(false);
     }
 
-    // 2. Fetch Cached Extraction
     try {
       const res = await sendToBackground<
         { type: 'GET_CURRENT_EXTRACTION' },
@@ -77,10 +76,9 @@ export const App: React.FC = () => {
         if (res.jobPosting) setJobPosting(res.jobPosting);
       }
     } catch {
-      // Ignore cache miss
+      // No active job extraction in cache
     }
 
-    // 3. Fetch Provider Keys Status
     try {
       const res = await sendToBackground<
         { type: 'GET_API_KEYS_STATUS' },
@@ -90,10 +88,9 @@ export const App: React.FC = () => {
         setKeysStatus(res.status);
       }
     } catch {
-      // Keys not yet initialized
+      // Provider keys not yet configured
     }
 
-    // 4. Check Onboarding Status
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       try {
         const stored = await chrome.storage.local.get('applykit_onboarding_completed');
@@ -148,6 +145,13 @@ export const App: React.FC = () => {
       return true;
     }
     return false;
+  };
+
+  const handlePurged = () => {
+    setProfile(null);
+    setHasCompletedOnboarding(false);
+    setShowOnboarding(true);
+    setActiveTab('overview');
   };
 
   const shouldShowOnboarding =
@@ -240,6 +244,10 @@ export const App: React.FC = () => {
               <DryRunInspector onNavigateToTab={setActiveTab} />
             )}
 
+            {activeTab === 'instant_qa' && (
+              <InstantQuestionSolver initialOpen={true} isDedicatedTab={true} />
+            )}
+
             {activeTab === 'history' && (
               <ApplicationTracker onNavigateToTab={setActiveTab} />
             )}
@@ -249,6 +257,7 @@ export const App: React.FC = () => {
                 profile={profile}
                 loading={profileLoading}
                 onProfileUpdated={loadInitialData}
+                onPurged={handlePurged}
               />
             )}
 
@@ -257,6 +266,7 @@ export const App: React.FC = () => {
                 keysStatus={keysStatus}
                 onSaveKey={handleSaveKey}
                 onRerunOnboarding={() => setShowOnboarding(true)}
+                onPurged={handlePurged}
               />
             )}
           </main>

@@ -1,10 +1,10 @@
 /**
- * @fileoverview Unit and integration tests for Application Tracker & Audit History (Phase 11).
+ * @fileoverview Unit and integration tests for Application Tracker & Audit History.
  *
  * Verifies:
  * 1. Application state machine transitions and audit trail persistence.
  * 2. Status updates and interview stage lifecycle progression.
- * 3. Anti-Autonomous Submission Hard Gate (ADR-0006): execution stops at 'awaiting_user_review'.
+ * 3. Anti-Autonomous Submission Hard Gate: execution stops at 'awaiting_user_review'.
  * 4. Application deletion and Right to Erasure privacy compliance.
  */
 
@@ -25,7 +25,7 @@ import {
   deleteDatabase,
 } from '../storage/index.js';
 
-describe('Application Tracking & Audit History Engine (Phase 11)', () => {
+describe('Application Tracking & Audit History Engine', () => {
   let appRepo: IndexedDbApplicationRepository;
 
   beforeEach(async () => {
@@ -105,7 +105,6 @@ describe('Application Tracking & Audit History Engine (Phase 11)', () => {
 
       await appRepo.saveApplication(app);
 
-      // Step 1: Advance to awaiting_user_review
       await appRepo.updateApplicationStatus(
         appId,
         'ready_to_fill',
@@ -130,7 +129,7 @@ describe('Application Tracking & Audit History Engine (Phase 11)', () => {
       expect(inReview.currentStatus).toBe('awaiting_user_review');
       expect(inReview.appliedAt).toBeUndefined();
 
-      // Step 2: Human-in-the-Loop Confirmation: User manually submits and confirms
+      // Human-in-the-loop confirmation: user manually submits and confirms
       const submitted = await appRepo.updateApplicationStatus(
         appId,
         'submitted',
@@ -141,7 +140,6 @@ describe('Application Tracking & Audit History Engine (Phase 11)', () => {
       // Invariant: appliedAt must be automatically stamped when transitioning to submitted
       expect(submitted.appliedAt).toBeDefined();
 
-      // Step 3: Advance to interviewing with interview stage and follow-up schedule
       const interviewing = await appRepo.updateApplicationStatus(
         appId,
         'interviewing',
@@ -158,7 +156,6 @@ describe('Application Tracking & Audit History Engine (Phase 11)', () => {
       expect(interviewing.nextFollowUpDate).toBe('2026-10-15');
       expect(interviewing.notes).toContain('Sarah');
 
-      // Step 4: Advance to offered
       const offered = await appRepo.updateApplicationStatus(
         appId,
         'offered',
@@ -247,6 +244,91 @@ describe('Application Tracking & Audit History Engine (Phase 11)', () => {
       expect(list.length).toBe(2);
       expect(list[0]?.companyName).toBe('New Corp');
       expect(list[1]?.companyName).toBe('Old Corp');
+    });
+  });
+
+  describe('Recruiter CRM & Automated Transition Enhancements (Phase 20, ADR-0032)', () => {
+    it('persists and updates recruiter contact info and target compensation', async () => {
+      const appId = createApplicationId('app_crm_1');
+      const profileId = createProfileId('prof_crm');
+      const jobId = createJobPostingId('job_crm_1');
+
+      const app = createApplicationRecord({
+        id: appId,
+        candidateProfileId: profileId,
+        jobPostingId: jobId,
+        companyName: 'Stripe',
+        jobTitle: 'Staff Backend Engineer',
+        recruiterName: 'Sarah Jenkins',
+        recruiterEmail: 'sarah.j@stripe.com',
+        expectedSalary: '$220,000 - $250,000',
+        notes: 'Initial outreach via recruiter message on LinkedIn.',
+      });
+
+      await appRepo.saveApplication(app);
+
+      const saved = await appRepo.getApplicationById(appId);
+      expect(saved?.recruiterName).toBe('Sarah Jenkins');
+      expect(saved?.recruiterEmail).toBe('sarah.j@stripe.com');
+      expect(saved?.expectedSalary).toBe('$220,000 - $250,000');
+      expect(saved?.notes).toBe('Initial outreach via recruiter message on LinkedIn.');
+
+      // Update recruiter details and snapshots
+      const updated = {
+        ...saved!,
+        notes: 'Completed technical screen. Awaiting on-site schedule.',
+        tailoredResumeSnapshot: '# Tailored Resume\n\nProven distributed systems experience...',
+      };
+      await appRepo.saveApplication(updated);
+
+      const reloaded = await appRepo.getApplicationById(appId);
+      expect(reloaded?.notes).toBe('Completed technical screen. Awaiting on-site schedule.');
+      expect(reloaded?.tailoredResumeSnapshot).toContain('Proven distributed systems experience');
+    });
+
+    it('permits transition to submitted from ready_to_fill and dry_run_review upon ATS detection', async () => {
+      const profileId = createProfileId('prof_ats');
+
+      // Test from ready_to_fill -> submitted
+      const app1 = createApplicationRecord({
+        id: createApplicationId('app_ats_1'),
+        candidateProfileId: profileId,
+        jobPostingId: createJobPostingId('job_ats_1'),
+        companyName: 'Canonical',
+        jobTitle: 'Kernel Engineer',
+      });
+      await appRepo.saveApplication(app1);
+      await appRepo.updateApplicationStatus(app1.id, 'extracting_job');
+      await appRepo.updateApplicationStatus(app1.id, 'matching_profile');
+      await appRepo.updateApplicationStatus(app1.id, 'ready_to_fill');
+
+      const submittedFromReady = await appRepo.updateApplicationStatus(
+        app1.id,
+        'submitted',
+        'Automated ATS confirmation detected'
+      );
+      expect(submittedFromReady.currentStatus).toBe('submitted');
+
+      // Test from dry_run_review -> submitted
+      const app2 = createApplicationRecord({
+        id: createApplicationId('app_ats_2'),
+        candidateProfileId: profileId,
+        jobPostingId: createJobPostingId('job_ats_2'),
+        companyName: 'Ashby',
+        jobTitle: 'Frontend Engineer',
+      });
+      await appRepo.saveApplication(app2);
+      await appRepo.updateApplicationStatus(app2.id, 'extracting_job');
+      await appRepo.updateApplicationStatus(app2.id, 'matching_profile');
+      await appRepo.updateApplicationStatus(app2.id, 'ready_to_fill');
+      await appRepo.updateApplicationStatus(app2.id, 'dry_run_review');
+
+      const submittedFromDryRun = await appRepo.updateApplicationStatus(
+        app2.id,
+        'submitted',
+        'ATS confirmation page redirect'
+      );
+      expect(submittedFromDryRun.currentStatus).toBe('submitted');
     });
   });
 });

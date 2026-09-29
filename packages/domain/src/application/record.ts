@@ -33,6 +33,12 @@ export interface CreateApplicationParams {
   readonly jobPostingUrl?: string;
   readonly jobDescriptionSnapshot?: string;
   readonly matchedRequirementsScore?: number;
+  readonly recruiterName?: string;
+  readonly recruiterEmail?: string;
+  readonly expectedSalary?: string;
+  readonly notes?: string;
+  readonly tailoredResumeSnapshot?: string;
+  readonly coverLetterSnapshot?: string;
 }
 
 /**
@@ -64,6 +70,16 @@ export interface ApplicationRecord {
   /** Scheduled date for follow-up or check-in (ISO string or YYYY-MM-DD). */
   readonly nextFollowUpDate?: string;
   readonly notes?: string;
+  /** Primary recruiter contact name for this opportunity. */
+  readonly recruiterName?: string;
+  /** Primary recruiter email address or LinkedIn messaging handle. */
+  readonly recruiterEmail?: string;
+  /** Expected or negotiated target compensation/salary string. */
+  readonly expectedSalary?: string;
+  /** Snapshot of the tailored resume markdown or text utilized for this application. */
+  readonly tailoredResumeSnapshot?: string;
+  /** Snapshot of the tailored cover letter utilized for this application. */
+  readonly coverLetterSnapshot?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -128,6 +144,12 @@ export function createApplicationRecord(
     filledFieldsCount: 0,
     dryRunLog: [],
     ...(jobDescriptionSnapshot ? { jobDescriptionSnapshot } : {}),
+    ...(typeof idOrParams === 'object' && idOrParams.recruiterName ? { recruiterName: idOrParams.recruiterName } : {}),
+    ...(typeof idOrParams === 'object' && idOrParams.recruiterEmail ? { recruiterEmail: idOrParams.recruiterEmail } : {}),
+    ...(typeof idOrParams === 'object' && idOrParams.expectedSalary ? { expectedSalary: idOrParams.expectedSalary } : {}),
+    ...(typeof idOrParams === 'object' && idOrParams.notes ? { notes: idOrParams.notes } : {}),
+    ...(typeof idOrParams === 'object' && idOrParams.tailoredResumeSnapshot ? { tailoredResumeSnapshot: idOrParams.tailoredResumeSnapshot } : {}),
+    ...(typeof idOrParams === 'object' && idOrParams.coverLetterSnapshot ? { coverLetterSnapshot: idOrParams.coverLetterSnapshot } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -157,6 +179,11 @@ export function transitionApplicationRecord(
       | 'interviewStage'
       | 'nextFollowUpDate'
       | 'notes'
+      | 'recruiterName'
+      | 'recruiterEmail'
+      | 'expectedSalary'
+      | 'tailoredResumeSnapshot'
+      | 'coverLetterSnapshot'
       | 'filledFieldsCount'
       | 'filledValues'
       | 'dryRunLog'

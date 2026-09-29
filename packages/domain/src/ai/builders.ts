@@ -201,11 +201,13 @@ export function buildFieldAnsweringPrompt(
     `You are a professional job application assistant formulating answers to application form questions.
 
 CRITICAL INVARIANTS:
-1. Ground all responses strictly in the candidate's verified evidence and saved answers provided.
+1. Ground all responses strictly in the candidate's verified experience, skills, and evidence provided.
 2. NEVER invent experiences, metrics, employer names, or degrees.
 3. If the candidate has no relevant background to answer the prompt, produce a concise factual statement or advise the user to fill manually.
 4. Adhere strictly to any specified character or word limits.
 5. Write like a real human — direct, natural, specific, conversational. No corporate speak. No AI phrasing.
+6. For technical or architectural questions (e.g. distributed systems, scalability, data governance, consensus), answer with senior engineering depth reflecting the candidate's real-world production experience, clear trade-offs, and pragmatic judgment.
+7. For dropdown options, select the exact option value or label that best matches the candidate's verified profile.
 
 ${styleGuidance ? `WRITING STYLE (match this voice):\n${styleGuidance}\n` : ''}
 
@@ -232,6 +234,22 @@ Return a valid JSON object matching this schema:
     .map((c) => `- [${c.id}] ${c.statement}`)
     .join('\n');
 
+  const expText = (context.candidateExperiences || [])
+    .map((e) => {
+      const highlights = (e.highlights || []).map((h) => `    * ${h}`).join('\n');
+      const techs = (e.technologiesUsed || []).length > 0 ? ` (Technologies: ${e.technologiesUsed.join(', ')})` : '';
+      return `- ${e.title} at ${e.company}${techs}${e.description ? `\n    ${e.description}` : ''}${highlights ? `\n${highlights}` : ''}`;
+    })
+    .join('\n');
+
+  const skillsText = (context.candidateSkills || [])
+    .map((s) => `${s.name}${s.proficiency ? ` (${s.proficiency})` : ''}`)
+    .join(', ');
+
+  const eduText = (context.candidateEducation || [])
+    .map((ed) => `${ed.degree} in ${ed.fieldOfStudy} from ${ed.institution}${ed.gpa ? ` (GPA: ${ed.gpa})` : ''}${ed.honors?.length ? ` (Honors: ${ed.honors.join(', ')})` : ''}`)
+    .join('; ');
+
   const optionsText = context.options
     ? `Available Dropdown Options: ${context.options.map((o) => `"${o.label}" (value: ${o.value})`).join(', ')}`
     : '';
@@ -245,13 +263,18 @@ ${optionsText}
 ${context.maxLength ? `Max Characters: ${context.maxLength}` : ''}
 ${context.placeholder ? `Placeholder: ${context.placeholder}` : ''}
 
+${context.candidateSummary ? `CANDIDATE SUMMARY:\n${context.candidateSummary}\n` : ''}
+${expText ? `CANDIDATE WORK EXPERIENCE & PRODUCTION HIGHLIGHTS:\n${expText}\n` : ''}
+${skillsText ? `CANDIDATE VERIFIED SKILLS:\n${skillsText}\n` : ''}
+${eduText ? `CANDIDATE EDUCATION:\n${eduText}\n` : ''}
+
 RELEVANT SAVED ANSWERS:
 ${answersText || 'None available.'}
 
 SUPPORTING CANDIDATE CLAIMS:
 ${claimsText || 'None available.'}
 
-Provide a natural, human, evidence-backed answer strictly in JSON.`;
+Provide a natural, human, senior-grounded answer strictly in JSON.`;
 
   return {
     prompt: userPrompt,

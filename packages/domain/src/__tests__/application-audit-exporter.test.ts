@@ -25,7 +25,7 @@ import {
   createActionId,
 } from '../types/ids.js';
 
-describe('Audit Exporter & CSV Formula Injection Protection (Phase 11)', () => {
+describe('Audit Exporter & CSV Formula Injection Protection', () => {
   describe('sanitizeCsvCell', () => {
     it('handles null and undefined values safely', () => {
       expect(sanitizeCsvCell(null)).toBe('');

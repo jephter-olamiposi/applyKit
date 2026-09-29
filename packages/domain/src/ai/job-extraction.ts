@@ -2,7 +2,7 @@
  * @fileoverview Structured AI Job Extraction schema, validator, and normalization.
  *
  * Maps a validated LLM job-extraction completion into a canonical JobPosting aggregate.
- * Feeds the deterministic-extraction fallback path (Phase 2 conformance).
+ * Feeds the deterministic extraction fallback path.
  */
 
 import type { JobPosting, SalaryRange, WorkplaceType, JobPostingEmploymentType } from '../job/job-posting.js';

@@ -11,8 +11,17 @@ import type { WorkExperience } from '../candidate/experience.js';
 import type { CandidateProject } from '../candidate/project.js';
 import type { EducationRecord } from '../candidate/education.js';
 import type { CandidateSkill, SkillCategory } from '../candidate/skill.js';
+import type { DocumentReference } from '../candidate/document.js';
 import type { ProfileId, EvidenceId } from '../types/ids.js';
-import { createProfileId, createExperienceId, createProjectId, createEducationId, createSkillId, createEvidenceId } from '../types/ids.js';
+import {
+  createProfileId,
+  createExperienceId,
+  createProjectId,
+  createEducationId,
+  createSkillId,
+  createEvidenceId,
+  createDocumentId,
+} from '../types/ids.js';
 import type { Evidence } from './evidence.js';
 import type { ParsedResumeDocument } from './parser.js';
 import { normalizeSkillName } from '../candidate/skill.js';
@@ -383,6 +392,29 @@ export function createProfileFromParsedResume(
     evidenceRefs: [],
   }));
 
+  const rawLocParts = (parsed.identity.location || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  let parsedCity = '';
+  let parsedState: string | undefined;
+  let parsedCountry = '';
+
+  if (rawLocParts.length >= 3) {
+    parsedCity = rawLocParts[0] || '';
+    parsedState = rawLocParts[1];
+    parsedCountry = rawLocParts.slice(2).join(', ');
+  } else if (rawLocParts.length === 2) {
+    parsedCity = rawLocParts[0] || '';
+    if ((rawLocParts[1] || '').length <= 3) {
+      parsedState = rawLocParts[1];
+    } else {
+      parsedCountry = rawLocParts[1] || '';
+    }
+  } else if (rawLocParts.length === 1) {
+    parsedCity = rawLocParts[0] || '';
+  }
+
   // Construct raw profile aggregate
   const rawProfile: CandidateProfile = {
     id: profileId,
@@ -390,36 +422,31 @@ export function createProfileFromParsedResume(
     createdAt: now,
     updatedAt: now,
     identity: {
-      legalFirstName: (parsed.identity.fullName.split(' ')[0] ?? '').trim() || 'Candidate',
+      legalFirstName: (parsed.identity.fullName.split(' ')[0] ?? '').trim(),
       legalLastName: parsed.identity.fullName.split(' ').slice(1).join(' ').trim(),
       email: parsed.identity.email || '',
       phone: parsed.identity.phone || '',
       location: {
-        city: (parsed.identity.location?.split(',')[0] ?? '').trim(),
-        country: (parsed.identity.location?.split(',')[1] ?? '').trim() || (parsed.identity.location ? parsed.identity.location.trim() : 'United States'),
+        city: parsedCity,
+        stateOrProvince: parsedState,
+        country: parsedCountry,
       },
       workAuthorization: {
         isAuthorizedInCountry: true,
         requiresSponsorship: false,
-        authorizedCountries: ['United States'],
+        authorizedCountries: parsedCountry ? [parsedCountry] : [],
       },
     },
     professional: {
-      headline: parsed.experiences[0]?.title || 'Software Professional',
+      headline: parsed.experiences[0]?.title || '',
       summary: parsed.summary,
-      totalYearsOfExperience: Math.max(parsed.experiences.length * 2, 1),
+      totalYearsOfExperience: Math.max(parsed.experiences.length * 2, 0),
       primaryRoles: parsed.experiences.map((e) => e.title).slice(0, 3),
       targetRoles: parsed.experiences.map((e) => e.title).slice(0, 3),
       preferredLocations: [],
       workplacePreference: 'remote',
       isOpenToRelocation: false,
-      compensationExpectation: {
-        targetSalaryMin: 140000,
-        targetSalaryMax: 160000,
-        currency: 'USD',
-        period: 'annual',
-        isNegotiable: true,
-      },
+      compensationExpectation: undefined,
     },
     experiences: rawExperiences,
     projects: rawProjects,
@@ -431,7 +458,20 @@ export function createProfileFromParsedResume(
       portfolio: parsed.identity.links.portfolio,
       customLinks: [],
     },
-    documents: [],
+    documents: [
+      {
+        id: createDocumentId(),
+        fileName: 'Master_Resume.txt',
+        documentType: 'resume',
+        storageKey: `doc_resume_${profileId}`,
+        mimeType: 'text/plain',
+        byteSize: typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(parsed.rawText).length : parsed.rawText.length,
+        sha256Checksum: 'local_parsed_v1',
+        uploadedAt: now,
+        extractedText: parsed.rawText,
+        isPrimaryResume: true,
+      },
+    ],
     savedAnswers: [],
     claims: [],
   };

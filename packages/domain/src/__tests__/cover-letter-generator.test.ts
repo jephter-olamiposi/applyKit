@@ -14,7 +14,7 @@ import {
   type Evidence,
 } from '../index.js';
 
-describe('Evidence-Grounded Cover Letter Generator Suite (Phase 12)', () => {
+describe('Evidence-Grounded Cover Letter Generator Suite', () => {
   const sampleJob: JobPosting = {
     id: createJobPostingId('job_cloud_arch'),
     url: 'https://careers.example.com/cloud-architect',

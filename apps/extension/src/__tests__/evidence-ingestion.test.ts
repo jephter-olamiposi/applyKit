@@ -1,5 +1,5 @@
 /**
- * @fileoverview Integration tests for Phase 4 Evidence Ingestion and Grounding Verification.
+ * @fileoverview Integration tests for Evidence Ingestion and Grounding Verification.
  *
  * Verifies end-to-end evidence decomposition, batch IndexedDB persistence,
  * claim derivation, and background messaging contracts.
@@ -59,7 +59,7 @@ Languages: Go, TypeScript, Python, SQL
 Technologies: Kafka, Docker, Kubernetes, PostgreSQL, AWS, Redis, Git
 `;
 
-describe('Evidence Ingestion & Grounding Integration Suite (Phase 4)', () => {
+describe('Evidence Ingestion & Grounding Integration Suite', () => {
   let evidenceRepo: IndexedDbEvidenceRepository;
   let profileRepo: IndexedDbProfileRepository;
 

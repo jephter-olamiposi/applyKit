@@ -305,21 +305,21 @@ export function calculatePagePointBudget(
   const maxAvailablePoints = 760; // 792 pt minus top/bottom margins
   const recommendations: string[] = [];
 
-  // 1. Header & Contact Section
+  // Header & Contact Section
   const headerHeight = templateId === 'compact' ? 75 : 95;
 
-  // 2. Summary Section
+  // Summary Section
   const summaryLines = Math.ceil(resume.tailoredSummary.length / (templateId === 'compact' ? 100 : 85));
   const summaryHeight = 25 + summaryLines * 12;
 
-  // 3. Technical Skills Section
+  // Technical Skills Section
   const totalSkillTags =
     resume.skills.matchedRequired.length +
     resume.skills.matchedPreferred.length +
     resume.skills.additionalSkills.length;
   const skillsHeight = 25 + Math.ceil(totalSkillTags / 8) * 14;
 
-  // 4. Experience Section
+  // Experience Section
   let expHeight = 25; // Section title
   for (const exp of resume.experiences) {
     expHeight += 20; // Title & company row
@@ -327,7 +327,7 @@ export function calculatePagePointBudget(
     expHeight += 6; // Spacing
   }
 
-  // 5. Projects Section
+  // Projects Section
   let projHeight = 0;
   if (resume.projects.length > 0) {
     projHeight += 25; // Section title
@@ -338,7 +338,7 @@ export function calculatePagePointBudget(
     }
   }
 
-  // 6. Education Section
+  // Education Section
   let eduHeight = 0;
   if (profile.education.length > 0) {
     eduHeight += 25; // Section title
@@ -408,7 +408,7 @@ export function auditResumeQuality(
 ): ResumeQualityAuditReport {
   const checks: Partial<Record<ResumeAuditCheckId, ResumeAuditCheckItem>> = {};
 
-  // 1. Pre-designed template check
+  // Pre-designed template check
   const validTemplates = ['modern', 'classic', 'minimalist', 'compact'];
   const hasValidTemplate = validTemplates.includes(templateId);
   checks.template_selected = {
@@ -421,7 +421,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 2. Fit on 1 page check
+  // Fit on 1 page check
   const pageBudget = calculatePagePointBudget(resume, profile, templateId);
   checks.one_page_fit = {
     id: 'one_page_fit',
@@ -435,7 +435,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 3. Job keywords included
+  // Job keywords included
   const matchedReqSkills = resume.skills.matchedRequired;
   const matchedPrefSkills = resume.skills.matchedPreferred;
   const totalJobMatches = matchedReqSkills.length + matchedPrefSkills.length;
@@ -451,7 +451,7 @@ export function auditResumeQuality(
     autoFixable: false,
   };
 
-  // 4. Company name included
+  // Company name included
   const companyInSummary = resume.tailoredSummary.toLowerCase().includes(job.companyName.toLowerCase());
   checks.company_name = {
     id: 'company_name',
@@ -465,7 +465,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 5. First item reflects what they are looking for
+  // First item reflects what they are looking for
   const firstExp = resume.experiences[0];
   const firstBullet = firstExp?.rankedHighlights[0];
   const firstBulletMatches = (firstBullet?.matchedRequirements.length ?? 0) > 0;
@@ -481,7 +481,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 6. Experience titles demonstrate value
+  // Experience titles demonstrate value
   const hasValueTitles = resume.experiences.every((exp) => exp.title.length > 5);
   checks.title_demonstrates_value = {
     id: 'title_demonstrates_value',
@@ -495,7 +495,7 @@ export function auditResumeQuality(
     autoFixable: false,
   };
 
-  // 7. Online links check
+  // Online links check
   const hasOnlineLink = Boolean(
     profile.links?.linkedin ||
       profile.links?.github ||
@@ -514,7 +514,7 @@ export function auditResumeQuality(
     autoFixable: false,
   };
 
-  // 8. Remove the word "I"
+  // Remove the word "I"
   const allBullets = [
     ...resume.experiences.flatMap((e) => e.rankedHighlights.map((h) => h.text)),
     ...resume.projects.flatMap((p) => p.rankedHighlights.map((h) => h.text)),
@@ -534,7 +534,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 9. No buzzwords check
+  // No buzzwords check
   const textBlob = `${resume.tailoredSummary} ${allBullets.join(' ')}`.toLowerCase();
   const detectedBuzzwords = BANNED_BUZZWORDS.filter((buzz) => {
     const rx = new RegExp(`\\b${buzz.replace('-', '[- ]')}\\b`, 'i');
@@ -553,7 +553,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 10. Strong Action words
+  // Strong Action words
   let actionVerbCount = 0;
   let weakOpeningCount = 0;
   for (const bullet of allBullets) {
@@ -580,7 +580,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 11. Measure impact (Google X-Y-Z formula)
+  // Measure impact (Google X-Y-Z formula)
   let quantifiedCount = 0;
   for (const bullet of allBullets) {
     if (QUANTIFIED_METRIC_REGEX.test(bullet)) {
@@ -601,7 +601,7 @@ export function auditResumeQuality(
     autoFixable: false,
   };
 
-  // 12. Skills & impressive years
+  // Skills & impressive years
   const verifiedYears = profile.professional.totalYearsOfExperience ?? 0;
   const mentionsYearsInSummary = /\b\d+\+\s*years\b/i.test(resume.tailoredSummary);
   const yearsImpressiveOrOmitted = !mentionsYearsInSummary || verifiedYears >= 3;
@@ -617,7 +617,7 @@ export function auditResumeQuality(
     autoFixable: true,
   };
 
-  // 13. Impressive sections only
+  // Impressive sections only
   const hasCoreSections = resume.experiences.length > 0 && totalJobMatches > 0;
   checks.impressive_sections = {
     id: 'impressive_sections',
@@ -629,7 +629,7 @@ export function auditResumeQuality(
     autoFixable: false,
   };
 
-  // 14. No typos or bad grammar
+  // No typos or bad grammar
   let typoIssues = 0;
   for (const bullet of allBullets) {
     // Check tech casing
@@ -697,7 +697,7 @@ export function autoFixResumeQualityIssues(
   profile: CandidateProfile,
   job: JobPosting
 ): TailoredResume {
-  // 1. Clean Summary
+  // Clean executive summary
   let summary = resume.tailoredSummary;
 
   // Remove first-person pronouns
@@ -730,7 +730,7 @@ export function autoFixResumeQualityIssues(
     summary += ` Focused on driving measurable outcomes aligned with ${job.companyName}'s engineering goals.`;
   }
 
-  // 2. Clean Highlights for Experiences
+  // Clean highlights for experiences
   const experiences: TailoredExperience[] = resume.experiences.map((exp) => {
     const cleanedHighlights = exp.rankedHighlights.map((h) => {
       let text = h.text;
@@ -776,7 +776,7 @@ export function autoFixResumeQualityIssues(
     };
   });
 
-  // 3. Clean Highlights for Projects
+  // Clean highlights for projects
   const projects: TailoredProject[] = resume.projects.map((proj) => {
     const cleanedHighlights = proj.rankedHighlights.map((h) => {
       let text = normalizeTechOrthography(h.text);

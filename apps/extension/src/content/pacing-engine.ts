@@ -140,7 +140,7 @@ export async function typeTextProgressively(
 ): Promise<void> {
   const pacingMode = options?.pacingMode || 'natural';
 
-  // 1. Instant Mode: bypass progressive delay for testing or high-speed automation
+  // Instant mode: bypass progressive delay for test suites or high-speed execution
   if (pacingMode === 'instant') {
     element.focus();
     setNativeInputValue(element, text);
@@ -157,11 +157,10 @@ export async function typeTextProgressively(
     return;
   }
 
-  // 2. Focus Sequence
   const coords = calculateElementClickCoordinates(element, options?.addCoordinateJitter !== false);
   dispatchRealisticPointerSequence(element, coords);
 
-  // 3. Fast Mode: brief pause then insert
+  // Fast mode: brief pause then bulk insert
   if (pacingMode === 'fast') {
     await sleep(options?.pacingDelayMs ?? 15);
     setNativeInputValue(element, text);
@@ -178,7 +177,7 @@ export async function typeTextProgressively(
     return;
   }
 
-  // 4. Natural Progressive Mode: character-by-character cadence
+  // Natural progressive mode: simulate human typing cadence with realistic jitter
   const minDelay = options?.minKeystrokeDelayMs ?? 20;
   const maxDelay = options?.maxKeystrokeDelayMs ?? 65;
 
@@ -187,7 +186,6 @@ export async function typeTextProgressively(
     const char = text[i]!;
     currentText += char;
 
-    // Dispatch keydown
     element.dispatchEvent(
       new KeyboardEvent('keydown', {
         key: char,
@@ -200,7 +198,6 @@ export async function typeTextProgressively(
     // Update value through framework prototype setter bypass
     setNativeInputValue(element, currentText);
 
-    // Dispatch input event
     element.dispatchEvent(
       new InputEvent('input', {
         bubbles: true,
@@ -210,7 +207,6 @@ export async function typeTextProgressively(
       })
     );
 
-    // Dispatch keyup
     element.dispatchEvent(
       new KeyboardEvent('keyup', {
         key: char,
@@ -220,12 +216,10 @@ export async function typeTextProgressively(
       })
     );
 
-    // Micro-delay between keystrokes
     const delay = calculateRandomDelay(minDelay, maxDelay);
     await sleep(delay);
   }
 
-  // Change & Blur sequence
   element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   element.blur();
 }

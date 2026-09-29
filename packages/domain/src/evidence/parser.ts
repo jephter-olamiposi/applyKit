@@ -10,6 +10,8 @@
  * Structured intermediate representation of a parsed resume document.
  */
 export interface ParsedResumeDocument {
+  /** Original unparsed plain text content of the resume. */
+  readonly rawText: string;
   readonly identity: {
     readonly fullName: string;
     readonly email?: string;
@@ -309,6 +311,7 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
         portfolio: portfolioUrl,
       },
     },
+    rawText,
     summary,
     experiences,
     projects,
@@ -352,6 +355,7 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
 
   const isBullet = (l: string) => /^[-*•–—+]\s+/.test(l);
   const isDateLine = (l: string) => /\b(19\d\d|20\d\d)\b/i.test(l) && /\b(present|current|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{4})\b/i.test(l);
+  const ROLE_KEYWORD_REGEX = /\b(engineer|developer|architect|lead|manager|specialist|director|designer|analyst|consultant|founder|cto|vp|fellow|intern|officer|head)\b/i;
 
   for (const line of lines) {
     const cleanLine = line.replace(/^#+\s*/, '').trim();
@@ -364,9 +368,47 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       continue;
     }
 
-    // Check if this line is just a date line for the active entry (e.g. "Feb 2026 – Aug 2026")
+    // Check if this line is a date line for an active entry
     if (current && isDateLine(cleanLine) && !current.dateText) {
       current.dateText = cleanLine;
+
+      // In multi-line layouts, headers collected before the date line are title and company
+      if (current.highlights.length > 0) {
+        const headerLines = [...current.highlights];
+        current.highlights = [];
+
+        if (headerLines.length >= 2) {
+          const first = headerLines[0]!;
+          const second = headerLines[1]!;
+          if (ROLE_KEYWORD_REGEX.test(first)) {
+            current.title = first;
+            current.company = second;
+          } else {
+            current.company = first;
+            current.title = second;
+          }
+        } else if (headerLines.length === 1) {
+          const single = headerLines[0]!;
+          if (ROLE_KEYWORD_REGEX.test(single)) {
+            current.title = single;
+          } else {
+            if (current.company && (ROLE_KEYWORD_REGEX.test(current.company) || current.title === 'Professional Experience')) {
+              current.title = current.company;
+            }
+            current.company = single;
+          }
+        }
+      }
+
+      // Check if company string has role or remote location markers
+      if (current.company && ROLE_KEYWORD_REGEX.test(current.company) && current.title === 'Professional Experience') {
+        current.title = current.company;
+        current.company = 'Company';
+      }
+      if (current.company && /remote/i.test(current.company)) {
+        current.location = 'Remote';
+        current.company = current.company.replace(/\s*remote\s*/i, '').trim();
+      }
       continue;
     }
 
@@ -435,6 +477,18 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
         title,
         location,
         dateText,
+        highlights: [],
+      };
+      continue;
+    }
+
+    // Check if an unbulleted line is a brand new role title without delimiters after an active entry already has highlights and dates
+    if (current && current.dateText && current.highlights.length > 0 && ROLE_KEYWORD_REGEX.test(cleanLine) && cleanLine.length < 60) {
+      commitCurrent();
+      current = {
+        company: 'Company',
+        title: cleanLine,
+        dateText: '',
         highlights: [],
       };
       continue;
@@ -565,55 +619,111 @@ function parseProjects(lines: readonly string[]): ParsedProject[] {
  */
 function parseEducation(lines: readonly string[]): ParsedEducation[] {
   const results: ParsedEducation[] = [];
+  const DEGREE_REGEX = /\b(bachelor|master|b\.?s\.?|m\.?s\.?|ph\.?d|b\.?a\.?|associate|doctor|diploma)\b/i;
+  const isDateOnlyLine = (l: string) => /\b(19\d\d|20\d\d)\b/i.test(l) && !/[a-zA-Z]{5,}/.test(l.replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i, ''));
+
+  let current: {
+    institution: string;
+    degree: string;
+    fieldOfStudy: string;
+    graduationDate?: string;
+  } | null = null;
+
+  const commitCurrent = () => {
+    if (current && (current.institution || current.degree)) {
+      results.push({
+        institution: current.institution || 'Academic Institution',
+        degree: current.degree || 'Degree',
+        fieldOfStudy: current.fieldOfStudy || 'General Studies',
+        graduationDate: current.graduationDate,
+      });
+    }
+    current = null;
+  };
 
   for (const line of lines) {
     const clean = line.replace(/^[-*•#]\s*/, '').trim();
     if (!clean) continue;
 
-    // e.g. "B.S. in Computer Science | Stanford University | 2018"
-    let institution = '';
-    let degree = '';
-    let fieldOfStudy = '';
-    let graduationDate: string | undefined;
+    // Single-line pipe or dash format e.g. "B.S. in Computer Science | Stanford University | 2018"
+    if (clean.includes('|') || clean.includes('—') || clean.includes('–')) {
+      commitCurrent();
 
-    const dateMatch = clean.match(/\b(19\d\d|20\d\d)\b/);
-    if (dateMatch) {
-      graduationDate = `${dateMatch[1]}-05`;
-    }
+      let institution = '';
+      let degree = '';
+      let fieldOfStudy = '';
+      let graduationDate: string | undefined;
 
-    if (clean.includes('|')) {
-      const segments = clean.split('|').map((s) => s.trim());
-      degree = segments[0] || 'Degree';
-      institution = segments[1] || 'University';
-      fieldOfStudy = segments[2] || '';
-    } else if (clean.includes('—') || clean.includes('–')) {
-      const parts = clean.split(/\s+[—–]\s+/).map((s) => s.trim());
-      institution = parts[0] || 'Academic Institution';
-      degree = parts[1] || 'Degree';
-      if (degree.includes(',')) {
-        const sub = degree.split(',').map((s) => s.trim());
-        degree = sub[0] || degree;
-        fieldOfStudy = sub.slice(1).join(', ') || fieldOfStudy;
+      const dateMatch = clean.match(/\b(19\d\d|20\d\d)\b/);
+      if (dateMatch && dateMatch[1]) {
+        graduationDate = `${dateMatch[1]}-05`;
       }
-    } else {
-      const degreeMatch = clean.match(/(bachelor|master|b\.?s\.?|m\.?s\.?|ph\.?d|b\.?a\.?|associate)\b.*?(?:in|of)\s+([A-Za-z\s]+)/i);
-      if (degreeMatch && degreeMatch[2]) {
-        degree = degreeMatch[0].trim();
-        fieldOfStudy = degreeMatch[2].trim();
+
+      if (clean.includes('|')) {
+        const segments = clean.split('|').map((s) => s.trim());
+        degree = segments[0] || 'Degree';
+        institution = segments[1] || 'University';
+        fieldOfStudy = segments[2] || '';
       } else {
-        degree = clean;
+        const parts = clean.split(/\s+[—–]\s+/).map((s) => s.trim());
+        institution = parts[0] || 'Academic Institution';
+        degree = parts[1] || 'Degree';
+        if (degree.includes(',')) {
+          const sub = degree.split(',').map((s) => s.trim());
+          degree = sub[0] || degree;
+          fieldOfStudy = sub.slice(1).join(', ') || fieldOfStudy;
+        }
       }
-      institution = (clean.split(',')[0] ?? clean).trim();
+
+      results.push({
+        institution: institution || 'Academic Institution',
+        degree: degree || 'Degree',
+        fieldOfStudy: fieldOfStudy || 'General Studies',
+        graduationDate,
+      });
+      continue;
     }
 
-    results.push({
-      institution: institution || 'Academic Institution',
-      degree: degree || 'Degree',
-      fieldOfStudy: fieldOfStudy || 'General Studies',
-      graduationDate,
-    });
+    // New degree line detected e.g. "B.S. in Computer Science"
+    if (DEGREE_REGEX.test(clean)) {
+      commitCurrent();
+
+      let fieldOfStudy = '';
+      const fieldMatch = clean.match(/(?:in|of)\s+([A-Za-z\s]+)/i);
+      if (fieldMatch && fieldMatch[1]) {
+        fieldOfStudy = fieldMatch[1].trim();
+      }
+
+      current = {
+        degree: clean,
+        institution: '',
+        fieldOfStudy,
+      };
+      continue;
+    }
+
+    // Date-only line e.g. "May 2021"
+    if (isDateOnlyLine(clean)) {
+      const yearMatch = clean.match(/\b(19\d\d|20\d\d)\b/);
+      if (yearMatch && yearMatch[1] && current) {
+        current.graduationDate = `${yearMatch[1]}-05`;
+      }
+      continue;
+    }
+
+    // Institution line or honors line
+    if (current && !current.institution) {
+      current.institution = clean.replace(/\s*honors:.*$/i, '').trim();
+    } else if (!current) {
+      current = {
+        institution: clean,
+        degree: 'Degree',
+        fieldOfStudy: 'General Studies',
+      };
+    }
   }
 
+  commitCurrent();
   return results;
 }
 

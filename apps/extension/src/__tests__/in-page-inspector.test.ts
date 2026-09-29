@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit and DOM interaction tests for In-Page Inspector & Visual Review Overlay (Phase 10).
+ * @fileoverview Unit and DOM interaction tests for In-Page Inspector & Visual Review Overlay.
  *
  * Verifies:
  * 1. Synchronized element attention highlights and smooth scroll dispatch.
@@ -19,7 +19,7 @@ import {
 } from '../content/in-page-inspector.js';
 import type { DryRunPlan, PlanId, ActionId } from '@applykit/domain';
 
-describe('In-Page Form Field Inspector & Visual Review Overlay (Phase 10)', () => {
+describe('In-Page Form Field Inspector & Visual Review Overlay', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     document.head.innerHTML = '';

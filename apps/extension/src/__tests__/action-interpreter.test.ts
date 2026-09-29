@@ -1,10 +1,10 @@
 /**
- * @fileoverview Unit and DOM interaction tests for Action Interpreter (Phase 9).
+ * @fileoverview Unit and DOM interaction tests for Action Interpreter.
  *
  * Verifies:
  * 1. Native Property Setter Bypasses for React/Vue value tracking.
  * 2. Complete synthetic event lifecycles (pointerdown, focus, input, change, blur).
- * 3. Anti-Autonomous Submission Hard Gate (ADR-0006): zero automated clicks on submit controls.
+ * 3. Anti-Autonomous Submission Hard Gate: zero automated clicks on submit controls.
  * 4. Human-paced plan execution and execution report generation.
  *
  * @vitest-environment happy-dom
@@ -24,7 +24,7 @@ import {
 } from '../content/action-interpreter.js';
 import type { DryRunPlan, DryRunAction, PlanId, ActionId } from '@applykit/domain';
 
-describe('Browser Action Interpreter & Event Simulator (Phase 9)', () => {
+describe('Browser Action Interpreter & Event Simulator', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
   });

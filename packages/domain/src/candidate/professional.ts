@@ -30,4 +30,5 @@ export interface ProfessionalProfile {
   readonly noticePeriodDays?: number;
   readonly earliestStartDate?: string;
   readonly isOpenToRelocation: boolean;
+  readonly referralSource?: string;
 }

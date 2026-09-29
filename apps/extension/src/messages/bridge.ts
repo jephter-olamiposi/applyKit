@@ -18,14 +18,26 @@ import type { ExtensionRequest, ExtensionResponse } from './contracts.js';
 export async function sendToBackground<
   TReq extends ExtensionRequest = ExtensionRequest,
   TRes extends ExtensionResponse = ExtensionResponse
->(request: TReq): Promise<TRes> {
+>(request: TReq, timeoutMs = 20000): Promise<TRes> {
   return new Promise((resolve, reject) => {
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
       reject(new Error('Chrome runtime messaging API is unavailable in this execution context'));
       return;
     }
 
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`Background request timed out for message type ${request.type}`));
+      }
+    }, timeoutMs);
+
     chrome.runtime.sendMessage(request, (response: TRes) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
       const error = chrome.runtime.lastError;
       if (error) {
         reject(new Error(error.message ?? 'Unknown error occurred in background messaging'));

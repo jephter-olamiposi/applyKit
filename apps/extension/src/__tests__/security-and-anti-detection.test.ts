@@ -57,7 +57,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_ROOT = path.resolve(__dirname, '..', '..');
 
-describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', () => {
+describe('Security, Compliance & Anti-Detection Suite', () => {
   let localStorageMock: Record<string, unknown> = {};
 
   beforeEach(async () => {
@@ -103,9 +103,7 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
     await deleteDatabase(indexedDB);
   });
 
-  // ==========================================================================
-  // 1. Manifest V3 Content Security Policy & Permissions Audit
-  // ==========================================================================
+  // Manifest V3 Content Security Policy & Permissions Audit
   describe('Manifest V3 Security & Content Security Policy', () => {
     const manifestPath = path.join(EXTENSION_ROOT, 'manifest.json');
     const manifestRaw = fs.readFileSync(manifestPath, 'utf8');
@@ -118,7 +116,7 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
     it('enforces strict self-hosted Content Security Policy without unsafe-eval or remote origins', () => {
       expect(manifest.content_security_policy).toBeDefined();
       expect(manifest.content_security_policy.extension_pages).toBe(
-        "script-src 'self'; object-src 'self'"
+        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
       );
     });
 
@@ -147,9 +145,7 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
     });
   });
 
-  // ==========================================================================
-  // 2. Static Codebase Audit for Forbidden Patterns & Telemetry
-  // ==========================================================================
+  // Static Codebase Audit for Forbidden Patterns & Telemetry
   function getAllSourceFiles(dir: string): string[] {
     const results: string[] = [];
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -214,9 +210,7 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
     });
   });
 
-  // ==========================================================================
-  // 3. Human Pacing Engine & Spatial Jitter
-  // ==========================================================================
+  // Human Pacing Engine & Spatial Jitter
   describe('Human Pacing Engine (ADR-0014, ADR-0021)', () => {
     it('calculates randomized delays strictly within configured bounds', () => {
       for (let i = 0; i < 50; i++) {
@@ -355,9 +349,7 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
     });
   });
 
-  // ==========================================================================
-  // 4. Anti-Detection Non-Poisoning Invariant
-  // ==========================================================================
+  // Anti-Detection Non-Poisoning Invariant
   describe('Anti-Detection Non-Poisoning Invariant (ADR-0014, ADR-0021)', () => {
     it('guarantees zero navigator or prototype property tampering across extension source code', () => {
       // Anti-bot detection engines (Cloudflare Turnstile, Kasada, DataDome) inspect navigator and prototypes.
@@ -390,12 +382,9 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
     });
   });
 
-  // ==========================================================================
-  // 5. Local-First Storage Audit & Right to Erasure
-  // ==========================================================================
+  // Local-First Storage Audit & Right to Erasure
   describe('Right to Erasure & Storage Audit (ADR-0001, ADR-0021)', () => {
     it('correctly audits local storage metrics and records before purge', async () => {
-      // 1. Populate Profile
       const profileRepo = new IndexedDbProfileRepository(indexedDB);
       const profileId = createProfileId(DEFAULT_PROFILE_KEY);
       const baseProfile = createEmptyProfile(profileId);
@@ -410,7 +399,6 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
       };
       await profileRepo.saveProfile(customProfile);
 
-      // 2. Populate Evidence
       const evidenceRepo = new IndexedDbEvidenceRepository(indexedDB);
       const evidence1: Evidence = {
         id: createEvidenceId('ev-001'),
@@ -441,7 +429,6 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
       await evidenceRepo.saveEvidence(evidence1);
       await evidenceRepo.saveEvidence(evidence2);
 
-      // 3. Populate Job
       const jobRepo = new IndexedDbJobRepository(indexedDB);
       const job: JobPosting = {
         id: createJobPostingId('job-001'),
@@ -458,7 +445,6 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
       };
       await jobRepo.saveJob(job);
 
-      // 4. Populate Application
       const appRepo = new IndexedDbApplicationRepository(indexedDB);
       const appRecord = createApplicationRecord(
         createApplicationId('app-001'),
@@ -467,10 +453,8 @@ describe('Security, Compliance & Anti-Detection Suite (Phase 14 - ADR-0021)', ()
       );
       await appRepo.saveApplication(appRecord);
 
-      // 5. Populate Secure Provider Key
       await setApiKey('openai', 'sk-test-secret-key-12345');
 
-      // 6. Query Storage Audit Telemetry
       profileRepo.close();
       evidenceRepo.close();
       jobRepo.close();

@@ -206,7 +206,7 @@ export class WorkdayFormAdapter implements AtsFormAdapter {
 
     const fields: ApplicationField[] = [];
 
-    // 1. Process Radio Button Groups in Workday
+    // Workday radio groups extraction
     const radioInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     const radioGroups = new Map<string, HTMLInputElement[]>();
     for (const radio of radioInputs) {
@@ -253,7 +253,6 @@ export class WorkdayFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 2. Process Standard Inputs, Textareas, and Native Selects
     const standardInputs = root.querySelectorAll<HTMLElement>(
       'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select'
     );
@@ -325,7 +324,7 @@ export class WorkdayFormAdapter implements AtsFormAdapter {
       });
     }
 
-    // 3. Process Workday Custom Prompt Search Buttons / Dropdown Grids
+    // Workday custom prompt search buttons and multiselect dropdown grids
     const customDropdowns = root.querySelectorAll<HTMLElement>(
       'button[data-automation-id="searchBox"], button[data-automation-id="promptOption"], div[data-automation-id="multiselectInputContainer"], [data-automation-id*="dropdown"]'
     );

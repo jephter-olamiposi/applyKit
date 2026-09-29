@@ -12,4 +12,6 @@ export * from './cover-letter-generator.js';
 export * from './fact-checker.js';
 export * from './exporters.js';
 export * from './resume-rules.js';
+export * from './pdf-exporter.js';
+export * from './interview-prep.js';
 

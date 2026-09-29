@@ -21,6 +21,7 @@ export type TabId =
   | 'evidence'
   | 'form'
   | 'dry_run'
+  | 'instant_qa'
   | 'history'
   | 'profile'
   | 'settings';
@@ -75,8 +76,16 @@ const PIPELINE_STEPS: readonly PipelineStep[] = [
     ],
   },
   {
-    id: 'step_tracker',
+    id: 'step_qa',
     stepNumber: 4,
+    label: '⚡ Instant Q&A',
+    defaultTab: 'instant_qa',
+    memberTabs: ['instant_qa'],
+    subTabs: [],
+  },
+  {
+    id: 'step_tracker',
+    stepNumber: 5,
     label: 'Tracker',
     defaultTab: 'history',
     memberTabs: ['history'],

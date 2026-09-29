@@ -10,7 +10,7 @@ import {
   type Evidence,
 } from '../index.js';
 
-describe('Fact-Checking Verification Pass Suite (Phase 12)', () => {
+describe('Fact-Checking Verification Pass Suite', () => {
   const expId = createExperienceId('exp_backend');
   const ev1Id = createEvidenceId('ev_speed');
 

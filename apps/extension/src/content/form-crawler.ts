@@ -46,7 +46,7 @@ export {
 export function detectAtsPlatform(doc: Document, url: string): AtsPlatform {
   const normUrl = url.toLowerCase();
 
-  if (normUrl.includes('greenhouse.io') || normUrl.includes('gh_jid')) {
+  if (normUrl.includes('greenhouse.io') || normUrl.includes('gh_jid') || normUrl.includes('canonical.com')) {
     return 'greenhouse';
   }
   if (normUrl.includes('jobs.lever.co') || normUrl.includes('lever.co')) {
@@ -66,7 +66,7 @@ export function detectAtsPlatform(doc: Document, url: string): AtsPlatform {
   }
 
   // Check DOM markers if custom domain is used
-  if (doc.querySelector('#grnhse_app, form#application_form, [data-greenhouse]')) {
+  if (doc.querySelector('#grnhse_app, form#application_form, form#job-apply-form, [data-greenhouse], input#gh_src')) {
     return 'greenhouse';
   }
   if (doc.querySelector('.lever-form, [data-qa="lever-application"], .postings-btn-wrapper')) {
@@ -114,7 +114,7 @@ export function crawlFormContainer(
     }
   }
 
-  // 1. Process Radio Button Groups
+  // Radio button groups
   const radioInputs = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
   const radioGroups = new Map<string, HTMLInputElement[]>();
   for (const radio of radioInputs) {
@@ -163,7 +163,6 @@ export function crawlFormContainer(
     });
   }
 
-  // 2. Process Standard Inputs, Textareas, Selects, and Rich Content Controls
   const interactiveElements = container.querySelectorAll<HTMLElement>(
     'input:not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, select, [role="combobox"], [role="textbox"], [contenteditable="true"]'
   );
@@ -254,8 +253,13 @@ export function crawlFormContainer(
   const wizardState = adapter.detectWizardState ? adapter.detectWizardState(doc) : null;
   const validationErrors = adapter.detectValidationErrors ? adapter.detectValidationErrors(doc) : [];
 
+  const formElementId =
+    (container.getAttribute && container.getAttribute('id')) ||
+    (typeof container.id === 'string' ? container.id : undefined) ||
+    `form_${Date.now()}`;
+
   return {
-    id: container.id || `form_${Date.now()}`,
+    id: formElementId,
     url: doc.location ? doc.location.href : '',
     detectedAts: atsPlatform,
     formAction,
@@ -289,7 +293,7 @@ export function inspectPageForms(doc: Document): readonly ApplicationForm[] {
 
   const forms: ApplicationForm[] = [];
 
-  // 1. Explicit <form> elements
+  // Crawl explicit <form> elements
   const formElements = Array.from(doc.querySelectorAll<HTMLFormElement>('form'));
   if (formElements.length > 0) {
     for (const formEl of formElements) {
@@ -301,7 +305,7 @@ export function inspectPageForms(doc: Document): readonly ApplicationForm[] {
     }
   }
 
-  // 2. Standalone application containers (Single Page App frameworks without <form> wrappers)
+  // Single Page App containers without explicit <form> tags
   if (forms.length === 0) {
     const appContainer = doc.querySelector<HTMLElement>(
       '#application, [data-qa="job-application"], .application-form, main, [role="main"]'
@@ -314,7 +318,7 @@ export function inspectPageForms(doc: Document): readonly ApplicationForm[] {
     }
   }
 
-  // 3. Fallback to doc.body if elements exist
+  // Fallback to document body if candidate application inputs are present
   if (forms.length === 0) {
     const bodyInputs = doc.body.querySelectorAll('input, select, textarea');
     if (bodyInputs.length >= 2) {

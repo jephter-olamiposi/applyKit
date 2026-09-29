@@ -16,7 +16,7 @@ import {
   type Evidence,
 } from '../index.js';
 
-describe('Dynamic Resume Section & Bullet Selector Suite (Phase 12)', () => {
+describe('Dynamic Resume Section & Bullet Selector Suite', () => {
   const sampleJob: JobPosting = {
     id: createJobPostingId('job_senior_react'),
     url: 'https://careers.example.com/senior-frontend',

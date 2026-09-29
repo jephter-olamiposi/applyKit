@@ -3,6 +3,7 @@ import type { CandidateSkill } from '../candidate/skill.js';
 import type { CandidateClaim } from '../evidence/candidate-claim.js';
 import type { WorkExperience } from '../candidate/experience.js';
 import type { CandidateProject } from '../candidate/project.js';
+import type { EducationRecord } from '../candidate/education.js';
 import type { SavedAnswer } from '../candidate/saved-answer.js';
 import type { FieldType } from '../form/field-type.js';
 import type { SelectOption } from '../form/application-field.js';
@@ -62,6 +63,10 @@ export interface FieldAnsweringContext {
   readonly relevantClaims: readonly CandidateClaim[];
   readonly writingStyle?: WritingStyleProfile;
   readonly answerLengthPreference?: 'short' | 'normal' | 'detailed';
+  readonly candidateExperiences?: readonly WorkExperience[];
+  readonly candidateSkills?: readonly CandidateSkill[];
+  readonly candidateEducation?: readonly EducationRecord[];
+  readonly candidateSummary?: string;
 }
 
 /**

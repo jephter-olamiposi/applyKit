@@ -16,14 +16,19 @@ import type {
   CandidateProfile,
   ResumeTemplateId,
   ResumeQualityAuditReport,
+  SpacingDensity,
 } from '@applykit/domain';
 import {
   exportResumeAsMarkdown,
   exportResumeAsPlainText,
   exportCoverLetterAsMarkdown,
   exportCoverLetterAsPlainText,
+  generateResumePdfBlob,
+  generateCoverLetterPdfBlob,
 } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
+import { PdfPreviewCanvas } from './PdfPreviewCanvas.js';
+import { downloadBlob, downloadText } from '../download-manager.js';
 import type {
   GenerateTailoredResumeResponse,
   GenerateCoverLetterResponse,
@@ -50,10 +55,17 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
   const [resumeFactCheck, setResumeFactCheck] = useState<FactCheckReport | null>(null);
   const [qualityAudit, setQualityAudit] = useState<ResumeQualityAuditReport | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<ResumeTemplateId>('modern');
-  const [onePageFit, setOnePageFit] = useState<boolean>(true);
+  const [onePageFit, setOnePageFit] = useState<boolean>(false);
+  const [resumeDensity, setResumeDensity] = useState<SpacingDensity>('standard');
+  const [showTargetBadge, setShowTargetBadge] = useState<boolean>(true);
+  const [resumeBlobUrl, setResumeBlobUrl] = useState<string | null>(null);
+  const [isRenderingPreview, setIsRenderingPreview] = useState<boolean>(false);
+  const [previewRenderError, setPreviewRenderError] = useState<string | null>(null);
+  const [resumeSubView, setResumeSubView] = useState<'canvas' | 'editor'>('canvas');
   const [isAutoFixing, setIsAutoFixing] = useState<boolean>(false);
   const [showAuditDetails, setShowAuditDetails] = useState<boolean>(false);
   const [loadingResume, setLoadingResume] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Cover Letter State
   const [coverLetter, setCoverLetter] = useState<TailoredCoverLetter | null>(null);
@@ -85,6 +97,62 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
         setError('Failed to load your candidate profile for tailoring.');
       });
   }, []);
+
+  // Live Interactive PDF Preview Generator (ADR-0031)
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!tailoredResume) {
+      if (resumeBlobUrl) {
+        URL.revokeObjectURL(resumeBlobUrl);
+        setResumeBlobUrl(null);
+      }
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsRenderingPreview(true);
+        setPreviewRenderError(null);
+        const blob = await generateResumePdfBlob(tailoredResume, profile ?? undefined, {
+          templateId: selectedTemplate,
+          onePageFit,
+          density: resumeDensity,
+          showTargetBadge,
+        });
+
+        if (!isCancelled) {
+          const createdUrl = URL.createObjectURL(blob);
+          setResumeBlobUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return createdUrl;
+          });
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setPreviewRenderError(err instanceof Error ? err.message : 'Failed to render PDF preview');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsRenderingPreview(false);
+        }
+      }
+    }, 150);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [tailoredResume, selectedTemplate, onePageFit, resumeDensity, showTargetBadge, profile]);
+
+  // Clean up object URL on unmount
+  useEffect(() => {
+    return () => {
+      if (resumeBlobUrl) {
+        URL.revokeObjectURL(resumeBlobUrl);
+      }
+    };
+  }, [resumeBlobUrl]);
 
   // Fetch Tailored Resume
   const generateResume = useCallback(async () => {
@@ -228,53 +296,67 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
 
   // File Download Helper
   const handleDownload = (filename: string, content: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadText(content, filename, mimeType).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to download file');
+    });
   };
 
-  // PDF Download Helper (base64 from background)
+  // PDF Download Helper: Generates vector PDF directly in the client (ADR-0026) with background RPC fallback
   const handleDownloadPdf = async (
     requestType: 'GENERATE_COVER_LETTER_PDF' | 'GENERATE_RESUME_PDF',
     payload: Record<string, unknown>,
     filename: string
   ) => {
+    setIsGeneratingPdf(true);
+    setError(null);
     try {
-      const res = await sendToBackground<
-        ExtensionRequest,
-        GenerateCoverLetterPdfResponse | GenerateResumePdfResponse
-      >({
-        type: requestType,
-        payload,
-      } as unknown as ExtensionRequest);
+      let blob: Blob | null = null;
 
-      if (!res.success || !res.pdfBase64) {
-        throw new Error(res.error || 'Failed to generate PDF');
+      // 1. Direct client-side generation for instant vector download and zero IPC overhead
+      if (requestType === 'GENERATE_RESUME_PDF' && tailoredResume) {
+        blob = await generateResumePdfBlob(tailoredResume, profile ?? undefined, {
+          templateId: selectedTemplate,
+          onePageFit,
+          density: resumeDensity,
+          showTargetBadge,
+        });
+      } else if (requestType === 'GENERATE_COVER_LETTER_PDF' && coverLetter) {
+        blob = await generateCoverLetterPdfBlob(coverLetter);
       }
 
-      // Convert base64 to blob and download
-      const binaryString = atob(res.pdfBase64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // 2. Fallback to background service worker RPC if client state is not available
+      if (!blob) {
+        const res = await sendToBackground<
+          ExtensionRequest,
+          GenerateCoverLetterPdfResponse | GenerateResumePdfResponse
+        >({
+          type: requestType,
+          payload: {
+            ...payload,
+            density: resumeDensity,
+            showTargetBadge,
+          },
+        } as unknown as ExtensionRequest);
+
+        if (!res.success || !res.pdfBase64) {
+          throw new Error(res.error || 'Failed to generate PDF');
+        }
+
+        const binaryString = atob(res.pdfBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        blob = new Blob([bytes], { type: 'application/pdf' });
       }
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+
+      if (blob) {
+        await downloadBlob(blob, filename);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to download PDF');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -366,8 +448,61 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                 </button>
               </div>
 
-              {/* Template Selector & Layout Controls */}
-              <div className="resume-design-toolbar">
+              {/* Sub-View Mode Switcher (ADR-0031) */}
+              <div className="resume-view-mode-tabs" role="tablist" aria-label="Resume Studio View Mode">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resumeSubView === 'canvas'}
+                  className={`resume-subtab-btn ${resumeSubView === 'canvas' ? 'resume-subtab-active' : ''}`}
+                  onClick={() => setResumeSubView('canvas')}
+                >
+                  📄 Live PDF Canvas Preview
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resumeSubView === 'editor'}
+                  className={`resume-subtab-btn ${resumeSubView === 'editor' ? 'resume-subtab-active' : ''}`}
+                  onClick={() => setResumeSubView('editor')}
+                >
+                  📝 Structured Content & Golden Standard
+                </button>
+              </div>
+
+              {resumeSubView === 'canvas' ? (
+                <PdfPreviewCanvas
+                  blobUrl={resumeBlobUrl}
+                  isGenerating={isRenderingPreview}
+                  filename={`resume-${selectedTemplate}-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`}
+                  onDownload={() => {
+                    if (profile) {
+                      handleDownloadPdf(
+                        'GENERATE_RESUME_PDF',
+                        {
+                          templateId: selectedTemplate,
+                          onePageFit,
+                          density: resumeDensity,
+                          showTargetBadge,
+                        },
+                        `resume-${selectedTemplate}-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                      );
+                    }
+                  }}
+                  templateId={selectedTemplate}
+                  density={resumeDensity}
+                  onePageFit={onePageFit}
+                  showTargetBadge={showTargetBadge}
+                  onTemplateChange={(t) => setSelectedTemplate(t)}
+                  onDensityChange={(d) => setResumeDensity(d)}
+                  onOnePageFitToggle={(fit) => setOnePageFit(fit)}
+                  onShowTargetBadgeToggle={(show) => setShowTargetBadge(show)}
+                  error={previewRenderError}
+                />
+              ) : (
+                <div className="resume-structured-editor">
+                  {/* Template Selector & Layout Controls */}
+                  <div className="resume-design-toolbar">
                 <div className="template-picker-group">
                   <span className="template-picker-label">Design Template:</span>
                   <div className="template-pill-buttons">
@@ -393,7 +528,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                     checked={onePageFit}
                     onChange={(e) => setOnePageFit(e.target.checked)}
                   />
-                  <span>Enforce 1-Page Fit (US Letter 792pt budget)</span>
+                  <span>{onePageFit ? 'Enforce 1-Page Fit (US Letter 792pt budget)' : 'Full Comprehensive Resume (Multi-page, all history & highlights)'}</span>
                 </label>
               </div>
 
@@ -651,6 +786,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                 <button
                   type="button"
                   className="btn-action-download"
+                  disabled={isGeneratingPdf}
                   onClick={() => {
                     if (profile) {
                       handleDownloadPdf(
@@ -667,11 +803,13 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                     }
                   }}
                 >
-                  Download PDF ({selectedTemplate.toUpperCase()})
+                  {isGeneratingPdf ? 'Generating PDF...' : `Download PDF (${selectedTemplate.toUpperCase()})`}
                 </button>
               </div>
             </div>
-          ) : (
+          )}
+        </div>
+      ) : (
             <div className="tailoring-empty-state">
               <p>No job posting detected. Navigate to a job posting and click Extract.</p>
             </div>
@@ -841,6 +979,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                 <button
                   type="button"
                   className="btn-action-download"
+                  disabled={isGeneratingPdf}
                   onClick={() => {
                     handleDownloadPdf(
                       'GENERATE_COVER_LETTER_PDF',
@@ -853,7 +992,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                     );
                   }}
                 >
-                  Download PDF
+                  {isGeneratingPdf ? 'Generating PDF...' : 'Download PDF'}
                 </button>
               </div>
             </div>

@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit and DOM fixture tests for Form Crawler & Field Recognition (Phase 7).
+ * @fileoverview Unit and DOM fixture tests for Form Crawler & Field Recognition.
  *
  * Verifies DOM traversal, semantic field classification, option extraction,
  * honeypot trap detection, and anti-submission control identification.
@@ -19,7 +19,7 @@ import {
   inspectPageForms,
 } from '../content/form-crawler.js';
 
-describe('Form Crawler & DOM Field Recognition (Phase 7)', () => {
+describe('Form Crawler & DOM Field Recognition', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
   });
@@ -210,7 +210,6 @@ describe('Form Crawler & DOM Field Recognition (Phase 7)', () => {
       // Verify constituent fields
       expect(form.fields.length).toBeGreaterThanOrEqual(9);
 
-      // 1. First Name
       const fn = form.fields.find((f) => f.selector === '#first_name');
       expect(fn).toBeDefined();
       expect(fn?.fieldType).toBe('text');
@@ -219,38 +218,31 @@ describe('Form Crawler & DOM Field Recognition (Phase 7)', () => {
       expect(fn?.inferredMappingKey).toBe('identity.legalFirstName');
       expect(fn?.confidenceScore).toBeGreaterThanOrEqual(0.95);
 
-      // 2. Last Name
       const ln = form.fields.find((f) => f.selector === '#last_name');
       expect(ln?.inferredMappingKey).toBe('identity.legalLastName');
 
-      // 3. Email
       const email = form.fields.find((f) => f.selector === '#email');
       expect(email?.fieldType).toBe('email');
       expect(email?.inferredMappingKey).toBe('identity.email');
 
-      // 4. Resume File Upload
       const resume = form.fields.find((f) => f.selector === '#resume');
       expect(resume?.fieldType).toBe('file_upload');
       expect(resume?.inferredMappingKey).toBe('documents.resume');
 
-      // 5. LinkedIn
       const linkedin = form.fields.find((f) => f.selector === '#linkedin');
       expect(linkedin?.inferredMappingKey).toBe('links.linkedin');
 
-      // 6. Sponsorship Select
       const sponsor = form.fields.find((f) => f.selector === '#sponsorship_select');
       expect(sponsor?.fieldType).toBe('select');
       expect(sponsor?.options?.length).toBe(3);
       expect(sponsor?.inferredMappingKey).toBe('identity.requiresSponsorship');
 
-      // 7. Radio Group
       const radio = form.fields.find((f) => f.fieldType === 'radio');
       expect(radio).toBeDefined();
       expect(radio?.name).toBe('work_auth');
       expect(radio?.options?.length).toBe(2);
       expect(radio?.inferredMappingKey).toBe('identity.workAuthorizations');
 
-      // 8. Honeypot check
       const honeypot = form.fields.find((f) => f.selector === '#honeypot_field');
       expect(honeypot).toBeDefined();
       expect(honeypot?.isHoneypotSuspect).toBe(true);

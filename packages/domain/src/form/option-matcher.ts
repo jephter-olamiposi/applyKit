@@ -33,15 +33,15 @@ export interface OptionMatchResult {
  * Common country name and code equivalents.
  */
 const COUNTRY_SYNONYMS: readonly (readonly string[])[] = [
-  ['us', 'usa', 'united states', 'united states of america'],
-  ['ca', 'can', 'canada'],
-  ['uk', 'gb', 'gbr', 'united kingdom', 'great britain'],
-  ['de', 'deu', 'germany', 'deutschland'],
-  ['fr', 'fra', 'france'],
-  ['au', 'aus', 'australia'],
-  ['in', 'ind', 'india'],
-  ['ng', 'nga', 'nigeria'],
-  ['br', 'bra', 'brazil'],
+  ['us', 'usa', 'united states', 'united states of america', 'american'],
+  ['ca', 'can', 'canada', 'canadian'],
+  ['uk', 'gb', 'gbr', 'united kingdom', 'great britain', 'british', 'english', 'scottish', 'welsh'],
+  ['de', 'deu', 'germany', 'deutschland', 'german'],
+  ['fr', 'fra', 'france', 'french'],
+  ['au', 'aus', 'australia', 'australian'],
+  ['in', 'ind', 'india', 'indian'],
+  ['ng', 'nga', 'nigeria', 'nigerian'],
+  ['br', 'bra', 'brazil', 'brazilian'],
 ];
 
 /**
@@ -97,7 +97,7 @@ export function matchFieldOption(
 
   const candidates = validOptions.length > 0 ? validOptions : options;
 
-  // 1. Boolean Resolution
+  // Boolean intent resolution
   const isTargetBool = typeof targetValue === 'boolean';
   const targetStr = String(targetValue).trim().toLowerCase();
   const isBoolIntent =
@@ -112,7 +112,7 @@ export function matchFieldOption(
       ? targetValue
       : targetStr === 'true' || targetStr === 'yes' || targetStr === '1';
 
-    const positivePattern = /^(yes|true|authorized|agree|i\s+am|i\s+do|require|1)\b/i;
+    const positivePattern = /^(yes|true|authorized|agree|acknowledge|confirm|i\s+am|i\s+do|require|1)\b/i;
     const negativePattern = /^(no|false|not\s+authorized|disagree|i\s+do\s+not|do\s+not\s+require|0)\b/i;
     const pattern = wantPositive ? positivePattern : negativePattern;
 
@@ -129,7 +129,7 @@ export function matchFieldOption(
     }
   }
 
-  // 2. Exact Value or Label Match
+  // Exact value or label match
   const normTarget = normalizeOptionText(String(targetValue));
   for (const opt of candidates) {
     const normVal = normalizeOptionText(opt.value);
@@ -144,7 +144,7 @@ export function matchFieldOption(
     }
   }
 
-  // 3. Country / Region Synonym Matching
+  // Country and region synonym matching
   if (fieldKey === 'country') {
     for (const group of COUNTRY_SYNONYMS) {
       if (group.includes(normTarget)) {
@@ -164,7 +164,7 @@ export function matchFieldOption(
     }
   }
 
-  // 4. EEO Self-Disclosure Normalization
+  // EEO self-disclosure normalization
   if (fieldKey === 'eeo_gender') {
     const isMale = normTarget === 'male' || normTarget === 'man';
     const isFemale = normTarget === 'female' || normTarget === 'woman';
@@ -199,7 +199,7 @@ export function matchFieldOption(
     }
   }
 
-  // 5. Token Subset / Substring Inclusion
+  // Token subset and substring inclusion
   if (normTarget.length >= 3) {
     for (const opt of candidates) {
       const normLbl = normalizeOptionText(opt.label);

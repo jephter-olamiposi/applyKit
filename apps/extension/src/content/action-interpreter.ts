@@ -95,15 +95,12 @@ export function simulateTextInput(
   element: HTMLInputElement | HTMLTextAreaElement,
   text: string
 ): void {
-  // 1. Focus sequence
   element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
   element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
   element.focus();
 
-  // 2. Value mutation via native setter
   setNativeInputValue(element, text);
 
-  // 3. Input & change event propagation
   element.dispatchEvent(
     new InputEvent('input', {
       bubbles: true,
@@ -114,7 +111,6 @@ export function simulateTextInput(
   );
   element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
 
-  // 4. Blur sequence
   element.blur();
 }
 
@@ -314,13 +310,12 @@ export async function executeSingleAction(
 ): Promise<void> {
   const browserAction = action.action;
 
-  // 1. Safety Policy Gate
+  // Submission Hard Gate: verify action against safety policies and block automated form submission.
   const safety = validateBrowserActionSafety(browserAction);
   if (safety.isProhibited) {
     throw new Error(`Action prohibited by safety policy: ${safety.reason}`);
   }
 
-  // 2. Submission Intent Check
   if (
     browserAction.actionType === 'click' &&
     isSubmissionIntent(browserAction.selector, browserAction.description)
@@ -328,24 +323,20 @@ export async function executeSingleAction(
     throw new Error('Autonomous submission blocked: clicking submit controls is forbidden.');
   }
 
-  // 3. Locate Target Element
   const element = doc.querySelector<HTMLElement>(browserAction.selector);
   if (!element) {
     throw new Error(`Target DOM element not found for selector: ${browserAction.selector}`);
   }
 
-  // 4. Submission Element Check
   if (isSubmitElement(element)) {
     throw new Error('Autonomous submission blocked: target is classified as a submit element.');
   }
 
-  // 5. Apply Visual Feedback
   const cleanupHighlight = options.highlightElements !== false
     ? applyVisualHighlight(element)
     : () => {};
 
   try {
-    // 6. Execute Specific Interaction Type
     switch (browserAction.actionType) {
       case 'fill_text': {
         const input = element as HTMLInputElement | HTMLTextAreaElement;

@@ -254,20 +254,18 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
       root.render(<OnboardingWizard onComplete={onComplete} />);
     });
 
-    // --- Step 1: identity ---
+    // --- Step 1: Skip to manual profile entry (or resume can be pasted) ---
+    await act(async () => {
+      document.getElementById('btn-skip-manual')?.click();
+    });
+
+    // --- Step 2: identity ---
     setInputValue(document.getElementById('first-name') as HTMLInputElement, 'Jane');
     setInputValue(document.getElementById('last-name') as HTMLInputElement, 'Developer');
     setInputValue(document.getElementById('email') as HTMLInputElement, 'jane.dev@example.org');
 
     await act(async () => {
       (document.querySelector('form') as HTMLFormElement).requestSubmit();
-    });
-
-    // --- Step 2: skip resume text and continue ---
-    await act(async () => {
-      Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Continue to AI Setup')
-      )?.click();
     });
 
     // --- Step 3: skip API key setup ---
@@ -291,7 +289,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     });
 
     expect(savedProfile).toBeDefined();
-    // Identity typed on step 1 is applied.
+    // Identity typed on step 2 is applied.
     expect(savedProfile!.identity.legalFirstName).toBe('Jane');
     expect(savedProfile!.identity.legalLastName).toBe('Developer');
     expect(savedProfile!.identity.email).toBe('jane.dev@example.org');
@@ -326,6 +324,12 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
       root.render(<OnboardingWizard onComplete={onComplete} />);
     });
 
+    // --- Step 1: Skip to manual profile entry ---
+    await act(async () => {
+      document.getElementById('btn-skip-manual')?.click();
+    });
+
+    // --- Step 2: identity ---
     setInputValue(document.getElementById('first-name') as HTMLInputElement, 'Grace');
     setInputValue(document.getElementById('last-name') as HTMLInputElement, 'Hopper');
     setInputValue(document.getElementById('email') as HTMLInputElement, 'grace@example.org');
@@ -333,16 +337,21 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     await act(async () => {
       (document.querySelector('form') as HTMLFormElement).requestSubmit();
     });
+
+    // --- Step 3: skip API key setup ---
     await act(async () => {
-      Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Continue to AI Setup')
-      )?.click();
+      const skipToggle = Array.from(
+        document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+      ).find((c) => c.closest('.skip-key-toggle'));
+      skipToggle?.click();
     });
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
         b.textContent?.includes('Review & Complete')
       )?.click();
     });
+
+    // --- Step 4: finish onboarding ---
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
         b.textContent?.includes('Launch ApplyKit Copilot')
@@ -352,5 +361,77 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     expect(savedProfile).toBeDefined();
     expect(savedProfile!.skills).toEqual([]);
     expect(savedProfile!.identity.legalFirstName).toBe('Grace');
+  });
+
+  it('parses and persists master resume document in profile when uploaded on step 1', async () => {
+    installBridgeMock({
+      GET_CANDIDATE_PROFILE: () => ({
+        type: 'CANDIDATE_PROFILE_RESULT',
+        profile: null,
+      }),
+      INGEST_RESUME_TEXT: () => ({
+        type: 'INGEST_RESUME_TEXT_RESULT',
+        success: true,
+        evidenceCount: 12,
+        claimsCount: 8,
+      }),
+      SAVE_CANDIDATE_PROFILE: (msg) => {
+        savedProfile = (msg as { profile: CandidateProfile }).profile;
+        return { type: 'SAVE_CANDIDATE_PROFILE_RESULT', success: true };
+      },
+      SET_API_KEY: () => ({
+        type: 'SET_API_KEY_RESULT',
+        success: true,
+        provider: 'gemini',
+      }),
+    });
+
+    await act(async () => {
+      root.render(<OnboardingWizard onComplete={onComplete} />);
+    });
+
+    // --- Step 1: Click Try Sample Resume to fast-track parse & ingest ---
+    await act(async () => {
+      document.getElementById('btn-sample-resume')?.click();
+    });
+
+    // --- Step 2: verify pre-filled fields and advance ---
+    expect((document.getElementById('first-name') as HTMLInputElement).value).toBe('Jane');
+    expect((document.getElementById('last-name') as HTMLInputElement).value).toBe('Developer');
+    expect((document.getElementById('email') as HTMLInputElement).value).toBe('jane.dev@example.org');
+
+    await act(async () => {
+      (document.querySelector('form') as HTMLFormElement).requestSubmit();
+    });
+
+    // --- Step 3: advance through AI setup ---
+    await act(async () => {
+      const skipToggle = Array.from(
+        document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+      ).find((c) => c.closest('.skip-key-toggle'));
+      skipToggle?.click();
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Review & Complete')
+      )?.click();
+    });
+
+    // --- Step 4: launch copilot ---
+    await act(async () => {
+      Array.from(document.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('Launch ApplyKit Copilot')
+      )?.click();
+    });
+
+    expect(savedProfile).toBeDefined();
+    expect(savedProfile!.identity.legalFirstName).toBe('Jane');
+    expect(savedProfile!.identity.legalLastName).toBe('Developer');
+    // Verify Master Resume document was saved in profile
+    expect(savedProfile!.documents.length).toBeGreaterThanOrEqual(1);
+    const masterDoc = savedProfile!.documents.find((d) => d.isPrimaryResume);
+    expect(masterDoc).toBeDefined();
+    expect(masterDoc!.documentType).toBe('resume');
+    expect(masterDoc!.extractedText).toContain('Jane Developer');
   });
 });

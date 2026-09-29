@@ -111,7 +111,7 @@ export function generateElementSelector(element: Element, root: Element | Docume
  * @returns Cleaned label string.
  */
 export function extractElementLabel(element: HTMLElement, root: Element | Document): string {
-  // 1. Explicit <label for="elementId">
+  // Explicit <label for="elementId">
   if (element.id) {
     const explicitLabel = root.querySelector(`label[for="${CSS.escape(element.id)}"]`);
     if (explicitLabel && explicitLabel.textContent && explicitLabel.textContent.trim()) {
@@ -119,7 +119,7 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 2. Enclosing wrapping <label>
+  // Enclosing wrapping <label>
   const enclosingLabel = element.closest('label');
   if (enclosingLabel && enclosingLabel.textContent) {
     const clone = enclosingLabel.cloneNode(true) as HTMLElement;
@@ -130,7 +130,7 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 3. aria-labelledby
+  // ARIA referenced label (aria-labelledby)
   const labelledBy = element.getAttribute('aria-labelledby');
   if (labelledBy) {
     const ids = labelledBy.split(/\s+/);
@@ -146,13 +146,13 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 4. aria-label
+  // Inline ARIA label
   const ariaLabel = element.getAttribute('aria-label') || element.getAttribute('aria-description');
   if (ariaLabel && ariaLabel.trim()) {
     return cleanLabelText(ariaLabel);
   }
 
-  // 5. Immediate field container label/header (bounded to field-level containers)
+  // Immediate field container label/header (bounded to field-level containers)
   let parent = element.parentElement;
   for (let depth = 0; depth < 4 && parent && parent !== root && parent !== document.body; depth++) {
     // Avoid checking massive section containers that hold multiple fields
@@ -168,7 +168,7 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     parent = parent.parentElement;
   }
 
-  // 6. Preceding sibling element label, heading, or question prompt
+  // Preceding sibling element label, heading, or question prompt
   const prevSibling = element.previousElementSibling;
   if (prevSibling && prevSibling.textContent && prevSibling.textContent.trim()) {
     if (['LABEL', 'LEGEND', 'H2', 'H3', 'H4', 'H5', 'P', 'SPAN', 'DIV'].includes(prevSibling.tagName)) {
@@ -176,7 +176,7 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 6b. Parent wrapper preceding sibling header (e.g. question header div preceding input div)
+  // Parent wrapper preceding sibling header (e.g. question header div preceding input div)
   if (element.parentElement && element.parentElement.previousElementSibling) {
     const parentPrev = element.parentElement.previousElementSibling;
     if (['LABEL', 'LEGEND', 'H2', 'H3', 'H4', 'H5', 'P', 'SPAN', 'DIV'].includes(parentPrev.tagName)) {
@@ -187,13 +187,13 @@ export function extractElementLabel(element: HTMLElement, root: Element | Docume
     }
   }
 
-  // 7. Placeholder / Title fallback
+  // Placeholder or Title fallback
   const placeholder = (element as HTMLInputElement).placeholder || element.getAttribute('title');
   if (placeholder && placeholder.trim()) {
     return cleanLabelText(placeholder);
   }
 
-  // 8. Fieldset legend fallback ONLY if fieldset wraps solely this field
+  // Fieldset legend fallback ONLY if fieldset wraps solely this field
   const fieldset = element.closest('fieldset');
   if (fieldset) {
     const inputs = fieldset.querySelectorAll('input:not([type="hidden"]), textarea, select, [role="textbox"]');
@@ -223,7 +223,7 @@ export function extractGroupQuestionLabel(
   const first = inputs[0];
   if (!first) return '';
 
-  // 1. Check if first input is in a dedicated fieldset where inputs share the group's name
+  // Check if first input is in a dedicated fieldset where inputs share the group's name
   const fieldset = first.closest('fieldset, [role="radiogroup"], [role="group"]');
   if (fieldset) {
     const fieldsetInputs = Array.from(fieldset.querySelectorAll('input:not([type="hidden"]), textarea, select'));
@@ -238,7 +238,7 @@ export function extractGroupQuestionLabel(
     }
   }
 
-  // 2. Find common container across group inputs
+  // Find common container across group inputs
   let container: HTMLElement | null = first.parentElement;
   while (container && container !== root && container !== document.body) {
     if (inputs.every((i) => container?.contains(i))) {

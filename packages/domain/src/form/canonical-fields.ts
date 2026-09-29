@@ -25,8 +25,13 @@ export type CanonicalFieldKey =
   | 'portfolio_url'
   | 'location_city'
   | 'location_address'
+  | 'state_province'
   | 'postal_code'
   | 'country'
+  | 'current_company'
+  | 'current_title'
+  | 'notice_period'
+  | 'relocation_preference'
   | 'work_authorization'
   | 'visa_sponsorship'
   | 'salary_expectation'
@@ -79,10 +84,13 @@ const AUTOCOMPLETE_MAP: Readonly<Record<string, { key: CanonicalFieldKey; path: 
   'tel-national': { key: 'phone', path: 'identity.phone' },
   'address-line1': { key: 'location_address', path: 'identity.address' },
   'street-address': { key: 'location_address', path: 'identity.address' },
+  'address-level1': { key: 'state_province', path: 'identity.location.stateOrProvince' },
   'address-level2': { key: 'location_city', path: 'identity.city' },
   'postal-code': { key: 'postal_code', path: 'identity.postalCode' },
   country: { key: 'country', path: 'identity.country' },
   'country-name': { key: 'country', path: 'identity.country' },
+  organization: { key: 'current_company', path: 'experiences[0].company' },
+  'organization-title': { key: 'current_title', path: 'professional.currentTitle' },
 };
 
 /**
@@ -218,6 +226,19 @@ const CLASSIFICATION_RULES: readonly FieldPatternRule[] = [
     baseConfidence: 0.88,
   },
   {
+    key: 'state_province',
+    path: 'identity.location.stateOrProvince',
+    patterns: [
+      /\bstate\b/i,
+      /\bprovince\b/i,
+      /\bregion\b/i,
+      /\bstate[\s_-]*province\b/i,
+      /\bcounty\b/i,
+      /\baddress[\s_-]*level[\s_-]*1\b/i,
+    ],
+    baseConfidence: 0.90,
+  },
+  {
     key: 'postal_code',
     path: 'identity.postalCode',
     patterns: [/\bzip(?:\s*code)?\b/i, /\bpostal(?:\s*code)?\b/i, /\bpostcode\b/i],
@@ -292,6 +313,52 @@ const CLASSIFICATION_RULES: readonly FieldPatternRule[] = [
       /\bavailable\s+to\s+start\b/i,
       /\bnotice\s+period\b/i,
       /\bavailability\b/i,
+    ],
+    baseConfidence: 0.90,
+  },
+  {
+    key: 'current_company',
+    path: 'experiences[0].company',
+    patterns: [
+      /\bcurrent[\s_-]*company\b/i,
+      /\bcurrent[\s_-]*employer\b/i,
+      /\bpresent[\s_-]*employer\b/i,
+      /\bcompany[\s_-]*name\b/i,
+      /\bmost[\s_-]*recent[\s_-]*employer\b/i,
+    ],
+    baseConfidence: 0.88,
+  },
+  {
+    key: 'current_title',
+    path: 'professional.currentTitle',
+    patterns: [
+      /\bcurrent[\s_-]*title\b/i,
+      /\bcurrent[\s_-]*role\b/i,
+      /\bcurrent[\s_-]*job[\s_-]*title\b/i,
+      /\bjob[\s_-]*title\b/i,
+      /\bpresent[\s_-]*title\b/i,
+    ],
+    baseConfidence: 0.88,
+  },
+  {
+    key: 'notice_period',
+    path: 'professional.noticePeriodDays',
+    patterns: [
+      /\bnotice[\s_-]*period\b/i,
+      /\bhow[\s_-]*much[\s_-]*notice\b/i,
+      /\bweeks[\s_-]*notice\b/i,
+      /\bdays[\s_-]*notice\b/i,
+    ],
+    baseConfidence: 0.90,
+  },
+  {
+    key: 'relocation_preference',
+    path: 'professional.isOpenToRelocation',
+    patterns: [
+      /\bwilling[\s_-]*to[\s_-]*relocate\b/i,
+      /\bopen[\s_-]*to[\s_-]*relocation\b/i,
+      /\brelocation\b/i,
+      /\bwillingness[\s_-]*to[\s_-]*relocate\b/i,
     ],
     baseConfidence: 0.90,
   },
@@ -455,7 +522,7 @@ export function isHoneypotField(
     top?: number;
   }
 ): boolean {
-  // 1. Explicit anti-bot names or IDs
+  // Explicit anti-bot names or IDs
   const cleanIdentifier = `${attrs.name || ''} ${attrs.id || ''}`
     .toLowerCase()
     .replace(/[-_]+/g, ' ');
@@ -469,7 +536,7 @@ export function isHoneypotField(
     return true;
   }
 
-  // 2. Computed layout styles: element is completely hidden from user sight
+  // Computed layout styles: element is completely hidden from human sight
   if (style) {
     if (style.display === 'none' || style.visibility === 'hidden') {
       return true;
@@ -527,7 +594,7 @@ export function resolveProfileValueForField(
 
     case 'phone':
     case 'identity.phone':
-      return profile.identity.phone || '+234 801 234 5678';
+      return profile.identity.phone || undefined;
 
     case 'location_city':
     case 'identity.city':
@@ -539,6 +606,12 @@ export function resolveProfileValueForField(
     case 'identity.location.address':
       return profile.identity.location?.addressLine1 || profile.identity.location?.city || undefined;
 
+    case 'state_province':
+    case 'identity.state':
+    case 'identity.stateOrProvince':
+    case 'identity.location.stateOrProvince':
+      return profile.identity.location?.stateOrProvince || undefined;
+
     case 'postal_code':
     case 'identity.postalCode':
     case 'identity.location.postalCode':
@@ -547,7 +620,34 @@ export function resolveProfileValueForField(
     case 'country':
     case 'identity.country':
     case 'identity.location.country':
-      return profile.identity.location?.country || 'Nigeria';
+      return profile.identity.location?.country || undefined;
+
+    case 'current_company':
+    case 'experiences.company':
+    case 'experiences[0].company': {
+      const currentExp = profile.experiences.find((e) => e.isCurrent) || profile.experiences[0];
+      return currentExp?.company || undefined;
+    }
+
+    case 'current_title':
+    case 'professional.currentTitle':
+    case 'professional.headline': {
+      if (profile.professional.currentTitle) return profile.professional.currentTitle;
+      const currentExp = profile.experiences.find((e) => e.isCurrent) || profile.experiences[0];
+      return currentExp?.title || profile.professional.headline || undefined;
+    }
+
+    case 'notice_period':
+    case 'professional.noticePeriodDays':
+      return profile.professional.noticePeriodDays != null
+        ? profile.professional.noticePeriodDays === 0
+          ? 'Immediate'
+          : `${profile.professional.noticePeriodDays} days`
+        : undefined;
+
+    case 'relocation_preference':
+    case 'professional.isOpenToRelocation':
+      return profile.professional.isOpenToRelocation ? 'Yes' : 'No';
 
     case 'linkedin_url':
     case 'links.linkedin':
@@ -567,21 +667,24 @@ export function resolveProfileValueForField(
       if (profile.professional.compensationExpectation?.targetSalaryMin) {
         return String(profile.professional.compensationExpectation.targetSalaryMin);
       }
-      return '140000';
+      return undefined;
     }
 
     case 'earliest_start_date':
     case 'professional.earliestStartDate':
       return (
         profile.professional.earliestStartDate ||
-        (profile.professional.noticePeriodDays
+        (profile.professional.noticePeriodDays != null
           ? `${profile.professional.noticePeriodDays} days notice`
-          : 'Immediately upon offer or standard 2 weeks notice')
+          : undefined)
       );
 
     case 'referral_source':
     case 'professional.referralSource':
-      return 'LinkedIn';
+      return (
+        profile.professional.referralSource ||
+        (profile.links?.linkedin ? 'LinkedIn' : undefined)
+      );
 
     case 'work_authorization':
     case 'identity.workAuthorizations':

@@ -1,5 +1,5 @@
 /**
- * @fileoverview Integration and unit test suite for ATS Form Adapters (Phase 13).
+ * @fileoverview Integration and unit test suite for ATS Form Adapters.
  *
  * Verifies specialized form extraction, multi-step wizard progression tracking,
  * authentication barrier detection, and custom control interaction across Workday,
@@ -23,7 +23,7 @@ import {
   simulateCustomComboboxSelect,
 } from '../content/action-interpreter.js';
 
-describe('ATS Form Adapters & Deep Integration Suite (Phase 13)', () => {
+describe('ATS Form Adapters & Deep Integration Suite', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
   });

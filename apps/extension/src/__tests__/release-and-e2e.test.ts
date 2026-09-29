@@ -1,5 +1,5 @@
 /**
- * @fileoverview End-to-End Candidate Journey, Packaging, and Store Compliance Suite (Phase 15 - ADR-0022).
+ * @fileoverview End-to-End Candidate Journey, Packaging, and Store Compliance Suite.
  *
  * Verifies the complete lifecycle of ApplyKit:
  * 1. Chrome Web Store manifest, icons, bundle integrity, and distribution ZIP packaging.
@@ -64,7 +64,7 @@ const ROOT_DIR = path.resolve(EXTENSION_ROOT, '..', '..');
 const DIST_DIR = path.join(EXTENSION_ROOT, 'dist');
 const RELEASE_DIR = path.join(ROOT_DIR, 'dist-release');
 
-describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)', () => {
+describe('Release Readiness, Packaging & End-to-End Suite', () => {
   let localStorageMock: Record<string, unknown> = {};
 
   beforeEach(async () => {
@@ -105,9 +105,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
     await deleteDatabase(indexedDB);
   });
 
-  // ==========================================================================
-  // 1. Chrome Web Store Manifest & Packaging Verification
-  // ==========================================================================
+  // Chrome Web Store Manifest & Packaging Verification
   describe('Chrome Web Store Package & Manifest Conformance', () => {
     const manifestPath = path.join(EXTENSION_ROOT, 'manifest.json');
     const manifestRaw = fs.readFileSync(manifestPath, 'utf8');
@@ -141,7 +139,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
 
     it('declares strict Content Security Policy avoiding remote code execution', () => {
       expect(manifest.content_security_policy.extension_pages).toBe(
-        "script-src 'self'; object-src 'self'"
+        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
       );
     });
 
@@ -159,22 +157,16 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
     });
   });
 
-  // ==========================================================================
-  // 2. Full End-to-End Candidate Lifecycle Journey
-  // ==========================================================================
+  // Candidate Lifecycle Journey Verification
   describe('Full End-to-End Candidate Journey Simulation', () => {
     it('executes complete lifecycle: onboarding -> extraction -> match -> plan -> gated review -> audit -> erasure', async () => {
-      // ----------------------------------------------------------------------
-      // Step 1: Initial Empty State
-      // ----------------------------------------------------------------------
+      // Initial empty state verification
       const initialUsage = await getStorageUsageSummary(indexedDB);
       expect(initialUsage.hasProfile).toBe(false);
       expect(initialUsage.evidenceCount).toBe(0);
       expect(localStorageMock.applykit_onboarding_completed).toBeUndefined();
 
-      // ----------------------------------------------------------------------
-      // Step 2: First-Run Onboarding Wizard Setup
-      // ----------------------------------------------------------------------
+      // First-run onboarding wizard setup
       const profileRepo = new IndexedDbProfileRepository(indexedDB);
       const profileId = createProfileId(DEFAULT_PROFILE_KEY);
       const baseProfile = createEmptyProfile(profileId);
@@ -262,9 +254,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
       expect(postOnboardingUsage.candidateName).toBe('Ada Lovelace');
       expect(postOnboardingUsage.evidenceCount).toBeGreaterThanOrEqual(1);
 
-      // ----------------------------------------------------------------------
-      // Step 3: ATS Job Posting Extraction
-      // ----------------------------------------------------------------------
+      // ATS job posting extraction
       const jobRepo = new IndexedDbJobRepository(indexedDB);
       const targetJob: JobPosting = {
         id: createJobPostingId('job-applied-001'),
@@ -314,9 +304,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
       await jobRepo.saveJob(targetJob);
       jobRepo.close();
 
-      // ----------------------------------------------------------------------
-      // Step 4: Requirement Matching & Gap Analysis
-      // ----------------------------------------------------------------------
+      // Requirement matching & gap analysis
       const evidenceGraph = buildEvidenceGraph([evidenceItem], claims);
       const matchResult = evaluateJobRequirements(
         targetJob.requirements,
@@ -333,9 +321,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
       expect(matchResult.softGapsCount).toBe(1);
       expect(matchResult.overallMatchScore).toBeGreaterThanOrEqual(60);
 
-      // ----------------------------------------------------------------------
-      // Step 5: Application Form Crawling & Field Detection
-      // ----------------------------------------------------------------------
+      // Application form crawling & field detection
       const mockForm: ApplicationForm = {
         id: 'form-greenhouse-001',
         url: targetJob.url,
@@ -390,18 +376,14 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
         submitButtonSelector: 'button[type="submit"]',
       };
 
-      // ----------------------------------------------------------------------
-      // Step 6: Dry-Run Plan Generation & Risk Tagging
-      // ----------------------------------------------------------------------
+      // Dry-run plan generation & risk tagging
       const dryRunPlan = generateDryRunPlan(mockForm, onboardingProfile);
 
       expect(dryRunPlan.actions.length).toBe(3); // First name, last name, email (honeypot excluded)
       expect(dryRunPlan.skippedFields.length).toBe(1);
       expect(dryRunPlan.skippedFields[0]?.reason).toBe('honeypot_trap');
 
-      // ----------------------------------------------------------------------
-      // Step 7: DOM Execution & Anti-Autonomous Submit Gate (ADR-0006)
-      // ----------------------------------------------------------------------
+      // DOM execution & Anti-Autonomous Submit Gate (ADR-0006)
       // Setup DOM inputs
       const fnInput = document.createElement('input');
       fnInput.id = 'first_name';
@@ -445,9 +427,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
       // VERIFY HARD GATE: Submit button was NEVER clicked automatically
       expect(submitClicked).toBe(false);
 
-      // ----------------------------------------------------------------------
-      // Step 8: Application Lifecycle Tracking & Audit Logging
-      // ----------------------------------------------------------------------
+      // Application lifecycle tracking & audit logging
       const appRepo = new IndexedDbApplicationRepository(indexedDB);
       const appId = createApplicationId('app-e2e-001');
       let appRecord = createApplicationRecord(appId, profileId, targetJob.id);
@@ -468,9 +448,7 @@ describe('Release Readiness, Packaging & End-to-End Suite (Phase 15 - ADR-0022)'
       expect(savedApp?.currentStatus).toBe('submitted');
       appRepo.close();
 
-      // ----------------------------------------------------------------------
-      // Step 9: Right to Erasure (Complete Data Purge)
-      // ----------------------------------------------------------------------
+      // Right to erasure (complete data purge)
       const purgeResult = await purgeAllCandidateData(indexedDB);
       expect(purgeResult.success).toBe(true);
       expect(purgeResult.keysCleared).toBe(true);

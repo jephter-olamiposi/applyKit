@@ -20,7 +20,7 @@ import {
   createSavedAnswerId,
 } from '../index.js';
 
-describe('AI Context Builders & Schema Validation Suite (Phase 5)', () => {
+describe('AI Context Builders & Schema Validation Suite', () => {
   describe('buildJobExtractionPrompt', () => {
     it('wraps untrusted webpage content in strict XML delimiters and strips scripts', () => {
       const dirtyHtml = `

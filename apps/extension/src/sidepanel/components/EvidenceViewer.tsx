@@ -142,7 +142,6 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ onProfileUpdated
     ? claims
     : claims.filter((c) => c.claimType === activeFilter);
 
-  // Helper map for evidence lookup
   const evidenceLookup = new Map<string, Evidence>();
   for (const ev of evidence) {
     evidenceLookup.set(ev.id, ev);

@@ -48,8 +48,11 @@ export function matchSavedAnswer(
   if (!fieldLabelOrPrompt) return undefined;
   const normalized = fieldLabelOrPrompt.toLowerCase();
   for (const answer of savedAnswers) {
+    if (answer.canonicalKey && normalized.includes(answer.canonicalKey.toLowerCase())) {
+      return answer;
+    }
     for (const pattern of answer.promptPatterns) {
-      if (normalized.includes(pattern.toLowerCase())) {
+      if (pattern && normalized.includes(pattern.toLowerCase())) {
         return answer;
       }
     }

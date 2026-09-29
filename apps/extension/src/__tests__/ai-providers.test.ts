@@ -1,5 +1,5 @@
 /**
- * @fileoverview Integration tests for Phase 5 AI Providers, Gateway, Rate Limiter, and Token Tracker.
+ * @fileoverview Integration tests for AI Providers, Gateway, Rate Limiter, and Token Tracker.
  *
  * Verifies that provider HTTP adapters format requests and parse responses according to API specs,
  * AIGateway enforces rate limiting and token tracking, and background RPC routes operate properly.
@@ -15,7 +15,7 @@ import {
   AIGateway,
 } from '../ai/index.js';
 
-describe('AI Provider Subsystem & Payload Scoping Suite (Phase 5)', () => {
+describe('AI Provider Subsystem & Payload Scoping Suite', () => {
   const dummyRequest: AIRequest = {
     prompt: 'Evaluate candidate fit',
     systemPrompt: 'You are an AI assistant. Return JSON: {"score": 90}',
@@ -152,6 +152,43 @@ describe('AI Provider Subsystem & Payload Scoping Suite (Phase 5)', () => {
       expect(response.finishReason).toBe('stop');
       expect(response.parsed?.analysis).toBe('strong_fit');
       expect(response.usage?.totalTokens).toBe(175);
+    });
+
+    it('falls back to flash-lite models when primary model returns 404 or 429 quota exhaustion', async () => {
+      let callCount = 0;
+      const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+        callCount++;
+        if (callCount === 1) {
+          // Simulate 404 or 429 on retired or quota-exhausted model
+          return {
+            ok: false,
+            status: 429,
+            text: async () => 'Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests',
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{"analysis": "resilient_fallback"}' }],
+                },
+                finishReason: 'STOP',
+              },
+            ],
+          }),
+        };
+      });
+
+      const provider = new GeminiProvider('test_key', 'gemini-3.8-flash', 5000, mockFetch as any);
+      const response = await provider.complete<{ analysis: string }>(dummyRequest);
+
+      expect(callCount).toBe(2);
+      expect(response.parsed?.analysis).toBe('resilient_fallback');
+      const secondCallUrl = mockFetch.mock.calls[1]![0] as string;
+      expect(secondCallUrl).toContain('gemini-flash-lite-latest');
     });
   });
 

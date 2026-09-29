@@ -1,5 +1,5 @@
 /**
- * @fileoverview Integration tests for Phase 6 Requirement Matching & Gap Analysis Flow.
+ * @fileoverview Integration tests for Requirement Matching & Gap Analysis Flow.
  *
  * Verifies end-to-end deterministic matching, qualification gap analysis,
  * candidate highlight recommendations, and background RPC message dispatching.
@@ -48,7 +48,7 @@ Languages: Go, TypeScript, SQL
 Technologies: Kafka, Docker, PostgreSQL, Linux, Git
 `;
 
-describe('Requirement Matching & Gap Analysis Flow (Phase 6)', () => {
+describe('Requirement Matching & Gap Analysis Flow', () => {
   let messageListener: ((message: unknown, sender: unknown, sendResponse: (res: unknown) => void) => boolean | void) | null = null;
   let bg: typeof import('../background/index.js');
 
@@ -113,7 +113,6 @@ describe('Requirement Matching & Gap Analysis Flow (Phase 6)', () => {
   });
 
   it('handles error when profile exists but no job requirements exist', async () => {
-    // 1. Ingest profile first
     const ingestReq: IngestResumeRequest = {
       type: 'INGEST_RESUME_TEXT',
       rawText: SAMPLE_RESUME,
@@ -123,7 +122,6 @@ describe('Requirement Matching & Gap Analysis Flow (Phase 6)', () => {
       messageListener!(ingestReq, {}, (res) => resolve(res as IngestResumeResponse));
     });
 
-    // 2. Dispatch with empty requirements
     const matchReq: MatchJobRequirementsRequest = {
       type: 'MATCH_JOB_REQUIREMENTS',
       requirements: [],

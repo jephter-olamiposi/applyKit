@@ -35,7 +35,6 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
   }
 
   extract(doc: Document, url: URL): JobPosting {
-    // 1. Job Title
     const titleEl =
       doc.querySelector('h1.app-title') ||
       doc.querySelector('h1[class*="gVUetx"]') ||
@@ -43,7 +42,6 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
       doc.querySelector('h1');
     const title = titleEl?.textContent?.trim() || doc.title.replace(/\s*[-|]\s*Recruitee.*$/i, '').trim();
 
-    // 2. Company Name
     let companyName = 'Unknown Company';
     const siteNameMeta = doc.querySelector('meta[property="og:site_name"]');
     if (siteNameMeta && siteNameMeta.getAttribute('content')) {
@@ -60,7 +58,6 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
       }
     }
 
-    // 3. Location & Workplace Type
     const locationEl =
       doc.querySelector('.location') ||
       doc.querySelector('[class*="location"]') ||
@@ -75,7 +72,6 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
       workplaceType = 'hybrid';
     }
 
-    // 4. Employment Type
     let employmentType: JobPostingEmploymentType = 'full_time';
     if (fullPageText.includes('part-time') || fullPageText.includes('part time')) {
       employmentType = 'part_time';
@@ -85,7 +81,6 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
       employmentType = 'internship';
     }
 
-    // 5. Raw Description & Requirements
     const bodyEl =
       doc.querySelector('.body') ||
       doc.querySelector('.description') ||

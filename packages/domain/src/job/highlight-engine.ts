@@ -58,7 +58,6 @@ export function generateHighlightSuggestions(
 
   const suggestions: HighlightSuggestion[] = [];
 
-  // Helper to check if a text contains any competency mention
   const checkTextMentions = (text: string, competency: string): boolean => {
     const normText = normalizeCompetencyToken(text);
     const normComp = normalizeCompetencyToken(competency);
@@ -66,8 +65,8 @@ export function generateHighlightSuggestions(
     return normText.includes(normComp) || areCompetenciesEquivalent(normText, normComp);
   };
 
-  // 1. Evaluate Candidate Projects
-  for (const project of profile.projects) {
+  // Evaluate candidate projects
+  for (const project of profile.projects || []) {
     let score = 0;
     const matchedCompetencies = new Set<string>();
     const matchedBullets: string[] = [];
@@ -77,7 +76,6 @@ export function generateHighlightSuggestions(
       const weight = isReq ? 10 : 5;
       let matched = false;
 
-      // Match against technologies used
       for (const tech of project.technologiesUsed) {
         if (areCompetenciesEquivalent(tech, req.normalizedSkillOrCompetency)) {
           matchedCompetencies.add(req.normalizedSkillOrCompetency);
@@ -86,7 +84,6 @@ export function generateHighlightSuggestions(
         }
       }
 
-      // Match against project highlights
       for (const highlight of project.highlights) {
         if (checkTextMentions(highlight, req.normalizedSkillOrCompetency)) {
           matchedCompetencies.add(req.normalizedSkillOrCompetency);
@@ -103,7 +100,6 @@ export function generateHighlightSuggestions(
     }
 
     if (matchedCompetencies.size > 0) {
-      // Normalize score relative to requirements count
       const maxPossible = Math.max(1, requirements.length * 10);
       const normalizedScore = Math.min(100, Math.round((score / maxPossible) * 100));
 
@@ -124,8 +120,8 @@ export function generateHighlightSuggestions(
     }
   }
 
-  // 2. Evaluate Work Experiences
-  for (const exp of profile.experiences) {
+  // Evaluate work experiences
+  for (const exp of profile.experiences || []) {
     let score = 0;
     const matchedCompetencies = new Set<string>();
     const matchedBullets: string[] = [];
@@ -135,7 +131,6 @@ export function generateHighlightSuggestions(
       const weight = isReq ? 12 : 6;
       let matched = false;
 
-      // Match technologies
       for (const tech of exp.technologiesUsed) {
         if (areCompetenciesEquivalent(tech, req.normalizedSkillOrCompetency)) {
           matchedCompetencies.add(req.normalizedSkillOrCompetency);

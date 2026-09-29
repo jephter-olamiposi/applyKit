@@ -15,6 +15,11 @@ import {
   renderInPageReviewBadges,
   removeInPageReviewBadges,
 } from './in-page-inspector.js';
+import {
+  initInPageHub,
+  unmountInPageHub,
+} from './in-page-hub.js';
+import { initSubmissionObserver } from './submission-observer.js';
 import type {
   ExtractJobResponse,
   PingResponse,
@@ -159,8 +164,35 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       return false;
     }
 
+    if (requestType === 'TOGGLE_IN_PAGE_HUB') {
+      const payload = message as { enabled: boolean };
+      if (payload.enabled) {
+        initInPageHub(document);
+      } else {
+        unmountInPageHub(document);
+      }
+      sendResponse({
+        type: 'TOGGLE_IN_PAGE_HUB_RESULT',
+        success: true,
+      });
+      return false;
+    }
+
     return false;
   });
+}
+
+// Automatically mount In-Page Floating Hub and Submission Observer
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      initInPageHub(document);
+      initSubmissionObserver();
+    });
+  } else {
+    initInPageHub(document);
+    initSubmissionObserver();
+  }
 }
 
 export * from './extractor.js';
@@ -169,3 +201,5 @@ export * from './normalizer.js';
 export * from './form-crawler.js';
 export * from './action-interpreter.js';
 export * from './in-page-inspector.js';
+export * from './in-page-hub.js';
+export * from './submission-observer.js';

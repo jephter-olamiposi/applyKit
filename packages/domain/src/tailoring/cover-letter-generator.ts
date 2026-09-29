@@ -14,6 +14,7 @@ import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/syno
 import { getPreferredOrLegalName } from '../candidate/identity.js';
 import type { WritingStyleProfile } from '../ai/writing-style.js';
 import { applyWritingQualityPassSync } from '../ai/human-answer-pipeline.js';
+import type { CandidateCultureAlignment } from '../job/company-culture.js';
 import type {
   TailoredCoverLetter,
   CoverLetterParagraph,
@@ -30,6 +31,8 @@ export interface CoverLetterOptions {
   readonly tone?: 'technical' | 'conversational' | 'executive';
   /** Candidate's writing style for natural human voice. */
   readonly writingStyle?: WritingStyleProfile;
+  /** Optional cultural and mission alignment analysis to weave into narrative. */
+  readonly cultureAlignment?: CandidateCultureAlignment;
 }
 
 /**
@@ -165,10 +168,10 @@ export function generateGroundedCoverLetter(
     ? matchedSkills.slice(0, 3).join(', ')
     : profile.skills.slice(0, 3).map((s) => s.name).join(', ');
 
-  // 1. Opening Paragraph
+  // Opening paragraph
   let openingParagraph = `I am writing to express my strong interest in the ${job.title} position at ${job.companyName}. With over ${verifiedYears} years of verified experience specializing in ${primarySkills}, I am excited by the opportunity to contribute to your team's ongoing engineering initiatives.`;
 
-  // 2. Select Grounded Accomplishments for Body Paragraphs
+  // Select grounded accomplishments for body paragraphs
   const topAccomplishments = selectTopVerifiableAccomplishments(job, profile, graph, 3);
   const bodyParagraphs: CoverLetterParagraph[] = [];
 
@@ -211,10 +214,26 @@ export function generateGroundedCoverLetter(
     });
   }
 
-  // 3. Closing Paragraph
+  // Weave in authentic company mission & culture alignment when available
+  if (options?.cultureAlignment?.whyUsPitch) {
+    bodyParagraphs.push({
+      type: 'body',
+      theme: 'Organizational Alignment & Mission',
+      paragraphText: options.cultureAlignment.whyUsPitch,
+      citedAccomplishments: options.cultureAlignment.matches.map((m, idx) => ({
+        evidenceId: `ev_culture_${idx}` as unknown as EvidenceId,
+        claimId: `clm_culture_${idx}` as unknown as ClaimId,
+        claimText: m.candidateEvidenceSnippet,
+        sourceTitle: m.companyValue,
+        sourceSnippet: m.candidateEvidenceSnippet,
+      })),
+    });
+  }
+
+  // Closing paragraph
   let closingParagraph = `I would welcome the opportunity to discuss how my verified background and technical capabilities can support ${job.companyName}'s engineering goals. Thank you for your time and consideration.\n\nSincerely,\n${candidateName}`;
 
-  // 4. Apply writing quality pass if writing style provided
+  // Apply writing quality pass when writing style profile is provided
   const ws = writingStyle;
   if (ws) {
     type ParagraphRef = { text: string; key: string };
@@ -239,7 +258,7 @@ export function generateGroundedCoverLetter(
     }
   }
 
-  // 5. Assemble Full Text
+  // Assemble full document text
   const fullText = [
     `Dear ${recipient},`,
     '',
