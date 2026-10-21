@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractTextFromPdfBytes,
+  extractTextFromDocxBytes,
   parseCMapStream,
   decompressFlateStream,
   bootstrapProfileFromResume,
@@ -12,8 +13,37 @@ import {
 import { createEmptyProfile } from '../candidate/profile.js';
 import type { CandidateProfile, JobPosting } from '../index.js';
 import { createJobPostingId } from '../types/ids.js';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
 
 describe('PDF Text Extractor & Profile Bootstrapper (Phase 18)', () => {
+  it('extracts DOCX text and bootstraps profile fields from the complete document', async () => {
+    const document = new Document({
+      sections: [{
+        children: [
+          new Paragraph({ children: [new TextRun('Taylor Morgan')] }),
+          new Paragraph({ children: [new TextRun('taylor.morgan@example.com | +1 555 010 2020')] }),
+          new Paragraph({ children: [new TextRun('WORK EXPERIENCE')] }),
+          new Paragraph({ children: [new TextRun('Senior Platform Engineer — Acme Systems (2022 - Present)')] }),
+          new Paragraph({ children: [new TextRun('Built resilient Go services handling 1M requests per day.')] }),
+          new Paragraph({ children: [new TextRun('SKILLS')] }),
+          new Paragraph({ children: [new TextRun('Go, Kubernetes, PostgreSQL')] }),
+        ],
+      }],
+    });
+    const blob = await Packer.toBlob(document);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+
+    await expect(extractTextFromDocxBytes(bytes)).resolves.toContain('Taylor Morgan');
+    const bootstrapped = await bootstrapProfileFromResume(bytes, 'taylor-morgan.docx');
+
+    expect(bootstrapped.rawText).toContain('Built resilient Go services handling 1M requests per day.');
+    expect(bootstrapped.profile.identity.legalFirstName).toBe('Taylor');
+    expect(bootstrapped.profile.identity.legalLastName).toBe('Morgan');
+    expect(bootstrapped.profile.identity.email).toBe('taylor.morgan@example.com');
+    expect(bootstrapped.profile.experiences[0]?.company).toBe('Acme Systems');
+    expect(bootstrapped.profile.skills.some((skill) => skill.name === 'Go')).toBe(true);
+  });
+
   it('parses CMap stream mappings accurately', () => {
     const cmapSample = `
 /CIDInit /ProcSet findresource begin
@@ -309,5 +339,252 @@ Rust, Go, Kafka, Kubernetes, Distributed Systems, Linux
     expect(bootstrapped.profile.identity.legalLastName).toBe('Swift');
     expect(bootstrapped.profile.experiences.length).toBe(1);
     expect(bootstrapped.profile.experiences[0]?.company).toBe('Swift Systems');
+  });
+
+  it('correctly bootstraps, categorizes, tailors, and exports a compound delimiter resume with portfolio and marketing blurb filtering', async () => {
+    const resumeText = `
+Joseph Tsegen
+josephtsegen@gmail.com | tsegen.sh | github.com/tsegen | linkedin.com/in/joseph-tsegen | +234 814 365 2101
+
+SKILLS
+Rust, TypeScript, JavaScript, Python, Go, Node.js, Express, NestJS, Docker, AWS, PostgreSQL, Redis, Microservices
+
+WORK EXPERIENCE
+Senior Software Engineer @ Rocksteady Technologies | July 2025 - Present
+Rocksteady Technology delivers enterprise-grade solutions across diverse industries. Partner with us to accelerate your digital transformation.
+- Architected decentralized payment orchestration pipelines cutting AWS infrastructure costs by 85%.
+- Accelerated CI/CD delivery cycles by 50% across containerized microservices.
+
+Makerverse | July 2024 - July 2025
+Makerverse is a creator monetization platform enabling digital commerce.
+- Scaled creator monetization infrastructure supporting 200+ active enterprise creators.
+- Designed distributed event-driven settlement workers using Redis and PostgreSQL.
+
+Codemania | Nov 2022 - July 2024
+- Engineered core microservices with Node.js and TypeScript handling high concurrent user demand.
+
+Multiple Clients | 2020 - 2022
+- Delivered end-to-end full-stack architectures and database migrations for international clients.
+
+PROJECTS
+These are a few projects I worked on in my spare time.
+Deasyncify | https://github.com/tsegen/deasyncify
+- Published open-source npm library with 150+ weekly downloads.
+
+Possum | https://github.com/tsegen/possum
+- Built high-performance CLI utility for database schema inspection.
+
+EDUCATION
+Federal University of Technology Akure — B.S. in Computer Science | 2021
+`;
+
+    const bootstrapped = await bootstrapProfileFromResume(resumeText, 'resume.txt');
+    expect(bootstrapped.profile.identity.legalFirstName).toBe('Joseph');
+    expect(bootstrapped.profile.identity.legalLastName).toBe('Tsegen');
+    expect(bootstrapped.profile.identity.email).toBe('josephtsegen@gmail.com');
+    expect(bootstrapped.profile.links.portfolio).toBe('https://tsegen.sh');
+    expect(bootstrapped.profile.links.github).toBe('https://github.com/tsegen');
+    expect(bootstrapped.profile.links.linkedin).toBe('https://linkedin.com/in/joseph-tsegen');
+
+    // Verify 4 distinct work experiences parsed without collapsing
+    expect(bootstrapped.profile.experiences.length).toBe(4);
+    expect(bootstrapped.profile.experiences[0]?.title).toBe('Senior Software Engineer');
+    expect(bootstrapped.profile.experiences[0]?.company).toBe('Rocksteady Technologies');
+    expect(bootstrapped.profile.experiences[1]?.company).toBe('Makerverse');
+    expect(bootstrapped.profile.experiences[2]?.company).toBe('Codemania');
+    expect(bootstrapped.profile.experiences[3]?.company).toBe('Multiple Clients');
+
+    // Verify marketing blurb was excluded from highlights
+    const rocksteadyHighlights = bootstrapped.profile.experiences[0]?.highlights || [];
+    expect(rocksteadyHighlights.some((h) => h.includes('Partner with us'))).toBe(false);
+    expect(rocksteadyHighlights.some((h) => h.includes('AWS infrastructure costs by 85%'))).toBe(true);
+
+    // Verify projects parsed without intro text
+    expect(bootstrapped.profile.projects.length).toBe(2);
+    expect(bootstrapped.profile.projects[0]?.title).toBe('Deasyncify');
+    expect(bootstrapped.profile.projects[1]?.title).toBe('Possum');
+
+    // Tailor for a Senior Backend role
+    const mockJob: JobPosting = {
+      id: createJobPostingId(),
+      url: 'https://example.com/jobs/backend-lead',
+      title: 'Senior Backend Engineer',
+      companyName: 'CloudScale Inc',
+      location: 'Remote',
+      workplaceType: 'remote',
+      employmentType: 'full_time',
+      rawDescription: 'Seeking Senior Backend Engineer proficient in Rust, AWS, and Microservices.',
+      parsedAt: new Date().toISOString(),
+      metadata: {},
+      requirements: [
+        {
+          id: 'req_1' as any,
+          rawText: 'Strong experience with Rust and Microservices',
+          normalizedSkillOrCompetency: 'Rust',
+          importance: 'required',
+          isRequired: true,
+          category: 'technical_skill',
+          matchedEvidenceIds: [],
+        },
+        {
+          id: 'req_2' as any,
+          rawText: 'Experience cutting AWS cloud costs',
+          normalizedSkillOrCompetency: 'AWS',
+          importance: 'required',
+          isRequired: true,
+          category: 'technical_skill',
+          matchedEvidenceIds: [],
+        },
+      ],
+    };
+
+    const tailored = tailorCandidateResume(mockJob, bootstrapped.profile);
+    expect(tailored.skills.domainCategories).toBeDefined();
+    expect(tailored.skills.domainCategories!.length).toBeGreaterThan(0);
+    const langCat = tailored.skills.domainCategories!.find((c) => c.category === 'Languages');
+    expect(langCat?.skills).toContain('Rust');
+    expect(tailored.tailoredSummary).toContain('CloudScale Inc');
+    expect(tailored.tailoredSummary).toContain('85%');
+
+    const pdfBlob = await generateResumePdfBlob(tailored, bootstrapped.profile);
+    expect(pdfBlob.size).toBeGreaterThan(1000);
+  });
+
+  it('correctly bootstraps, categorizes, tailors, and exports an em-dash next-line date resume with dev.to link and bulleted projects', async () => {
+    const resumeText = `
+Jephter Olamiposi Olaifa
+jephterolaifa@gmail.com  |  github.com/jephter-olamiposi  |  linkedin.com/in/jephter-olaifa  |  dev.to/iamjephter
+
+SKILLS
+Languages: Rust, TypeScript, JavaScript, Python
+Frameworks: Axum, Tokio, Node.js, Express, NestJS, gRPC, React, Next.js
+Databases: PostgreSQL, SurrealDB, Redis, MongoDB
+Infrastructure & Tools: AWS, Docker, Kubernetes, CI/CD, GitHub Actions
+Focus Areas: System Design, Distributed Systems, Financial Systems, Observability
+
+WORK EXPERIENCE
+Software Engineer — CoreServe — Rust
+Feb 2026 – Aug 2026
+* Engineered a production-grade, multi-tenant backend for a waste recycling and logistics platform using Rust, Axum, Tokio, SQLx, and PostgreSQL.
+* Designed transaction-safe wallet, billing, settlement, and payout workflows with maker-checker approval, idempotent processing, cancellation lifecycles, and automated reconciliation.
+* Built asynchronous workers for billing, payout dispatch, settlement, reporting, scheduled pickups, notifications, and reconciliation with bounded concurrency and retry handling; implemented tenant-isolated data access, role-based authorization, and JWT authentication.
+* Developed APIs for marketplace orders, inventory, pickup scheduling, dashboards, and operational metrics across administrators, aggregators, clients, and field staff.
+
+Backend Engineer — GeoResinStore
+Mar 2025 – Feb 2026
+* Architected a modular e-commerce backend for a leading Nigerian resin art supplier using Node.js and PostgreSQL.
+* Implemented server-side Paystack and Flutterwave webhook verification to prevent payment tampering and automate order confirmation.
+* Architected a multi-tenant invoicing backend with isolated business profiles, role-based access control, and configurable branding using NestJS.
+* Engineered an inventory state machine with checkout-time stock reservations to prevent overselling under concurrent demand.
+* Built administrative APIs for order processing, status tracking, inventory operations, and automated logistics email notifications.
+
+Software Engineer — Internet Number Technologies — Rust
+Feb 2025 – Oct 2025
+* Architected the control plane for a production-grade telephony platform orchestrating real-time communication, subscriptions, and billing for thousands of users.
+* Engineered a high-throughput signaling backend with Rust and Axum to manage session lifecycles for Web-to-PSTN calls.
+* Designed a type-safe SurrealDB persistence layer for subscription models and automated top-ups, protecting financial state across complex billing flows.
+* Implemented dynamic codec negotiation and SIP bridging logic to support reliable, low-latency audio delivery.
+
+Software Engineer — Billeva
+May 2024 – Present
+* Engineered an asynchronous streaming CSV import pipeline for processing large customer datasets without blocking request workflows.
+* Designed a configurable mapping engine that transformed arbitrary CSV columns into validated internal data models.
+
+Software Engineer — Freelance
+Mar 2023 – Feb 2025
+* Developed backend services for decentralized applications, creating an interoperability layer between React clients and Rust-based Solana smart contracts.
+* Established reusable GitHub Actions CI/CD pipelines to automate testing and deployment across client projects.
+
+Software Engineer — B-glow Creations
+Aug 2022 – Feb 2023
+* Built a fashion e-commerce website in React, including the customer-facing storefront and an admin dashboard.
+
+PERSONAL PROJECTS
+* wsblast (Rust) — Built a high-performance WebSocket load-testing CLI with zero-allocation hot paths, lock-free task-local latency histograms (HdrHistogram), and CI/CD SLO gating (p50/p95/p99/p99.9, error-rate budgets) that fails builds on regression; published on crates.io with a Ratatui live dashboard and JSON/Markdown reporting.
+* Echo (Rust, Tauri, SQLite) — Built a cross-platform clipboard synchronization engine with a low-memory Rust daemon that captures OS-level clipboard events and synchronizes history across desktop and mobile clients.
+* Real-Time Multiplayer Game Engine (Rust, Axum, Tokio, Egui) — Engineered a distributed multiplayer system with a native desktop client and an asynchronous Axum WebSocket server for low-latency game-state synchronization.
+
+EDUCATION
+Ladoke Akintola University of Technology — BSc, Information Systems
+`;
+
+    const bootstrapped = await bootstrapProfileFromResume(resumeText, 'jephter.txt');
+    expect(bootstrapped.profile.identity.legalFirstName).toBe('Jephter');
+    expect(bootstrapped.profile.identity.legalLastName).toBe('Olamiposi Olaifa');
+    expect(bootstrapped.profile.identity.email).toBe('jephterolaifa@gmail.com');
+    expect(bootstrapped.profile.links.portfolio).toBe('https://dev.to/iamjephter');
+    expect(bootstrapped.profile.links.github).toBe('https://github.com/jephter-olamiposi');
+    expect(bootstrapped.profile.links.linkedin).toBe('https://linkedin.com/in/jephter-olaifa');
+
+    // 6 distinct work experiences
+    expect(bootstrapped.profile.experiences.length).toBe(6);
+    expect(bootstrapped.profile.experiences[0]?.company).toBe('CoreServe');
+    expect(bootstrapped.profile.experiences[0]?.title).toBe('Software Engineer');
+    expect(bootstrapped.profile.experiences[1]?.company).toBe('GeoResinStore');
+    expect(bootstrapped.profile.experiences[2]?.company).toBe('Internet Number Technologies');
+
+    // 3 projects parsed from self-contained bullets
+    expect(bootstrapped.profile.projects.length).toBe(3);
+    expect(bootstrapped.profile.projects[0]?.title).toContain('wsblast');
+    expect(bootstrapped.profile.projects[1]?.title).toContain('Echo');
+    expect(bootstrapped.profile.projects[2]?.title).toContain('Real-Time Multiplayer Game Engine');
+
+    // Education
+    expect(bootstrapped.profile.education.length).toBe(1);
+    expect(bootstrapped.profile.education[0]?.institution).toBe('Ladoke Akintola University of Technology');
+    expect(bootstrapped.profile.education[0]?.degree).toBe('BSc');
+    expect(bootstrapped.profile.education[0]?.fieldOfStudy).toBe('Information Systems');
+
+    // Skills
+    expect(bootstrapped.profile.skills.length).toBeGreaterThan(15);
+    const rustSkill = bootstrapped.profile.skills.find((s) => s.name === 'Rust');
+    expect(rustSkill?.category).toBe('language');
+    const axumSkill = bootstrapped.profile.skills.find((s) => s.name === 'Axum');
+    expect(axumSkill?.category).toBe('framework');
+    const postgresSkill = bootstrapped.profile.skills.find((s) => s.name === 'PostgreSQL');
+    expect(postgresSkill?.category).toBe('database');
+
+    // Tailor for a Senior Distributed Systems Engineer role
+    const mockJob: JobPosting = {
+      id: createJobPostingId(),
+      url: 'https://example.com/jobs/dist-sys',
+      title: 'Senior Systems Engineer',
+      companyName: 'HyperScale Corp',
+      location: 'Remote',
+      workplaceType: 'remote',
+      employmentType: 'full_time',
+      rawDescription: 'Seeking Senior Systems Engineer proficient in Rust, Tokio, PostgreSQL, and Distributed Systems.',
+      parsedAt: new Date().toISOString(),
+      metadata: {},
+      requirements: [
+        {
+          id: 'req_1' as any,
+          rawText: 'Expertise in Rust and Tokio async systems',
+          normalizedSkillOrCompetency: 'Rust',
+          importance: 'required',
+          isRequired: true,
+          category: 'technical_skill',
+          matchedEvidenceIds: [],
+        },
+        {
+          id: 'req_2' as any,
+          rawText: 'Experience designing transaction-safe PostgreSQL workflows',
+          normalizedSkillOrCompetency: 'PostgreSQL',
+          importance: 'required',
+          isRequired: true,
+          category: 'technical_skill',
+          matchedEvidenceIds: [],
+        },
+      ],
+    };
+
+    const tailored = tailorCandidateResume(mockJob, bootstrapped.profile);
+    expect(tailored.skills.domainCategories).toBeDefined();
+    const langCat = tailored.skills.domainCategories!.find((c) => c.category === 'Languages');
+    expect(langCat?.skills[0]).toBe('Rust'); // Required skill ranked first
+    expect(tailored.tailoredSummary).toContain('HyperScale Corp');
+
+    const pdfBlob = await generateResumePdfBlob(tailored, bootstrapped.profile);
+    expect(pdfBlob.size).toBeGreaterThan(1000);
   });
 });

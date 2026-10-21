@@ -67,6 +67,7 @@ export function createEmptyProfile(id?: ProfileId): CandidateProfile {
       totalYearsOfExperience: 0,
       primaryRoles: [],
       targetRoles: [],
+      targetSeniority: 'any',
       preferredLocations: [],
       workplacePreference: 'remote',
       isOpenToRelocation: false,

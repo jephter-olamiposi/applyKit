@@ -106,7 +106,7 @@ body {
 
 .pipeline-steps-bar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background-color: var(--color-surface);
   border-radius: 8px;
   padding: 4px;
@@ -286,6 +286,45 @@ body {
 /* Content Area */
 .app-content {
   flex: 1;
+}
+
+.focused-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.focused-page-header {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(30, 41, 59, 0.94));
+}
+
+.focused-page-header h2 {
+  margin: 2px 0 4px;
+  color: var(--color-text);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.focused-page-header p {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.focused-page-kicker {
+  color: #93c5fd !important;
+  font-size: 10px !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 560px) {
+  .pipeline-steps-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* Standard Buttons */
@@ -4642,6 +4681,21 @@ body {
   border-radius: 6px;
 }
 
+.resume-review-warning {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid #d97706;
+  border-radius: 8px;
+  background: #451a03;
+  color: #fde68a;
+  font-size: 12px;
+}
+
+.resume-review-warning ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+
 .onboarding-error-alert {
   background-color: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.4);
@@ -6451,6 +6505,4 @@ body {
   border-color: #f59e0b;
   color: #0f172a;
 }
-
-
 

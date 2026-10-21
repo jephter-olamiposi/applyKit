@@ -79,6 +79,8 @@ export const FORBIDDEN_PATTERNS = [
   /game changer/i,
   /paradigm shift/i,
   /next level/i,
+  /in today's fast-paced/i,
+  /spearheaded the/i,
 ] as const;
 
 export const CORPORATE_FILLER_PATTERNS = [
@@ -87,16 +89,18 @@ export const CORPORATE_FILLER_PATTERNS = [
   /\b(strong passion|deep passion|excited to|thrilled to|eager to)\b/gi,
   /\b(proven track record|extensive experience|solid background|wealth of experience)\b/gi,
   /\b(cross-functional|end-to-end|best-in-class|world-class|top-tier)\b/gi,
-  /\b(seamless integration|robust architecture|scalable solution)\b/gi,
+  /\b(seamless integration|robust architecture|scalable solution|seamlessly|aligns seamlessly)\b/gi,
+  /\b(delve into|delve|testament to|a testament|tapestry of|beacon of|pivotal role|foster innovation)\b/gi,
 ] as const;
 
 export const AI_PHRASING_PATTERNS = [
-  /^I am (writing to|pleased to|excited to|delighted to)/,
-  /^This (letter|response|answer) (serves to|demonstrates|highlights|showcases)/,
-  /^(In conclusion|To summarize|Overall|In summary),/,
-  /^Furthermore,|^Moreover,|^Additionally,|^Consequently,/,
+  /^I am (writing to|pleased to|excited to|delighted to)/i,
+  /^This (letter|response|answer) (serves to|demonstrates|highlights|showcases)/i,
+  /^(In conclusion|To summarize|Overall|In summary|To conclude),?/i,
+  /^Furthermore,|^Moreover,|^Additionally,|^Consequently,/i,
+  /^(Certainly!|Sure!|Sure thing!|Here is|Here's an|I'd be happy to|Gladly|Of course!)[,\.\s]+/i,
+  /^(As an experienced|As a seasoned|With over \d+ years of experience in)[^,]+,\s*/i,
   /—/,
-  /:/,
   /^\s*[-•]\s+/m,
 ] as const;
 

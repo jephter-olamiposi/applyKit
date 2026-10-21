@@ -2,10 +2,11 @@
  * @fileoverview Streamlined 4-stage pipeline navigation component for ApplyKit Side Panel.
  *
  * Implements candidate-centric workflow navigation:
- * 1. Step 1: Job & Fit (Overview, Requirements, Match & Gaps)
- * 2. Step 2: Tailor (Resume & Cover Letter Studio, Evidence Graph)
- * 3. Step 3: Auto-Fill (1-Click Form Auto-Fill & Safety Dry Run)
- * 4. Step 4: Tracker (Saved Applications & Statuses)
+ * 1. Find Jobs (current-page extraction and sourced opportunities)
+ * 2. Review Matches (requirements and evidence-backed fit)
+ * 3. Tailor Resume (resume, letter, and evidence review)
+ * 4. Prepare Application (form preparation and safety review)
+ * 5. Track (saved applications and statuses)
  *
  * Provides a clear progression bar where each step naturally leads to the next,
  * eliminating cognitive overload from 10 unranked tabs.
@@ -15,10 +16,16 @@ import React from 'react';
 
 export type TabId =
   | 'overview'
+  | 'sourced_feed'
+  | 'review_matches'
+  | 'tailor_resume'
+  | 'cover_letter'
+  | 'evidence'
+  | 'prepare_application'
+  | 'track'
   | 'requirements'
   | 'match'
   | 'tailor'
-  | 'evidence'
   | 'form'
   | 'dry_run'
   | 'instant_qa'
@@ -42,53 +49,53 @@ interface PipelineStep {
 
 const PIPELINE_STEPS: readonly PipelineStep[] = [
   {
-    id: 'step_job',
+    id: 'step_source',
     stepNumber: 1,
-    label: 'Job & Fit',
+    label: 'Find Jobs',
     defaultTab: 'overview',
-    memberTabs: ['overview', 'requirements', 'match'],
+    memberTabs: ['overview', 'sourced_feed'],
     subTabs: [
-      { id: 'overview', label: 'Job Details' },
-      { id: 'requirements', label: 'Requirements' },
-      { id: 'match', label: 'Match & Gaps' },
+      { id: 'overview', label: 'Extract Current Job' },
+      { id: 'sourced_feed', label: 'Search Jobs' },
+    ],
+  },
+  {
+    id: 'step_verify',
+    stepNumber: 2,
+    label: 'Review Matches',
+    defaultTab: 'review_matches',
+    memberTabs: ['review_matches', 'match', 'requirements'],
+    subTabs: [
+      { id: 'review_matches', label: 'Fit & Eligibility' },
     ],
   },
   {
     id: 'step_tailor',
-    stepNumber: 2,
-    label: 'Tailor',
-    defaultTab: 'tailor',
-    memberTabs: ['tailor', 'evidence'],
+    stepNumber: 3,
+    label: 'Tailor Resume',
+    defaultTab: 'tailor_resume',
+    memberTabs: ['tailor_resume', 'cover_letter', 'tailor', 'evidence'],
     subTabs: [
-      { id: 'tailor', label: 'Resume & Letter' },
-      { id: 'evidence', label: 'Evidence Graph' },
+      { id: 'tailor_resume', label: 'Resume' },
+      { id: 'cover_letter', label: 'Cover Letter' },
     ],
   },
   {
     id: 'step_fill',
-    stepNumber: 3,
-    label: 'Auto-Fill',
-    defaultTab: 'form',
-    memberTabs: ['form', 'dry_run'],
+    stepNumber: 4,
+    label: 'Prepare Application',
+    defaultTab: 'prepare_application',
+    memberTabs: ['prepare_application', 'form', 'dry_run', 'instant_qa'],
     subTabs: [
-      { id: 'form', label: '1-Click Auto-Fill' },
-      { id: 'dry_run', label: 'Safety Dry Run' },
+      { id: 'prepare_application', label: 'Application Form' },
     ],
   },
   {
-    id: 'step_qa',
-    stepNumber: 4,
-    label: '⚡ Instant Q&A',
-    defaultTab: 'instant_qa',
-    memberTabs: ['instant_qa'],
-    subTabs: [],
-  },
-  {
-    id: 'step_tracker',
+    id: 'step_track',
     stepNumber: 5,
-    label: 'Tracker',
-    defaultTab: 'history',
-    memberTabs: ['history'],
+    label: 'Track',
+    defaultTab: 'track',
+    memberTabs: ['track', 'history'],
     subTabs: [],
   },
 ];
@@ -101,7 +108,7 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTab
 
   return (
     <div className="pipeline-nav-container">
-      {/* 4-Step Primary Pipeline Bar */}
+      {/* Primary pipeline navigation keeps one candidate task visible at a time. */}
       <nav className="pipeline-steps-bar" role="tablist" aria-label="Application Pipeline">
         {PIPELINE_STEPS.map((step) => {
           const isActive = currentStep?.id === step.id;

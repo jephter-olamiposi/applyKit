@@ -138,6 +138,22 @@ describe('AI Context Builders & Schema Validation Suite', () => {
       expect(request.prompt).toContain('Yes, I am a US citizen');
       expect(request.prompt).toContain('Available Dropdown Options');
     });
+
+    it('enforces evidence grounding and natural non-AI answers', () => {
+      const context: FieldAnsweringContext = {
+        fieldLabel: 'Describe your hands-on experience with Apache Kafka and distributed streaming.',
+        fieldType: 'textarea',
+        relevantAnswers: [],
+        relevantClaims: [],
+      };
+
+      const request = buildFieldAnsweringPrompt(context);
+
+      expect(request.systemPrompt).toContain('Use only the supplied candidate evidence');
+      expect(request.systemPrompt).toContain('return an empty answerText');
+      expect(request.systemPrompt).toContain('without mentioning the AI');
+      expect(request.prompt).not.toContain('advise the user to fill manually');
+    });
   });
 
   describe('buildResumeTailoringPrompt', () => {

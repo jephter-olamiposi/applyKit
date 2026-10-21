@@ -19,7 +19,9 @@ import {
   initInPageHub,
   unmountInPageHub,
 } from './in-page-hub.js';
-import { initSubmissionObserver } from './submission-observer.js';
+import { initSubmissionObserver, destroySubmissionObserver } from './submission-observer.js';
+import { harvestPageJobLinks } from './link-harvester.js';
+import { isJobOrApplicationPage } from './page-context.js';
 import type {
   ExtractJobResponse,
   PingResponse,
@@ -28,11 +30,13 @@ import type {
   HighlightFormFieldResponse,
   ClearFormFieldHighlightResponse,
   ToggleInPageReviewBadgesResponse,
+  HarvestPageLinksResponse,
 } from '../messages/contracts.js';
+import { isValidExtensionRequest } from '../messages/contracts.js';
 
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message || typeof message !== 'object' || !('type' in message)) {
+    if (!isValidExtensionRequest(message)) {
       return false;
     }
 
@@ -170,11 +174,34 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         initInPageHub(document);
       } else {
         unmountInPageHub(document);
+        destroySubmissionObserver();
       }
       sendResponse({
         type: 'TOGGLE_IN_PAGE_HUB_RESULT',
         success: true,
       });
+      return false;
+    }
+
+    if (requestType === 'HARVEST_PAGE_LINKS') {
+      try {
+        const links = harvestPageJobLinks(document, window.location.href);
+        const response: HarvestPageLinksResponse = {
+          type: 'HARVEST_PAGE_LINKS_RESULT',
+          success: true,
+          links,
+        };
+        sendResponse(response);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const failureResponse: HarvestPageLinksResponse = {
+          type: 'HARVEST_PAGE_LINKS_RESULT',
+          success: false,
+          links: [],
+          error: errorMsg,
+        };
+        sendResponse(failureResponse);
+      }
       return false;
     }
 
@@ -184,15 +211,31 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
 // Automatically mount In-Page Floating Hub and Submission Observer
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+  let lastPageUrl = window.location.href;
+  const syncInPageAssistant = () => {
+    const isJobPage = isJobOrApplicationPage(document, window.location.href);
+    if (isJobPage) {
       initInPageHub(document);
       initSubmissionObserver();
+    } else {
+      unmountInPageHub(document);
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      syncInPageAssistant();
     });
   } else {
-    initInPageHub(document);
-    initSubmissionObserver();
+    syncInPageAssistant();
   }
+
+  window.setInterval(() => {
+    if (window.location.href !== lastPageUrl) {
+      lastPageUrl = window.location.href;
+      syncInPageAssistant();
+    }
+  }, 1000);
 }
 
 export * from './extractor.js';
@@ -203,3 +246,4 @@ export * from './action-interpreter.js';
 export * from './in-page-inspector.js';
 export * from './in-page-hub.js';
 export * from './submission-observer.js';
+export * from './link-harvester.js';

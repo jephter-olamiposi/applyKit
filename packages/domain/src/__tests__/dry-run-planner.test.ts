@@ -151,7 +151,7 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
   });
 
   describe('generateDryRunPlan', () => {
-    it('generates declarative actions for text, select, radio, checkbox, and file inputs', () => {
+    it('generates declarative actions while leaving document attachment for manual download and upload', () => {
       const fields: ApplicationField[] = [
         {
           id: createFieldId('fld_first_name'),
@@ -215,7 +215,7 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       expect(plan.formId).toBe('form_123');
       expect(plan.detectedAts).toBe('greenhouse');
       expect(plan.submitButtonSelector).toBe('#submit_app');
-      expect(plan.actions.length).toBe(4);
+      expect(plan.actions.length).toBe(3);
 
       const firstAction = plan.actions[0]!;
       expect(firstAction.action.actionType).toBe('fill_text');
@@ -235,15 +235,19 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       expect(radioAction.riskLevel).toBe('high');
       expect(radioAction.userConfirmed).toBe(false); // High risk requires explicit user confirmation
 
-      const fileAction = plan.actions[3]!;
-      expect(fileAction.action.actionType).toBe('upload_file');
-      expect(fileAction.action.value).toBe('Alex_Rivera_Resume_2026.pdf');
-      expect(fileAction.riskLevel).toBe('high');
+      expect(plan.skippedFields).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fieldId: 'fld_resume',
+            description: 'Document fields are download-only; attach the candidate-approved DOCX manually.',
+          }),
+        ])
+      );
 
       // Overall plan approval state: false until high risk items are approved
       expect(plan.isApproved).toBe(false);
-      expect(plan.stats.highRiskCount).toBe(2);
-      expect(plan.stats.requiresConfirmationCount).toBe(2);
+      expect(plan.stats.highRiskCount).toBe(1);
+      expect(plan.stats.requiresConfirmationCount).toBe(1);
     });
 
     it('strictly skips anti-bot honeypot traps and records them in skippedFields', () => {
@@ -1029,6 +1033,98 @@ const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
       const dateAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_start_date'));
       expect(dateAction).toBeDefined();
       expect(dateAction?.candidateValueUsed).toBe('Immediately / 2 weeks');
+    });
+
+    it('deterministically resolves unmapped experience screening questions affirmatively to pass ATS knockout', () => {
+      const form: ApplicationForm = {
+        id: 'form_screening',
+        url: 'https://careers.example.com/apply',
+        detectedAts: 'greenhouse',
+        fields: [
+          {
+            id: createFieldId('fld_k8s'),
+            selector: 'input[name="k8s_exp"]',
+            fieldType: 'radio',
+            label: 'Do you have experience with Kubernetes and container orchestration?',
+            isRequired: true,
+            confidenceScore: 0.2,
+            options: [
+              { label: 'Yes', value: 'yes' },
+              { label: 'No', value: 'no' },
+            ],
+          },
+          {
+            id: createFieldId('fld_age'),
+            selector: '#age_check',
+            fieldType: 'select',
+            label: 'Are you 18 years of age or older?',
+            isRequired: true,
+            confidenceScore: 0.2,
+            options: [
+              { label: 'Yes', value: 'yes' },
+              { label: 'No', value: 'no' },
+            ],
+          },
+          {
+            id: createFieldId('fld_bg'),
+            selector: '#bg_check',
+            fieldType: 'checkbox',
+            label: 'Consent to background check and verification',
+            isRequired: true,
+            confidenceScore: 0.2,
+          },
+          {
+            id: createFieldId('fld_unlisted_skill'),
+            selector: 'input[name="skill_rust"]',
+            fieldType: 'radio',
+            label: 'Rate your own skills with Rust programming language',
+            isRequired: true,
+            confidenceScore: 0.2,
+            options: [
+              { label: 'Beginner', value: 'Beginner' },
+              { label: 'Intermediate', value: 'Intermediate' },
+              { label: 'Advanced', value: 'Advanced' },
+            ],
+          },
+        ],
+        isMultiStep: false,
+        inspectedAt: new Date().toISOString(),
+      };
+
+      const plan = generateDryRunPlan(form, mockProfile);
+
+      const k8sAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_k8s'));
+      expect(k8sAction).toBeDefined();
+      expect(k8sAction?.candidateValueUsed).toBe('yes');
+      expect(k8sAction?.action.actionType).toBe('click');
+
+      const ageAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_age'));
+      expect(ageAction).toBeDefined();
+      expect(ageAction?.candidateValueUsed).toBe('yes');
+
+      const bgAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_bg'));
+      expect(bgAction).toBeDefined();
+      expect(bgAction?.action.actionType).toBe('check');
+
+      const skillAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_unlisted_skill'));
+      expect(skillAction).toBeDefined();
+      expect(skillAction?.candidateValueUsed).toBe('Advanced');
+    });
+
+    it('isAiAnswerableCustomField supports choice fields when includeChoiceFields is enabled', () => {
+      const selectField: ApplicationField = {
+        id: createFieldId('fld_select_q'),
+        selector: '#custom_select',
+        fieldType: 'select',
+        label: 'What is your primary architectural style?',
+        isRequired: false,
+        confidenceScore: 0.5,
+        inferredMappingKey: 'custom_question',
+        options: [{ label: 'Microservices', value: 'microservices' }],
+      };
+
+      expect(isAiAnswerableCustomField(selectField)).toBe(false);
+      expect(isAiAnswerableCustomField(selectField, { includeChoiceFields: true })).toBe(true);
     });
   });
 });

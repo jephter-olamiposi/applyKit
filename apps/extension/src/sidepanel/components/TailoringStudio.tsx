@@ -25,6 +25,10 @@ import {
   exportCoverLetterAsPlainText,
   generateResumePdfBlob,
   generateCoverLetterPdfBlob,
+  generateResumeDocxBlob,
+  generateCoverLetterDocxBlob,
+  getStandardResumeFilename,
+  getStandardCoverLetterFilename,
 } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
 import { PdfPreviewCanvas } from './PdfPreviewCanvas.js';
@@ -36,6 +40,10 @@ import type {
   GenerateCoverLetterPdfResponse,
   GenerateResumePdfRequest,
   GenerateResumePdfResponse,
+  GenerateResumeDocxRequest,
+  GenerateResumeDocxResponse,
+  GenerateCoverLetterDocxRequest,
+  GenerateCoverLetterDocxResponse,
   FactCheckDocumentResponse,
   GetCandidateProfileResponse,
   ExtensionRequest,
@@ -45,10 +53,16 @@ import type {
 
 interface TailoringStudioProps {
   onNavigateToTab?: (tabId: any) => void;
+  initialMode?: 'resume' | 'cover_letter';
+  showModeSwitcher?: boolean;
 }
 
-export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTab }) => {
-  const [activeMode, setActiveMode] = useState<'resume' | 'cover_letter'>('resume');
+export const TailoringStudio: React.FC<TailoringStudioProps> = ({
+  onNavigateToTab,
+  initialMode = 'resume',
+  showModeSwitcher = true,
+}) => {
+  const [activeMode, setActiveMode] = useState<'resume' | 'cover_letter'>(initialMode);
 
   // Resume State
   const [tailoredResume, setTailoredResume] = useState<TailoredResume | null>(null);
@@ -66,6 +80,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
   const [showAuditDetails, setShowAuditDetails] = useState<boolean>(false);
   const [loadingResume, setLoadingResume] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isGeneratingDocx, setIsGeneratingDocx] = useState(false);
 
   // Cover Letter State
   const [coverLetter, setCoverLetter] = useState<TailoredCoverLetter | null>(null);
@@ -360,6 +375,72 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
     }
   };
 
+  // DOCX Download Helper: Generates native Word document directly in client (ADR-0043, SKILL.md) with background fallback
+  const handleDownloadDocx = async (
+    requestType: 'GENERATE_RESUME_DOCX' | 'GENERATE_COVER_LETTER_DOCX',
+    payload: Record<string, unknown>,
+    suggestedFilename?: string
+  ) => {
+    setIsGeneratingDocx(true);
+    setError(null);
+    try {
+      let blob: Blob | null = null;
+      let filename = suggestedFilename;
+
+      // 1. Direct client-side generation for instant file download and zero IPC overhead
+      if (requestType === 'GENERATE_RESUME_DOCX' && tailoredResume) {
+        blob = await generateResumeDocxBlob(tailoredResume, profile ?? undefined, {
+          templateId: selectedTemplate,
+          density: resumeDensity,
+          showTargetBadge,
+        });
+        filename = filename || getStandardResumeFilename(profile, 'docx');
+      } else if (requestType === 'GENERATE_COVER_LETTER_DOCX' && coverLetter) {
+        blob = await generateCoverLetterDocxBlob(coverLetter, profile ?? undefined);
+        filename = filename || getStandardCoverLetterFilename(profile, 'docx');
+      }
+
+      // 2. Fallback to background service worker RPC if client state is not available
+      if (!blob) {
+        const res = await sendToBackground<
+          ExtensionRequest,
+          GenerateCoverLetterDocxResponse | GenerateResumeDocxResponse
+        >({
+          type: requestType,
+          payload: {
+            ...payload,
+            density: resumeDensity,
+            showTargetBadge,
+          },
+        } as unknown as ExtensionRequest);
+
+        if (!res.success || !res.docxBase64) {
+          throw new Error(res.error || 'Failed to generate Word document');
+        }
+
+        const binaryString = atob(res.docxBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        blob = new Blob([bytes], {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+        if (res.filename) {
+          filename = res.filename;
+        }
+      }
+
+      if (blob) {
+        await downloadBlob(blob, filename || 'Resume.docx');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download Word document');
+    } finally {
+      setIsGeneratingDocx(false);
+    }
+  };
+
   return (
     <div className="tailoring-studio-container" role="region" aria-label="Tailoring Studio">
       {/* Mode Switcher & Target Indicator */}
@@ -371,7 +452,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
               Evidence-grounded resumes and cover letters with zero hallucination guarantee.
             </p>
           </div>
-          <div className="tailoring-mode-pills">
+          {showModeSwitcher && <div className="tailoring-mode-pills">
             <button
               type="button"
               className={`mode-pill ${activeMode === 'resume' ? 'mode-pill-active' : ''}`}
@@ -391,7 +472,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
             >
               Cover Letter
             </button>
-          </div>
+          </div>}
         </div>
 
         {copyFeedback && (
@@ -474,7 +555,9 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                 <PdfPreviewCanvas
                   blobUrl={resumeBlobUrl}
                   isGenerating={isRenderingPreview}
-                  filename={`resume-${selectedTemplate}-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`}
+                  filename={getStandardResumeFilename(profile, 'pdf')}
+                  docxFilename={getStandardResumeFilename(profile, 'docx')}
+                  isGeneratingDocx={isGeneratingDocx}
                   onDownload={() => {
                     if (profile) {
                       handleDownloadPdf(
@@ -485,9 +568,20 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                           density: resumeDensity,
                           showTargetBadge,
                         },
-                        `resume-${selectedTemplate}-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                        getStandardResumeFilename(profile, 'pdf')
                       );
                     }
+                  }}
+                  onDownloadDocx={() => {
+                    handleDownloadDocx(
+                      'GENERATE_RESUME_DOCX',
+                      {
+                        templateId: selectedTemplate,
+                        density: resumeDensity,
+                        showTargetBadge,
+                      },
+                      getStandardResumeFilename(profile, 'docx')
+                    );
                   }}
                   templateId={selectedTemplate}
                   density={resumeDensity}
@@ -786,6 +880,25 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                 <button
                   type="button"
                   className="btn-action-download"
+                  style={{ backgroundColor: '#1d4ed8', color: '#ffffff', fontWeight: 600 }}
+                  disabled={isGeneratingDocx}
+                  onClick={() => {
+                    handleDownloadDocx(
+                      'GENERATE_RESUME_DOCX',
+                      {
+                        templateId: selectedTemplate,
+                        density: resumeDensity,
+                        showTargetBadge,
+                      },
+                      getStandardResumeFilename(profile, 'docx')
+                    );
+                  }}
+                >
+                  {isGeneratingDocx ? 'Generating Word...' : 'Download .docx (ATS Best)'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-action-download"
                   disabled={isGeneratingPdf}
                   onClick={() => {
                     if (profile) {
@@ -798,7 +911,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                           maxBulletsPerItem: undefined,
                           maxProjects: undefined,
                         },
-                        `resume-${selectedTemplate}-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${tailoredResume.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                        getStandardResumeFilename(profile, 'pdf')
                       );
                     }
                   }}
@@ -979,6 +1092,25 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                 <button
                   type="button"
                   className="btn-action-download"
+                  style={{ backgroundColor: '#1d4ed8', color: '#ffffff', fontWeight: 600 }}
+                  disabled={isGeneratingDocx}
+                  onClick={() => {
+                    handleDownloadDocx(
+                      'GENERATE_COVER_LETTER_DOCX',
+                      {
+                        jobId: undefined,
+                        recipient,
+                        tone,
+                      },
+                      getStandardCoverLetterFilename(profile, 'docx')
+                    );
+                  }}
+                >
+                  {isGeneratingDocx ? 'Generating Word...' : 'Download .docx'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-action-download"
                   disabled={isGeneratingPdf}
                   onClick={() => {
                     handleDownloadPdf(
@@ -988,7 +1120,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({ onNavigateToTa
                         recipient,
                         tone,
                       },
-                      `cover-letter-${coverLetter.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${coverLetter.targetJobTitle.toLowerCase().replace(/[^a-z0-9]/g, '-')}.pdf`
+                      getStandardCoverLetterFilename(profile, 'pdf')
                     );
                   }}
                 >

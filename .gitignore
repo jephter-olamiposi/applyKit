@@ -29,3 +29,9 @@ AGENTS.md
 CLAUDE.md
 CODEX.md
 GEMINI.md
+
+# Local reference material and generated resume artifacts
+job-application-pipeline/
+scratch_*.pdf
+scratch_*.pdf.png
+test-output.pdf

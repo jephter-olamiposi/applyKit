@@ -28,6 +28,10 @@ export interface ParsedResumeDocument {
   readonly projects: readonly ParsedProject[];
   readonly education: readonly ParsedEducation[];
   readonly skills: readonly string[];
+  /** Text that could not be assigned safely to a canonical resume section. */
+  readonly unclassifiedText: readonly string[];
+  /** Review messages explaining fields that were left blank or kept conservative. */
+  readonly reviewWarnings: readonly string[];
 }
 
 /**
@@ -81,23 +85,23 @@ type ResumeSectionType =
 const SECTION_PATTERNS: ReadonlyArray<{ type: ResumeSectionType; regex: RegExp }> = [
   {
     type: 'experience',
-    regex: /^(?:#+\s*)?(?:work\s+(?:history|experience)|experience|employment(?:\s+history)?|professional\s+(?:experience|history))\b/i,
+    regex: /^(?:#+\s*)?(?:work\s+(?:history|experience)|experience|employment(?:\s+history)?|professional\s+(?:experience|history)|career\s+history|career\s+background)\b/i,
   },
   {
     type: 'projects',
-    regex: /^(?:#+\s*)?(?:projects|technical\s+projects|key\s+projects|personal\s+projects)\b/i,
+    regex: /^(?:#+\s*)?(?:projects|technical\s+projects|key\s+projects|personal\s+projects|explorations|selected\s+projects)\b/i,
   },
   {
     type: 'education',
-    regex: /^(?:#+\s*)?(?:education|academic\s+background|qualifications|credentials)\b/i,
+    regex: /^(?:#+\s*)?(?:education|academic\s+background|academic\s+history|qualifications|credentials)\b/i,
   },
   {
     type: 'skills',
-    regex: /^(?:#+\s*)?(?:technical\s+skills|skills(?:\s+&\s+competencies)?|core\s+competencies|technologies)\b/i,
+    regex: /^(?:#+\s*)?(?:technical\s+skills|skills(?:\s+&\s+competencies)?|core\s+competencies|technical\s+expertise|technologies)\b/i,
   },
   {
     type: 'summary',
-    regex: /^(?:#+\s*)?(?:summary|professional\s+summary|about(?:\s+me)?|profile|objective)\b/i,
+    regex: /^(?:#+\s*)?(?:summary|professional\s+summary|about(?:\s+me)?|profile|objective|career\s+objective)\b/i,
   },
 ];
 
@@ -128,8 +132,7 @@ function normalizeMonth(monthStr: string): string {
  * Parses date ranges such as "Mar 2021 - Present" or "2019 - 2022" into ISO strings.
  */
 function parseDateRange(dateText: string): { startDate: string; endDate?: string; isCurrent: boolean } {
-  const parts = dateText.split(/\s*(?:-|–|—|to)\s*/i);
-  const now = new Date().toISOString().slice(0, 7);
+  const parts = dateText.split(/\s*(?:-|–|—|\bto\b)\s*/i);
 
   const startRaw = parts[0]?.trim() || '';
   const endRaw = parts[1]?.trim() || '';
@@ -146,7 +149,7 @@ function parseDateRange(dateText: string): { startDate: string; endDate?: string
     return '';
   };
 
-  const startDate = parseSingleDate(startRaw) || now;
+  const startDate = parseSingleDate(startRaw);
   const isCurrent = /present|current|now/i.test(endRaw) || (parts.length === 1 && /present|current/i.test(startRaw));
   const endDate = isCurrent ? undefined : (parseSingleDate(endRaw) || undefined);
 
@@ -192,6 +195,28 @@ function identifySectionHeading(line: string): ResumeSectionType | null {
   return null;
 }
 
+function splitHeaderLine(line: string): string[] {
+  return line
+    .replace(/^#+\s*/, '')
+    .split(/\s*(?:\||•|·|;|\t)\s*/)
+    .map((part) => part.replace(/^(?:name|full\s+name|candidate)\s*:\s*/i, '').trim())
+    .filter(Boolean);
+}
+
+function looksLikePersonName(value: string): boolean {
+  const candidate = value
+    .replace(/^(?:name|full\s+name|candidate)\s*:\s*/i, '')
+    .replace(/[,:]$/, '')
+    .trim();
+  const words = candidate.split(/\s+/);
+  if (words.length < 2 || words.length > 5 || candidate.length > 80) return false;
+  if (/\d|@|https?:\/\/|www\.|\.com\b|linkedin|github/i.test(candidate)) return false;
+  if (/^(?:senior|staff|principal|lead|junior|engineer|developer|architect|designer|manager|analyst|consultant|resume|curriculum vitae|summary|experience|education|skills|remote|hybrid|onsite)\b/i.test(candidate)) {
+    return false;
+  }
+  return words.every((word) => /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ.'-]*$/.test(word));
+}
+
 /**
  * Parses raw plain-text or Markdown resume text into a structured document representation.
  *
@@ -231,28 +256,38 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
   // Parse Identity from Header and entire document
   const fullText = rawText;
   const emailMatch = fullText.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
-  const phoneMatch = fullText.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/);
+  const phoneMatch = fullText.match(/(?:\+?\d[\d \t().-]{7,}\d|\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4})/);
   const linkedinMatch = fullText.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[A-Za-z0-9_-]+/i);
   const githubMatch = fullText.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[A-Za-z0-9_-]+/i);
   const devtoMatch = fullText.match(/(?:https?:\/\/)?(?:www\.)?dev\.to\/[A-Za-z0-9_-]+/i);
   const allUrls = fullText.match(/https?:\/\/[^\s|)]+/g) || [];
   let portfolioUrl: string | undefined;
   for (const u of allUrls) {
-    if (!/linkedin\.com|github\.com/i.test(u)) {
+    if (!/linkedin\.com|github\.com|docs\.google\.com|export\?/i.test(u)) {
       portfolioUrl = u;
       break;
+    }
+  }
+  if (!portfolioUrl) {
+    // Check for custom domain names without protocol, e.g. "tsegen.sh", "developer.dev", "johndoe.io"
+    for (const hLine of sections.header) {
+      const domainMatch = hLine.match(/\b([a-zA-Z0-9-]+\.(?:sh|dev|io|me|tech|app|co|xyz|net|org))\b/i);
+      if (domainMatch && domainMatch[1] && !/github|gitlab|linkedin|gmail/i.test(domainMatch[1])) {
+        portfolioUrl = `https://${domainMatch[1]}`;
+        break;
+      }
     }
   }
   if (!portfolioUrl && devtoMatch) {
     portfolioUrl = devtoMatch[0].startsWith('http') ? devtoMatch[0] : `https://${devtoMatch[0]}`;
   }
 
-  // Extract name: first non-empty header line that is not an email, phone, or link
+  // Prefer an explicit name or a contact-line segment so labels and contact details cannot become the name.
   let fullName = '';
-  for (const hLine of sections.header) {
-    const clean = hLine.replace(/^#+\s*/, '').trim();
-    if (clean && !clean.includes('@') && !clean.includes('http') && !clean.includes('.com') && !/^\+?\d/.test(clean)) {
-      fullName = clean;
+  const headerSegments = sections.header.flatMap(splitHeaderLine);
+  for (const segment of headerSegments) {
+    if (looksLikePersonName(segment)) {
+      fullName = segment;
       break;
     }
   }
@@ -260,7 +295,7 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
   // Extract candidate location: inspect header lines for patterns like "City, Country"
   let candidateLocation: string | undefined;
   for (const hLine of sections.header) {
-    const segments = hLine.split(/[|•·;]|\s+-\s+/);
+    const segments = splitHeaderLine(hLine);
     for (const seg of segments) {
       const cleanSeg = seg.trim();
       if (!cleanSeg) continue;
@@ -272,7 +307,7 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
       ) {
         continue;
       }
-      if (/^[A-Za-z\s.-]+,\s*[A-Za-z\s.-]+$/.test(cleanSeg)) {
+      if (/^[A-Za-z\s.-]+,\s*[A-Za-z\s.-]+(?:,\s*[A-Za-z\s.-]+)?$/.test(cleanSeg)) {
         candidateLocation = cleanSeg;
         break;
       }
@@ -294,6 +329,16 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
 
   // Parse Skills
   const skills = parseSkills(sections.skills, experiences, projects);
+  const unclassifiedText = sections.unknown.filter((line) => line.trim().length > 0);
+  const reviewWarnings: string[] = [];
+  if (!fullName) reviewWarnings.push('Name could not be identified confidently.');
+  if (!emailMatch) reviewWarnings.push('Email address could not be identified confidently.');
+  if (experiences.some((experience) => !experience.startDate)) {
+    reviewWarnings.push('One or more experience dates could not be identified; review them before saving.');
+  }
+  if (unclassifiedText.length > 0) {
+    reviewWarnings.push('Some resume text was not assigned to a section and was preserved for review.');
+  }
 
   return {
     identity: {
@@ -317,7 +362,59 @@ export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
     projects,
     education,
     skills,
+    unclassifiedText,
+    reviewWarnings,
   };
+}
+
+/**
+ * Detects employer sales marketing blurbs and company profile descriptions in resumes
+ * (e.g. "Rocksteady Technology delivers enterprise-grade solutions... Partner with us to accelerate...")
+ * to prevent them from being treated as candidate accomplishment highlights.
+ */
+function isCompanyMarketingBlurb(line: string, companyName?: string): boolean {
+  const norm = line.toLowerCase();
+  const marketingPhrases = [
+    'delivers enterprise-grade',
+    'partner with us',
+    'digital transformation',
+    'creator monetization platform',
+    'software company delivering',
+    'software company that delivers',
+    'leading provider of',
+    'is a platform that',
+    'is a platform enabling',
+    'is a software company',
+    'is a software development',
+    'is a leading',
+    'is a global',
+    'is an innovative',
+    'helps organizations',
+    'empowers businesses',
+    'empowers challenger brands',
+    'mission is to',
+    'full-service digital agency',
+    'specialize in web development',
+    'delivers solutions across',
+  ];
+
+  for (const phrase of marketingPhrases) {
+    if (norm.includes(phrase)) return true;
+  }
+
+  if (companyName && companyName !== 'Company') {
+    const compLower = companyName.toLowerCase();
+    if (
+      norm.startsWith(`${compLower} is `) ||
+      norm.startsWith(`${compLower} delivers `) ||
+      norm.startsWith(`${compLower} empowers `) ||
+      norm.startsWith(`${compLower} provides `)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -353,7 +450,7 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
     current = null;
   };
 
-  const isBullet = (l: string) => /^[-*•–—+]\s+/.test(l);
+  const isBullet = (l: string) => /^[-*•●–—+]\s+/.test(l);
   const isDateLine = (l: string) => /\b(19\d\d|20\d\d)\b/i.test(l) && /\b(present|current|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{4})\b/i.test(l);
   const ROLE_KEYWORD_REGEX = /\b(engineer|developer|architect|lead|manager|specialist|director|designer|analyst|consultant|founder|cto|vp|fellow|intern|officer|head)\b/i;
 
@@ -361,7 +458,7 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
     const cleanLine = line.replace(/^#+\s*/, '').trim();
 
     if (isBullet(line)) {
-      const bulletText = line.replace(/^[-*•–—+]\s+/, '').trim();
+      const bulletText = line.replace(/^[-*•●–—+]\s+/, '').trim();
       if (current) {
         current.highlights.push(bulletText);
       }
@@ -414,12 +511,13 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
 
     // Check if this line is an experience entry header (e.g., "Senior Software Engineer | Acme Corp | 2021 - Present" or "Software Engineer — CoreServe — Rust")
     if (
-      cleanLine.includes('|') ||
-      cleanLine.includes(' - ') ||
-      cleanLine.includes(' — ') ||
-      cleanLine.includes(' – ') ||
-      cleanLine.includes(' at ') ||
-      cleanLine.includes(' @ ')
+      !isBullet(line) &&
+      (cleanLine.includes('|') ||
+        cleanLine.includes(' - ') ||
+        cleanLine.includes(' — ') ||
+        cleanLine.includes(' – ') ||
+        cleanLine.includes(' at ') ||
+        cleanLine.includes(' @ '))
     ) {
       commitCurrent();
 
@@ -439,14 +537,51 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       if (lineText.includes('|')) {
         const segments = lineText.split('|').map((s) => s.trim());
         if (segments.length >= 2) {
-          title = segments[0] ?? '';
-          company = segments[1] ?? '';
-          for (let i = 2; i < segments.length; i++) {
-            const seg = segments[i] ?? '';
-            if (isDateLine(seg)) {
-              dateText = seg;
-            } else if (!location) {
-              location = seg;
+          // Check if any segment is a date range
+          let dateSegmentIndex = -1;
+          for (let i = 1; i < segments.length; i++) {
+            if (isDateLine(segments[i]!)) {
+              dateSegmentIndex = i;
+              dateText = segments[i]!;
+              break;
+            }
+          }
+
+          const firstSeg = segments[0] ?? '';
+          const atMatchInFirst = firstSeg.match(/^(.*?)\s+(?:at|@)\s+(.*?)$/i);
+          if (atMatchInFirst && atMatchInFirst[1] && atMatchInFirst[2]) {
+            // e.g. "Senior Software Engineer @ Rocksteady Technologies | July 2025 - Present"
+            title = atMatchInFirst[1].trim();
+            company = atMatchInFirst[2].trim();
+          } else if (dateSegmentIndex === 1) {
+            const isRoleFirst = ROLE_KEYWORD_REGEX.test(firstSeg);
+            if (isRoleFirst) {
+              title = firstSeg;
+              company = 'Company';
+            } else {
+              company = firstSeg;
+              title = 'Software Engineer';
+            }
+          } else {
+            const isFirstRole = ROLE_KEYWORD_REGEX.test(firstSeg);
+            const otherSeg = segments[1] ?? 'Company';
+            const isOtherRole = ROLE_KEYWORD_REGEX.test(otherSeg);
+            if (isOtherRole && !isFirstRole) {
+              company = firstSeg;
+              title = otherSeg;
+            } else {
+              title = firstSeg;
+              company = otherSeg;
+            }
+          }
+
+          // Check remaining segments for location
+          for (let i = 1; i < segments.length; i++) {
+            if (i !== dateSegmentIndex) {
+              const seg = segments[i]!;
+              if (!location && !seg.includes('@') && !isDateLine(seg) && seg !== company) {
+                location = seg;
+              }
             }
           }
         }
@@ -482,6 +617,18 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       continue;
     }
 
+    // Multi-line layouts: if an active entry has no highlights yet, check if this unbulleted line is the complementary role or company
+    if (current && current.highlights.length === 0 && !isBullet(line) && cleanLine.length < 60) {
+      if (ROLE_KEYWORD_REGEX.test(cleanLine) && current.title === 'Software Engineer') {
+        current.title = cleanLine;
+        continue;
+      }
+      if (current.company === 'Company' && !ROLE_KEYWORD_REGEX.test(cleanLine)) {
+        current.company = cleanLine;
+        continue;
+      }
+    }
+
     // Check if an unbulleted line is a brand new role title without delimiters after an active entry already has highlights and dates
     if (current && current.dateText && current.highlights.length > 0 && ROLE_KEYWORD_REGEX.test(cleanLine) && cleanLine.length < 60) {
       commitCurrent();
@@ -494,8 +641,11 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       continue;
     }
 
-    // If we have an active entry, treat unbulleted paragraph lines as highlights
+    // If we have an active entry, check if this line is an employer marketing blurb before treating as highlight
     if (current) {
+      if (isCompanyMarketingBlurb(cleanLine, current.company)) {
+        continue;
+      }
       current.highlights.push(cleanLine);
     } else {
       // Start a fallback entry if orphan line encountered
@@ -542,13 +692,19 @@ function parseProjects(lines: readonly string[]): ParsedProject[] {
     current = null;
   };
 
-  const isBullet = (l: string) => /^[-*•–—+]\s+/.test(l);
+  const isBullet = (l: string) => /^[-*•●–—+]\s+/.test(l);
 
   for (const line of lines) {
     const cleanLine = line.replace(/^#+\s*/, '').trim();
+    if (!cleanLine) continue;
+
+    // Skip conversational project section introductory/flavor text
+    if (/^(?:these\s+are\s+a\s+few\s+projects|selected\s+(?:personal\s+|open[- ]source\s+)?projects|personal\s+projects\s+worked\s+on|a\s+selection\s+of\s+projects)/i.test(cleanLine)) {
+      continue;
+    }
 
     if (isBullet(line)) {
-      const bulletText = line.replace(/^[-*•–—+]\s+/, '').trim();
+      const bulletText = line.replace(/^[-*•●–—+]\s+/, '').trim();
       // Check if this bullet line is a self-contained project entry e.g. "* wsblast (Rust) — Built a high-performance..."
       const projectBulletMatch = bulletText.match(/^([A-Za-z0-9\s._-]+(?:\s*\([^)]+\))?)\s+[—–-]\s+(.*)$/);
       if (projectBulletMatch && projectBulletMatch[1] && projectBulletMatch[2]) {

@@ -101,7 +101,7 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
     // Click auto-fill button
     autofillBtn.click();
     expect((globalThis as any).chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      { type: 'EXECUTE_ONE_CLICK_AUTO_FILL' },
+      expect.objectContaining({ type: 'EXECUTE_ONE_CLICK_AUTO_FILL' }),
       expect.any(Function)
     );
   });

@@ -22,11 +22,6 @@ import type {
   SpacingDensity,
 } from './tailoring-types.js';
 
-Font.register({
-  family: 'Helvetica',
-  src: 'Helvetica',
-});
-
 const coverLetterStyles = StyleSheet.create({
   page: {
     padding: 50,
@@ -66,7 +61,7 @@ const modernResumeStyles = StyleSheet.create({
     paddingHorizontal: 40,
     fontFamily: 'Helvetica',
     fontSize: 9.5,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
     color: '#1e293b',
   },
   header: {
@@ -80,24 +75,28 @@ const modernResumeStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0f172a',
     letterSpacing: 0.5,
+    lineHeight: 1.2,
+    marginBottom: 4,
   },
   title: {
     fontSize: 11,
     color: '#2563eb',
-    marginTop: 2,
-    marginBottom: 4,
+    marginTop: 0,
+    marginBottom: 5,
     fontWeight: 'bold',
+    lineHeight: 1.3,
   },
   contact: {
     fontSize: 8.5,
     color: '#64748b',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    lineHeight: 1.4,
+    marginBottom: 4,
   },
   targetBadge: {
     fontSize: 8,
     color: '#0284c7',
-    marginTop: 3,
+    marginTop: 2,
+    lineHeight: 1.3,
   },
   sectionTitle: {
     fontSize: 10,
@@ -113,7 +112,7 @@ const modernResumeStyles = StyleSheet.create({
   },
   paragraph: {
     fontSize: 9,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
     color: '#334155',
     marginBottom: 6,
   },
@@ -123,20 +122,29 @@ const modernResumeStyles = StyleSheet.create({
   expHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 2,
+    marginBottom: 2.5,
+  },
+  expTitleContainer: {
+    flex: 1,
+    marginRight: 14,
   },
   expTitle: {
     fontWeight: 'bold',
     fontSize: 9.5,
     color: '#0f172a',
+    lineHeight: 1.3,
   },
   expCompany: {
     color: '#334155',
     fontSize: 9,
+    fontWeight: 'normal',
   },
   expDates: {
     fontSize: 8.5,
     color: '#64748b',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.3,
   },
   bullet: {
     marginLeft: 10,
@@ -144,15 +152,16 @@ const modernResumeStyles = StyleSheet.create({
     flexDirection: 'row',
   },
   bulletMarker: {
-    width: 8,
+    width: 10,
     fontSize: 9,
     color: '#2563eb',
+    lineHeight: 1.4,
   },
   bulletText: {
     fontSize: 9,
     flex: 1,
     color: '#334155',
-    lineHeight: 1.3,
+    lineHeight: 1.4,
   },
   skills: {
     marginTop: 3,
@@ -161,7 +170,8 @@ const modernResumeStyles = StyleSheet.create({
   skillCategory: {
     fontSize: 8.5,
     color: '#334155',
-    marginBottom: 2,
+    marginBottom: 2.5,
+    lineHeight: 1.4,
   },
   project: {
     marginBottom: 6,
@@ -170,29 +180,40 @@ const modernResumeStyles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 9,
     color: '#0f172a',
+    lineHeight: 1.35,
   },
   projectTech: {
     fontSize: 8,
     color: '#64748b',
     marginBottom: 2,
+    lineHeight: 1.35,
   },
   eduItem: {
     marginBottom: 4,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  eduLeftContainer: {
+    flex: 1,
+    marginRight: 14,
+  },
   eduDegree: {
     fontSize: 9,
     fontWeight: 'bold',
     color: '#0f172a',
+    lineHeight: 1.3,
   },
   eduInstitution: {
     fontSize: 8.5,
     color: '#475569',
+    lineHeight: 1.3,
   },
   eduYear: {
     fontSize: 8.5,
     color: '#64748b',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.3,
   },
   footer: {
     position: 'absolute',
@@ -213,7 +234,7 @@ const classicResumeStyles = StyleSheet.create({
     paddingHorizontal: 42,
     fontFamily: 'Helvetica',
     fontSize: 9.5,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
     color: '#111827',
   },
   header: {
@@ -229,18 +250,24 @@ const classicResumeStyles = StyleSheet.create({
     color: '#111827',
     textAlign: 'center',
     letterSpacing: 1,
+    lineHeight: 1.2,
+    marginBottom: 4,
   },
   title: {
     fontSize: 10.5,
     color: '#374151',
-    marginTop: 2,
+    marginTop: 0,
+    marginBottom: 4,
     textAlign: 'center',
+    lineHeight: 1.3,
   },
   contact: {
     fontSize: 8.5,
     color: '#4b5563',
     textAlign: 'center',
-    marginTop: 3,
+    marginTop: 0,
+    marginBottom: 3,
+    lineHeight: 1.4,
   },
   targetBadge: {
     fontSize: 8,
@@ -248,12 +275,13 @@ const classicResumeStyles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
     fontStyle: 'italic',
+    lineHeight: 1.3,
   },
   sectionTitle: {
     fontSize: 10,
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    letterSpacing: 1.5,
+    letterSpacing: 0.5,
     color: '#111827',
     marginTop: 10,
     marginBottom: 5,
@@ -263,7 +291,7 @@ const classicResumeStyles = StyleSheet.create({
   },
   paragraph: {
     fontSize: 9,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
     color: '#1f2937',
     marginBottom: 6,
   },
@@ -273,21 +301,30 @@ const classicResumeStyles = StyleSheet.create({
   expHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 2,
+    marginBottom: 2.5,
+  },
+  expTitleContainer: {
+    flex: 1,
+    marginRight: 14,
   },
   expTitle: {
     fontWeight: 'bold',
     fontSize: 9.5,
     color: '#111827',
+    lineHeight: 1.3,
   },
   expCompany: {
     color: '#374151',
     fontSize: 9,
     fontStyle: 'italic',
+    fontWeight: 'normal',
   },
   expDates: {
     fontSize: 8.5,
     color: '#4b5563',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.3,
   },
   bullet: {
     marginLeft: 10,
@@ -295,15 +332,16 @@ const classicResumeStyles = StyleSheet.create({
     flexDirection: 'row',
   },
   bulletMarker: {
-    width: 8,
+    width: 10,
     fontSize: 9,
     color: '#111827',
+    lineHeight: 1.4,
   },
   bulletText: {
     fontSize: 9,
     flex: 1,
     color: '#1f2937',
-    lineHeight: 1.3,
+    lineHeight: 1.4,
   },
   skills: {
     marginTop: 3,
@@ -312,7 +350,8 @@ const classicResumeStyles = StyleSheet.create({
   skillCategory: {
     fontSize: 8.5,
     color: '#1f2937',
-    marginBottom: 2,
+    marginBottom: 2.5,
+    lineHeight: 1.4,
   },
   project: {
     marginBottom: 6,
@@ -321,29 +360,40 @@ const classicResumeStyles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 9,
     color: '#111827',
+    lineHeight: 1.35,
   },
   projectTech: {
     fontSize: 8,
     color: '#4b5563',
     marginBottom: 2,
+    lineHeight: 1.35,
   },
   eduItem: {
     marginBottom: 4,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  eduLeftContainer: {
+    flex: 1,
+    marginRight: 14,
+  },
   eduDegree: {
     fontSize: 9,
     fontWeight: 'bold',
     color: '#111827',
+    lineHeight: 1.3,
   },
   eduInstitution: {
     fontSize: 8.5,
     color: '#374151',
+    lineHeight: 1.3,
   },
   eduYear: {
     fontSize: 8.5,
     color: '#4b5563',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.3,
   },
   footer: {
     position: 'absolute',
@@ -364,7 +414,7 @@ const minimalistResumeStyles = StyleSheet.create({
     paddingHorizontal: 36,
     fontFamily: 'Helvetica',
     fontSize: 9.5,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
     color: '#000000',
   },
   header: {
@@ -377,21 +427,28 @@ const minimalistResumeStyles = StyleSheet.create({
     fontSize: 19,
     fontWeight: 'bold',
     color: '#000000',
+    lineHeight: 1.2,
+    marginBottom: 3,
   },
   title: {
     fontSize: 10.5,
     color: '#000000',
-    marginTop: 2,
+    marginTop: 0,
+    marginBottom: 4,
+    lineHeight: 1.3,
   },
   contact: {
     fontSize: 8.5,
     color: '#000000',
-    marginTop: 2,
+    marginTop: 0,
+    marginBottom: 3,
+    lineHeight: 1.4,
   },
   targetBadge: {
     fontSize: 8,
     color: '#333333',
     marginTop: 2,
+    lineHeight: 1.3,
   },
   sectionTitle: {
     fontSize: 10,
@@ -406,7 +463,7 @@ const minimalistResumeStyles = StyleSheet.create({
   },
   paragraph: {
     fontSize: 9,
-    lineHeight: 1.35,
+    lineHeight: 1.4,
     color: '#000000',
     marginBottom: 5,
   },
@@ -416,20 +473,29 @@ const minimalistResumeStyles = StyleSheet.create({
   expHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 1.5,
+    marginBottom: 2,
+  },
+  expTitleContainer: {
+    flex: 1,
+    marginRight: 14,
   },
   expTitle: {
     fontWeight: 'bold',
     fontSize: 9.5,
     color: '#000000',
+    lineHeight: 1.3,
   },
   expCompany: {
     color: '#000000',
     fontSize: 9,
+    fontWeight: 'normal',
   },
   expDates: {
     fontSize: 8.5,
     color: '#000000',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.3,
   },
   bullet: {
     marginLeft: 8,
@@ -437,15 +503,16 @@ const minimalistResumeStyles = StyleSheet.create({
     flexDirection: 'row',
   },
   bulletMarker: {
-    width: 6,
+    width: 8,
     fontSize: 9,
     color: '#000000',
+    lineHeight: 1.4,
   },
   bulletText: {
     fontSize: 9,
     flex: 1,
     color: '#000000',
-    lineHeight: 1.3,
+    lineHeight: 1.4,
   },
   skills: {
     marginTop: 2,
@@ -454,7 +521,8 @@ const minimalistResumeStyles = StyleSheet.create({
   skillCategory: {
     fontSize: 8.5,
     color: '#000000',
-    marginBottom: 1.5,
+    marginBottom: 2,
+    lineHeight: 1.4,
   },
   project: {
     marginBottom: 5,
@@ -463,29 +531,40 @@ const minimalistResumeStyles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 9,
     color: '#000000',
+    lineHeight: 1.35,
   },
   projectTech: {
     fontSize: 8,
     color: '#000000',
     marginBottom: 1.5,
+    lineHeight: 1.35,
   },
   eduItem: {
     marginBottom: 3,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  eduLeftContainer: {
+    flex: 1,
+    marginRight: 14,
+  },
   eduDegree: {
     fontSize: 9,
     fontWeight: 'bold',
     color: '#000000',
+    lineHeight: 1.3,
   },
   eduInstitution: {
     fontSize: 8.5,
     color: '#000000',
+    lineHeight: 1.3,
   },
   eduYear: {
     fontSize: 8.5,
     color: '#000000',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.3,
   },
   footer: {
     position: 'absolute',
@@ -506,7 +585,7 @@ const compactResumeStyles = StyleSheet.create({
     paddingHorizontal: 30,
     fontFamily: 'Helvetica',
     fontSize: 8.5,
-    lineHeight: 1.25,
+    lineHeight: 1.3,
     color: '#1a1a2e',
   },
   header: {
@@ -519,22 +598,29 @@ const compactResumeStyles = StyleSheet.create({
     fontSize: 17,
     fontWeight: 'bold',
     color: '#0f172a',
+    lineHeight: 1.2,
+    marginBottom: 2,
   },
   title: {
     fontSize: 9.5,
     color: '#2563eb',
-    marginTop: 1,
+    marginTop: 0,
+    marginBottom: 3,
     fontWeight: 'bold',
+    lineHeight: 1.25,
   },
   contact: {
     fontSize: 7.5,
     color: '#64748b',
-    marginTop: 2,
+    marginTop: 0,
+    marginBottom: 2,
+    lineHeight: 1.35,
   },
   targetBadge: {
     fontSize: 7.5,
     color: '#0284c7',
     marginTop: 1,
+    lineHeight: 1.25,
   },
   sectionTitle: {
     fontSize: 9,
@@ -550,7 +636,7 @@ const compactResumeStyles = StyleSheet.create({
   },
   paragraph: {
     fontSize: 8,
-    lineHeight: 1.25,
+    lineHeight: 1.3,
     color: '#334155',
     marginBottom: 4,
   },
@@ -560,20 +646,29 @@ const compactResumeStyles = StyleSheet.create({
   expHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 1,
+    marginBottom: 1.5,
+  },
+  expTitleContainer: {
+    flex: 1,
+    marginRight: 10,
   },
   expTitle: {
     fontWeight: 'bold',
     fontSize: 8.5,
     color: '#0f172a',
+    lineHeight: 1.25,
   },
   expCompany: {
     color: '#334155',
     fontSize: 8,
+    fontWeight: 'normal',
   },
   expDates: {
     fontSize: 7.5,
     color: '#64748b',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.25,
   },
   bullet: {
     marginLeft: 8,
@@ -581,15 +676,16 @@ const compactResumeStyles = StyleSheet.create({
     flexDirection: 'row',
   },
   bulletMarker: {
-    width: 6,
+    width: 8,
     fontSize: 8,
     color: '#2563eb',
+    lineHeight: 1.3,
   },
   bulletText: {
     fontSize: 8,
     flex: 1,
     color: '#334155',
-    lineHeight: 1.2,
+    lineHeight: 1.3,
   },
   skills: {
     marginTop: 2,
@@ -598,7 +694,8 @@ const compactResumeStyles = StyleSheet.create({
   skillCategory: {
     fontSize: 7.5,
     color: '#334155',
-    marginBottom: 1,
+    marginBottom: 1.5,
+    lineHeight: 1.3,
   },
   project: {
     marginBottom: 4,
@@ -607,29 +704,40 @@ const compactResumeStyles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 8,
     color: '#0f172a',
+    lineHeight: 1.3,
   },
   projectTech: {
     fontSize: 7.5,
     color: '#64748b',
     marginBottom: 1,
+    lineHeight: 1.3,
   },
   eduItem: {
     marginBottom: 2,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  eduLeftContainer: {
+    flex: 1,
+    marginRight: 10,
+  },
   eduDegree: {
     fontSize: 8,
     fontWeight: 'bold',
     color: '#0f172a',
+    lineHeight: 1.25,
   },
   eduInstitution: {
     fontSize: 7.5,
     color: '#475569',
+    lineHeight: 1.25,
   },
   eduYear: {
     fontSize: 7.5,
     color: '#64748b',
+    flexShrink: 0,
+    textAlign: 'right',
+    lineHeight: 1.25,
   },
   footer: {
     position: 'absolute',
@@ -654,12 +762,12 @@ function applyDensityOverrides(baseStyles: Record<string, any>, density?: Spacin
         paddingTop: Math.max(16, Math.round((baseStyles.page?.paddingTop ?? 32) * 0.75)),
         paddingBottom: Math.max(16, Math.round((baseStyles.page?.paddingBottom ?? 32) * 0.75)),
         paddingHorizontal: Math.max(20, Math.round((baseStyles.page?.paddingHorizontal ?? 36) * 0.8)),
-        lineHeight: 1.2,
+        lineHeight: 1.28,
       },
       paragraph: {
         ...baseStyles.paragraph,
         marginBottom: Math.max(2, Math.round((baseStyles.paragraph?.marginBottom ?? 5) * 0.65)),
-        lineHeight: 1.2,
+        lineHeight: 1.28,
       },
       sectionTitle: {
         ...baseStyles.sectionTitle,
@@ -674,6 +782,10 @@ function applyDensityOverrides(baseStyles: Record<string, any>, density?: Spacin
         ...baseStyles.bullet,
         marginBottom: 1,
       },
+      bulletText: {
+        ...baseStyles.bulletText,
+        lineHeight: 1.28,
+      },
     };
   }
   if (density === 'relaxed') {
@@ -684,12 +796,12 @@ function applyDensityOverrides(baseStyles: Record<string, any>, density?: Spacin
         paddingTop: Math.round((baseStyles.page?.paddingTop ?? 32) * 1.2),
         paddingBottom: Math.round((baseStyles.page?.paddingBottom ?? 32) * 1.2),
         paddingHorizontal: Math.round((baseStyles.page?.paddingHorizontal ?? 36) * 1.15),
-        lineHeight: 1.45,
+        lineHeight: 1.5,
       },
       paragraph: {
         ...baseStyles.paragraph,
         marginBottom: Math.round((baseStyles.paragraph?.marginBottom ?? 5) * 1.35),
-        lineHeight: 1.45,
+        lineHeight: 1.5,
       },
       sectionTitle: {
         ...baseStyles.sectionTitle,
@@ -703,6 +815,10 @@ function applyDensityOverrides(baseStyles: Record<string, any>, density?: Spacin
       bullet: {
         ...baseStyles.bullet,
         marginBottom: 3,
+      },
+      bulletText: {
+        ...baseStyles.bulletText,
+        lineHeight: 1.5,
       },
     };
   }
@@ -794,7 +910,6 @@ function buildResumeDocument(
   const isOnePage = options?.onePageFit ?? false;
   const templateId = options?.templateId || resume.templateId || (isOnePage ? 'compact' : 'modern');
   const density = options?.density;
-  const showTargetBadge = options?.showTargetBadge ?? true;
   const styles = resolveResumeStyles(templateId, density);
 
   // Candidate Name & Contact Details
@@ -812,12 +927,14 @@ function buildResumeDocument(
     if (loc) contactItems.push(loc);
   }
 
-  const linkItems: string[] = [];
-  if (profile?.links?.linkedin) linkItems.push(`LinkedIn: ${profile.links.linkedin}`);
-  if (profile?.links?.github) linkItems.push(`GitHub: ${profile.links.github}`);
-  if (profile?.links?.portfolio) linkItems.push(`Portfolio: ${profile.links.portfolio}`);
+  const cleanUrl = (url: string) => url.replace(/^https?:\/\/(?:www\.)?/, '').replace(/\/$/, '');
 
-  const contactString = [contactItems.join(' • '), linkItems.join(' • ')].filter(Boolean).join(' | ');
+  const linkItems: string[] = [];
+  if (profile?.links?.linkedin) linkItems.push(cleanUrl(profile.links.linkedin));
+  if (profile?.links?.github) linkItems.push(cleanUrl(profile.links.github));
+  if (profile?.links?.portfolio) linkItems.push(cleanUrl(profile.links.portfolio));
+
+  const contactString = [...contactItems, ...linkItems].join(' • ');
 
   // Budget content based on onePageFit option
   const experiencesToRender = isOnePage
@@ -844,13 +961,6 @@ function buildResumeDocument(
         React.createElement(Text, { style: styles.name }, candidateName),
         React.createElement(Text, { style: styles.title }, candidateTitle),
         contactString ? React.createElement(Text, { style: styles.contact }, contactString) : null,
-        showTargetBadge
-          ? React.createElement(
-              Text,
-              { style: styles.targetBadge },
-              `Tailored for ${resume.targetJobTitle} at ${resume.companyName}`
-            )
-          : null
       ),
 
       React.createElement(Text, { style: styles.sectionTitle }, 'PROFESSIONAL SUMMARY'),
@@ -860,27 +970,41 @@ function buildResumeDocument(
       React.createElement(
         View,
         { style: styles.skills },
-        resume.skills.matchedRequired.length > 0
-          ? React.createElement(
-              Text,
-              { style: styles.skillCategory },
-              `Core Competencies: ${resume.skills.matchedRequired.join(', ')}`
+        resume.skills.domainCategories && resume.skills.domainCategories.length > 0
+          ? resume.skills.domainCategories.map((cat, i) =>
+              React.createElement(
+                Text,
+                { key: i, style: styles.skillCategory },
+                React.createElement(Text, { style: { fontWeight: 'bold' } }, `${cat.category}: `),
+                cat.skills.join(', ')
+              )
             )
-          : null,
-        resume.skills.matchedPreferred.length > 0
-          ? React.createElement(
-              Text,
-              { style: styles.skillCategory },
-              `Preferred Qualifications: ${resume.skills.matchedPreferred.join(', ')}`
-            )
-          : null,
-        resume.skills.additionalSkills.length > 0
-          ? React.createElement(
-              Text,
-              { style: styles.skillCategory },
-              `Additional Proficiencies: ${isOnePage ? resume.skills.additionalSkills.slice(0, 10).join(', ') : resume.skills.additionalSkills.join(', ')}`
-            )
-          : null
+          : [
+              resume.skills.matchedRequired.length > 0
+                ? React.createElement(
+                    Text,
+                    { key: 'req', style: styles.skillCategory },
+                    React.createElement(Text, { style: { fontWeight: 'bold' } }, 'Core Competencies: '),
+                    resume.skills.matchedRequired.join(', ')
+                  )
+                : null,
+              resume.skills.matchedPreferred.length > 0
+                ? React.createElement(
+                    Text,
+                    { key: 'pref', style: styles.skillCategory },
+                    React.createElement(Text, { style: { fontWeight: 'bold' } }, 'Preferred Qualifications: '),
+                    resume.skills.matchedPreferred.join(', ')
+                  )
+                : null,
+              resume.skills.additionalSkills.length > 0
+                ? React.createElement(
+                    Text,
+                    { key: 'add', style: styles.skillCategory },
+                    React.createElement(Text, { style: { fontWeight: 'bold' } }, 'Additional Proficiencies: '),
+                    isOnePage ? resume.skills.additionalSkills.slice(0, 10).join(', ') : resume.skills.additionalSkills.join(', ')
+                  )
+                : null,
+            ].filter(Boolean)
       ),
 
       experiencesToRender.length > 0
@@ -900,10 +1024,14 @@ function buildResumeDocument(
                   View,
                   { style: styles.expHeader },
                   React.createElement(
-                    Text,
-                    { style: styles.expTitle },
-                    `${exp.title} — `,
-                    React.createElement(Text, { style: styles.expCompany }, `${exp.company}${locString}`)
+                    View,
+                    { style: styles.expTitleContainer },
+                    React.createElement(
+                      Text,
+                      { style: styles.expTitle },
+                      `${exp.title} `,
+                      React.createElement(Text, { style: styles.expCompany }, `— ${exp.company}${locString}`)
+                    )
                   ),
                   React.createElement(
                     Text,
@@ -975,7 +1103,7 @@ function buildResumeDocument(
                 { key: i, style: styles.eduItem, wrap: false },
                 React.createElement(
                   View,
-                  {},
+                  { style: styles.eduLeftContainer },
                   React.createElement(
                     Text,
                     { style: styles.eduDegree },
@@ -1007,9 +1135,13 @@ function buildResumeDocument(
                 View,
                 { key: i, style: styles.eduItem, wrap: false },
                 React.createElement(
-                  Text,
-                  { style: styles.eduDegree },
-                  cert.fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+                  View,
+                  { style: styles.eduLeftContainer },
+                  React.createElement(
+                    Text,
+                    { style: styles.eduDegree },
+                    cert.fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+                  )
                 ),
                 React.createElement(
                   Text,

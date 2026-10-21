@@ -211,4 +211,28 @@ describe('Dynamic Resume Section & Bullet Selector Suite', () => {
     expect(tailored.experiences[0]!.rankedHighlights).toHaveLength(1);
     expect(tailored.projects).toHaveLength(1);
   });
+
+  it('preserves source experience and project content while changing only selection order', () => {
+    const tailored = tailorCandidateResume(sampleJob, sampleProfile, graph);
+    const sourceHighlights = sampleProfile.experiences.flatMap((experience) => experience.highlights);
+    const tailoredHighlights = tailored.experiences.flatMap((experience) =>
+      experience.rankedHighlights.map((highlight) => highlight.text)
+    );
+    const sourceProjects = sampleProfile.projects.map((project) => ({
+      title: project.title,
+      description: project.description,
+      highlights: project.highlights,
+    }));
+    const tailoredProjects = tailored.projects.map((project) => ({
+      title: project.title,
+      highlights: project.rankedHighlights.map((highlight) => highlight.text),
+    }));
+
+    expect(tailoredHighlights.every((highlight) => sourceHighlights.includes(highlight))).toBe(true);
+    expect(tailoredProjects.every((project) =>
+      sourceProjects.some((source) =>
+        source.title === project.title && project.highlights.every((highlight) => source.highlights.includes(highlight))
+      )
+    )).toBe(true);
+  });
 });

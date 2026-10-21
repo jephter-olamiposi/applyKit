@@ -13,6 +13,8 @@
 import type { SubmissionDetectedNotification, SubmissionDetectedResponse } from '../messages/contracts.js';
 
 let hasReportedSubmission = false;
+let submissionObserver: MutationObserver | null = null;
+let submissionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Checks whether text matches common application confirmation headers.
@@ -101,23 +103,35 @@ export function inspectPageForSubmissionConfirmation(): boolean {
  * Initializes the submission observer on page load and monitors SPA DOM mutations.
  */
 export function initSubmissionObserver(): void {
+  if (submissionObserver) return;
+
   // 1. Initial check on document load
   inspectPageForSubmissionConfirmation();
 
   // 2. Observe dynamic SPA route transitions
   if (typeof MutationObserver !== 'undefined') {
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const observer = new MutationObserver(() => {
+    submissionObserver = new MutationObserver(() => {
       if (hasReportedSubmission) return;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
+      if (submissionDebounceTimer) clearTimeout(submissionDebounceTimer);
+      submissionDebounceTimer = setTimeout(() => {
         inspectPageForSubmissionConfirmation();
       }, 500);
     });
 
-    observer.observe(document.body || document.documentElement, {
+    submissionObserver.observe(document.body || document.documentElement, {
       childList: true,
       subtree: true,
     });
   }
+}
+
+/**
+ * Disconnects the submission observer when the active SPA route is no longer an application page.
+ */
+export function destroySubmissionObserver(): void {
+  submissionObserver?.disconnect();
+  submissionObserver = null;
+  if (submissionDebounceTimer) clearTimeout(submissionDebounceTimer);
+  submissionDebounceTimer = null;
+  hasReportedSubmission = false;
 }

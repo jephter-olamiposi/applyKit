@@ -264,6 +264,97 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
           </select>
         </div>
 
+        {selectedProvider === 'gemini' && (
+          <div
+            style={{
+              backgroundColor: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '8px',
+              padding: '12px',
+              marginBottom: '14px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534' }}>
+                ✨ 60-Second Free Key Guide (Google AI Studio)
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+                    chrome.tabs.create({ url: 'https://aistudio.google.com/app/apikey' });
+                  } else {
+                    window.open('https://aistudio.google.com/app/apikey', '_blank', 'noopener,noreferrer');
+                  }
+                }}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  backgroundColor: '#166534',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                }}
+              >
+                Get Free Key ↗
+              </button>
+            </div>
+            <p style={{ margin: '0 0 6px 0', fontSize: '11px', color: '#15803d' }}>
+              Google provides a generous free tier for Gemini that costs $0 with <strong>no credit card required</strong>:
+            </p>
+            <ol style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: '#166534', lineHeight: 1.4 }}>
+              <li>Click <strong>&quot;Get Free Key ↗&quot;</strong> to open Google AI Studio.</li>
+              <li>Sign in with your normal Google / Gmail account.</li>
+              <li>Click <strong>&quot;Create API Key&quot;</strong> and copy the generated key.</li>
+              <li>Paste it into the box below and click <strong>&quot;Save Key&quot;</strong>.</li>
+            </ol>
+          </div>
+        )}
+
+        {selectedProvider === 'openai' && (
+          <div style={{ marginBottom: '10px', fontSize: '11px', color: '#64748b' }}>
+            Get your key from{' '}
+            <a
+              href="https://platform.openai.com/api-keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#2563eb', fontWeight: 600 }}
+            >
+              OpenAI API Keys ↗
+            </a>
+          </div>
+        )}
+
+        {selectedProvider === 'anthropic' && (
+          <div style={{ marginBottom: '10px', fontSize: '11px', color: '#64748b' }}>
+            Get your key from{' '}
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#2563eb', fontWeight: 600 }}
+            >
+              Anthropic Console ↗
+            </a>
+          </div>
+        )}
+
+        {selectedProvider === 'openrouter' && (
+          <div style={{ marginBottom: '10px', fontSize: '11px', color: '#64748b' }}>
+            Get your key from{' '}
+            <a
+              href="https://openrouter.ai/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#2563eb', fontWeight: 600 }}
+            >
+              OpenRouter Keys ↗
+            </a>
+          </div>
+        )}
+
         <div className="form-group">
           <label htmlFor="api-key-input" className="form-label">
             API Secret Key

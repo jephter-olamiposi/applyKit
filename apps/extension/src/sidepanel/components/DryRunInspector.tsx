@@ -193,7 +193,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
         setPlan(res.plan);
         if (onPlanUpdated) onPlanUpdated(res.plan);
         setFeedbackNotice(
-          `AI answers generated for open-ended questions. ${res.plan.actions.filter(a => a.sourceEvidenceTitle === 'AI Proposal Grounded in Evidence Graph').length} field(s) staged for review.`
+          `AI answers generated for open-ended questions. ${res.plan.actions.filter(a => a.sourceEvidenceTitle?.startsWith('AI Proposal')).length} field(s) staged for review.`
         );
         setTimeout(() => setFeedbackNotice(null), 4000);
       } else {
@@ -389,7 +389,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
           <button
             type="button"
             className="btn-primary"
-            onClick={() => onNavigateToTab('form')}
+            onClick={() => onNavigateToTab('prepare_application')}
           >
             Go to Form Inspector
           </button>
@@ -511,7 +511,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
               <button
                 type="button"
                 className="btn-primary btn-next-step"
-                onClick={() => onNavigateToTab('history')}
+                onClick={() => onNavigateToTab('track')}
               >
                 Next Step: Application Tracker &rarr;
               </button>
@@ -599,7 +599,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
             className="btn-batch btn-batch-ai-answer"
             onClick={handleAnswerCustomFields}
             title="Generate AI answers for open-ended custom questions (ADR-0022)"
-            disabled={plan.actions.every(a => a.sourceEvidenceTitle === 'AI Proposal Grounded in Evidence Graph')}
+            disabled={plan.actions.length > 0 && plan.actions.every(a => a.sourceEvidenceTitle?.startsWith('AI Proposal'))}
           >
             Answer Custom Fields
           </button>
@@ -876,7 +876,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => onNavigateToTab('form')}
+              onClick={() => onNavigateToTab('prepare_application')}
             >
               Back to Form
             </button>

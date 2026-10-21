@@ -29,6 +29,17 @@ try {
   process.exit(1);
 }
 
+// PDF.js is loaded dynamically, so the worker must be copied into the
+// extension package explicitly rather than relying on bundler URL rewriting.
+const pdfWorkerSource = path.join(ROOT_DIR, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
+const pdfWorkerTarget = path.join(DIST_DIR, 'assets/pdf.worker.mjs');
+if (!fs.existsSync(pdfWorkerSource)) {
+  console.error(`❌ Error: PDF.js worker source missing: ${pdfWorkerSource}`);
+  process.exit(1);
+}
+fs.mkdirSync(path.dirname(pdfWorkerTarget), { recursive: true });
+fs.copyFileSync(pdfWorkerSource, pdfWorkerTarget);
+
 // 2. Validate Manifest Conformance
 console.log('🔍 Step 2: Validating Chrome Manifest V3 conformance...');
 const manifestPath = path.join(DIST_DIR, 'manifest.json');
@@ -91,6 +102,7 @@ const requiredFiles = [
   'sidepanel.html',
   'sidepanel.js',
   'assets/sidepanel.css',
+  'assets/pdf.worker.mjs',
 ];
 
 for (const file of requiredFiles) {

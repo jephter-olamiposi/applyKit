@@ -14,6 +14,10 @@
     "./pdf-exporter": {
       "types": "./dist/tailoring/pdf-exporter.d.ts",
       "import": "./dist/tailoring/pdf-exporter.js"
+    },
+    "./docx-exporter": {
+      "types": "./dist/tailoring/docx-exporter.d.ts",
+      "import": "./dist/tailoring/docx-exporter.js"
     }
   },
   "scripts": {
@@ -30,6 +34,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@react-pdf/renderer": "^4.9.0"
+    "@react-pdf/renderer": "^4.9.0",
+    "docx": "^9.8.1",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^6.3.289"
   }
 }

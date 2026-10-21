@@ -9,8 +9,10 @@
  * 5. Isolated Context: All LLM requests execute in the background service worker.
  */
 
-import type { CandidateProfile } from '@applykit/domain';
+import type { CandidateProfile, ApplicationForm } from '@applykit/domain';
 import { simulateTextInput } from './action-interpreter.js';
+import { escapeXmlEntities } from './extractor.js';
+import { inspectPageForms } from './form-crawler.js';
 import type {
   GetCandidateProfileResponse,
   ExecuteOneClickAutoFillResponse,
@@ -32,6 +34,8 @@ let activeTargetElement: HTMLElement | null = null;
 let fieldPillContainer: HTMLElement | null = null;
 let floatingHubContainer: HTMLElement | null = null;
 let essayPopoverContainer: HTMLElement | null = null;
+let focusInListener: ((event: Event) => void) | null = null;
+let focusOutListener: ((event: Event) => void) | null = null;
 let focusHideTimeout: any = null;
 
 /**
@@ -196,13 +200,13 @@ const HUB_STYLES = `
   .applykit-essay-popover {
     position: absolute;
     z-index: 2147483647;
-    width: 380px;
-    max-width: 90vw;
+    width: 440px;
+    max-width: 92vw;
     background: #0f172a;
     border: 1px solid #3b82f6;
-    border-radius: 10px;
-    box-shadow: 0 14px 35px rgba(0, 0, 0, 0.5);
-    padding: 14px;
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+    padding: 16px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     animation: popoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -228,34 +232,123 @@ const HUB_STYLES = `
   }
 
   .essay-title {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     color: #38bdf8;
   }
 
   .essay-question-text {
-    font-size: 11px;
+    font-size: 11.5px;
     color: #94a3b8;
     margin-bottom: 10px;
     font-style: italic;
     max-height: 48px;
     overflow-y: auto;
+    line-height: 1.4;
+  }
+
+  .essay-notes-group {
+    margin-bottom: 10px;
+  }
+
+  .essay-notes-label {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .essay-notes-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: #f8fafc;
+    font-size: 11.5px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .essay-notes-input:focus {
+    border-color: #38bdf8;
+  }
+
+  .essay-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .essay-tone-select {
+    flex: 1;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: #f8fafc;
+    font-size: 11.5px;
+    padding: 6px 8px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .btn-generate {
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .btn-generate:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  .btn-generate:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .essay-status {
+    font-size: 10.5px;
+    color: #38bdf8;
+    margin-bottom: 8px;
+    min-height: 14px;
+    line-height: 1.3;
+  }
+
+  .essay-status.error {
+    color: #f87171;
   }
 
   .essay-textarea {
     width: 100%;
-    min-height: 100px;
-    max-height: 200px;
+    box-sizing: border-box;
+    min-height: 110px;
+    max-height: 220px;
     background: #1e293b;
     border: 1px solid #475569;
     border-radius: 6px;
     color: #f8fafc;
     font-size: 12px;
-    line-height: 1.45;
-    padding: 8px;
+    line-height: 1.5;
+    padding: 8px 10px;
     resize: vertical;
     font-family: inherit;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
 
   .essay-textarea:focus {
@@ -265,7 +358,17 @@ const HUB_STYLES = `
 
   .essay-actions {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .essay-char-count {
+    font-size: 10.5px;
+    color: #64748b;
+  }
+
+  .essay-buttons-group {
+    display: flex;
     gap: 8px;
   }
 
@@ -274,15 +377,20 @@ const HUB_STYLES = `
     color: #ffffff;
     border: none;
     border-radius: 6px;
-    padding: 6px 12px;
+    padding: 6px 14px;
     font-size: 11.5px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s ease;
   }
 
-  .btn-insert:hover {
+  .btn-insert:hover:not(:disabled) {
     background: #059669;
+  }
+
+  .btn-insert:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .btn-cancel {
@@ -446,26 +554,26 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
   fieldPillContainer.classList.remove('filled');
 
   if (info.type === 'standard' && info.suggestedValue) {
-    fieldPillContainer.innerHTML = `<span>⚡ Fill ${info.label}: <strong>${info.suggestedValue}</strong></span>`;
+    setFieldPillContent(fieldPillContainer, '⚡ Fill ', info.label, info.suggestedValue);
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
       applyTextToElement(target, info.suggestedValue!);
       fieldPillContainer!.classList.add('filled');
-      fieldPillContainer!.innerHTML = `<span>✓ Filled ${info.label}</span>`;
+      setFieldPillContent(fieldPillContainer!, '✓ Filled ', info.label);
       setTimeout(() => {
         if (fieldPillContainer) fieldPillContainer.style.display = 'none';
       }, 1500);
     };
   } else if (info.type === 'essay') {
-    fieldPillContainer.innerHTML = `<span>💡 Draft Answer with ApplyKit</span>`;
+    setFieldPillContent(fieldPillContainer, '💡 Draft Answer with ApplyKit');
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
       openEssayAssistantPopover(target, info.label, doc);
     };
   } else if (info.type === 'file_resume') {
-    fieldPillContainer.innerHTML = `<span>📄 Attach Tailored Resume PDF</span>`;
+    setFieldPillContent(fieldPillContainer, '📄 Attach Tailored Resume PDF');
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -473,8 +581,9 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor' }, () => {});
       }
+
       fieldPillContainer!.classList.add('filled');
-      fieldPillContainer!.innerHTML = `<span>⚡ Opened Tailoring Studio</span>`;
+      setFieldPillContent(fieldPillContainer!, '⚡ Opened Tailoring Studio');
       setTimeout(() => {
         if (fieldPillContainer) fieldPillContainer.style.display = 'none';
         target.style.outline = '';
@@ -482,6 +591,23 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
       }, 2500);
     };
   }
+}
+
+/**
+ * Renders field-pill labels as text nodes so imported profile and page metadata
+ * cannot become executable markup inside the isolated UI.
+ */
+function setFieldPillContent(container: HTMLElement, prefix: string, label = '', value?: string): void {
+  container.replaceChildren();
+  const text = container.ownerDocument.createElement('span');
+  text.append(container.ownerDocument.createTextNode(prefix), container.ownerDocument.createTextNode(label));
+  if (value !== undefined) {
+    text.append(container.ownerDocument.createTextNode(': '));
+    const strong = container.ownerDocument.createElement('strong');
+    strong.textContent = value;
+    text.append(strong);
+  }
+  container.append(text);
 }
 
 /**
@@ -500,23 +626,58 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
   essayPopoverContainer.style.left = `${Math.max(10, rect.left + scrollLeft)}px`;
   essayPopoverContainer.style.display = 'block';
 
+  const existingValue = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+    ? target.value
+    : (target.textContent || '').trim();
+
   essayPopoverContainer.innerHTML = `
     <div class="essay-header">
       <span class="essay-title">💡 ApplyKit Essay Copilot</span>
       <button type="button" class="hub-close-btn" id="btn-popover-close">✕</button>
     </div>
-    <div class="essay-question-text">"${questionLabel}"</div>
-    <textarea class="essay-textarea" id="essay-draft-box" placeholder="Synthesizing verified response from candidate evidence..."></textarea>
+    <div class="essay-question-text">"${escapeXmlEntities(questionLabel)}"</div>
+    <div class="essay-notes-group">
+      <label class="essay-notes-label">Your Angle / Key Thought (Optional):</label>
+      <input type="text" class="essay-notes-input" id="essay-user-notes" placeholder="e.g. 'breaking point', 'focus on partition tolerance'..." />
+    </div>
+    <div class="essay-controls-row">
+      <select class="essay-tone-select" id="essay-tone-select">
+        <option value="technical">Senior Technical (Default)</option>
+        <option value="concise">Concise & Direct</option>
+        <option value="star">STAR Method</option>
+        <option value="bullets">Bullet Points</option>
+      </select>
+      <button type="button" class="btn-generate" id="btn-popover-generate">⚡ Generate with AI</button>
+    </div>
+    <div class="essay-status" id="essay-status-msg">${existingValue ? '✓ Current field value loaded. Edit directly or click "Generate with AI" to re-draft.' : ''}</div>
+    <textarea class="essay-textarea" id="essay-draft-box" placeholder="Grounded answer will appear here...">${escapeXmlEntities(existingValue)}</textarea>
     <div class="essay-actions">
-      <button type="button" class="btn-cancel" id="btn-popover-cancel">Dismiss</button>
-      <button type="button" class="btn-insert" id="btn-popover-insert" disabled>Insert into Field</button>
+      <span class="essay-char-count" id="essay-char-count">${existingValue.length} characters</span>
+      <div class="essay-buttons-group">
+        <button type="button" class="btn-cancel" id="btn-popover-cancel">Dismiss</button>
+        <button type="button" class="btn-insert" id="btn-popover-insert" ${existingValue ? '' : 'disabled'}>Insert into Field</button>
+      </div>
     </div>
   `;
 
   const draftBox = essayPopoverContainer.querySelector<HTMLTextAreaElement>('#essay-draft-box');
+  const userNotesInput = essayPopoverContainer.querySelector<HTMLInputElement>('#essay-user-notes');
+  const toneSelect = essayPopoverContainer.querySelector<HTMLSelectElement>('#essay-tone-select');
+  const generateBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-generate');
+  const statusMsg = essayPopoverContainer.querySelector<HTMLDivElement>('#essay-status-msg');
+  const charCount = essayPopoverContainer.querySelector<HTMLSpanElement>('#essay-char-count');
   const insertBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-insert');
   const closeBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-close');
   const cancelBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-cancel');
+
+  const updateCharCount = () => {
+    if (draftBox && charCount) {
+      charCount.textContent = `${draftBox.value.length} characters`;
+      if (insertBtn) insertBtn.disabled = draftBox.value.trim().length === 0;
+    }
+  };
+
+  draftBox?.addEventListener('input', updateCharCount);
 
   const closePopover = () => {
     if (essayPopoverContainer) essayPopoverContainer.style.display = 'none';
@@ -532,25 +693,77 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
     }
   });
 
-  // Query background service worker for verified ad-hoc answer
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-    chrome.runtime.sendMessage(
-      {
-        type: 'ANSWER_AD_HOC_QUESTION',
-        question: questionLabel,
-        tone: 'concise',
-      },
-      (res: AnswerAdHocQuestionResponse) => {
-        if (draftBox && insertBtn) {
-          if (res && res.success && res.answerText) {
-            draftBox.value = res.answerText;
-            insertBtn.disabled = false;
-          } else {
-            draftBox.value = res?.error || 'Unable to draft answer automatically. Please verify candidate profile.';
-          }
+  const runGeneration = () => {
+    if (!generateBtn || !draftBox) return;
+    generateBtn.disabled = true;
+    generateBtn.textContent = '⏳ Generating...';
+    if (statusMsg) {
+      statusMsg.className = 'essay-status';
+      statusMsg.textContent = '⚡ Synthesizing grounded answer from your resume & evidence...';
+    }
+
+    const notes = userNotesInput?.value.trim() || undefined;
+    const tone = (toneSelect?.value as 'technical' | 'concise' | 'star' | 'bullets') || 'technical';
+
+    const safetyTimeout = setTimeout(() => {
+      if (generateBtn.disabled) {
+        generateBtn.disabled = false;
+        generateBtn.textContent = '⚡ Generate with AI';
+        if (statusMsg) {
+          statusMsg.className = 'essay-status error';
+          statusMsg.textContent = 'Request timed out. Please verify your connection or AI provider in Settings.';
         }
       }
-    );
+    }, 15000);
+
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage(
+        {
+          type: 'ANSWER_AD_HOC_QUESTION',
+          question: questionLabel,
+          tone,
+          userNotes: notes,
+        },
+        (res: AnswerAdHocQuestionResponse) => {
+          clearTimeout(safetyTimeout);
+          generateBtn.disabled = false;
+          generateBtn.textContent = '⚡ Generate with AI';
+
+          if (chrome.runtime.lastError) {
+            if (statusMsg) {
+              statusMsg.className = 'essay-status error';
+              statusMsg.textContent = chrome.runtime.lastError.message || 'Background worker error occurred.';
+            }
+            return;
+          }
+
+          if (res && res.success && res.answerText) {
+            draftBox.value = res.answerText;
+            updateCharCount();
+            if (statusMsg) {
+              statusMsg.className = 'essay-status';
+              statusMsg.textContent = res.notes || '✓ Grounded in candidate profile & evidence claims.';
+            }
+          } else {
+            if (statusMsg) {
+              statusMsg.className = 'essay-status error';
+              statusMsg.textContent = res?.error || 'Unable to draft answer. Please check candidate profile or API key in Settings.';
+            }
+          }
+        }
+      );
+    } else {
+      clearTimeout(safetyTimeout);
+      generateBtn.disabled = false;
+      generateBtn.textContent = '⚡ Generate with AI';
+    }
+  };
+
+  generateBtn?.addEventListener('click', runGeneration);
+
+  // If the target field has no existing value, automatically kick off the initial generation
+  if (!existingValue) {
+    runGeneration();
   }
 }
 
@@ -605,25 +818,55 @@ export function initInPageHub(doc: Document = document): void {
     autofillBtn.disabled = true;
     autofillBtn.textContent = 'Filling...';
 
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage(
-        { type: 'EXECUTE_ONE_CLICK_AUTO_FILL' },
-        (res: ExecuteOneClickAutoFillResponse) => {
-          if (res && res.success) {
-            autofillBtn.textContent = `Filled ${res.report?.executedCount || 'Form'} ✓`;
-            setTimeout(() => {
-              autofillBtn.disabled = false;
-              autofillBtn.textContent = '1-Click Auto-Fill';
-            }, 3000);
-          } else {
-            autofillBtn.textContent = 'Check Side Panel';
-            setTimeout(() => {
-              autofillBtn.disabled = false;
-              autofillBtn.textContent = '1-Click Auto-Fill';
-            }, 3000);
+    const resetBtn = (text: string) => {
+      autofillBtn.textContent = text;
+      setTimeout(() => {
+        autofillBtn.disabled = false;
+        autofillBtn.textContent = '1-Click Auto-Fill';
+      }, 3000);
+    };
+
+    // Safety timeout: Never leave the button stuck on 'Filling...'
+    const safetyTimer = setTimeout(() => {
+      if (autofillBtn.disabled && autofillBtn.textContent === 'Filling...') {
+        resetBtn('Check Side Panel');
+      }
+    }, 12000);
+
+    try {
+      const forms = inspectPageForms(doc);
+      const activeForm = forms[0];
+
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            type: 'EXECUTE_ONE_CLICK_AUTO_FILL',
+            form: activeForm,
+            options: {
+              pacingDelayMs: 60,
+              highlightElements: true,
+            },
+          },
+          (res: ExecuteOneClickAutoFillResponse) => {
+            clearTimeout(safetyTimer);
+            if (chrome.runtime.lastError) {
+              resetBtn('Retry');
+              return;
+            }
+            if (res && res.success) {
+              resetBtn(`Filled ${res.report?.executedCount || 'Form'} ✓`);
+            } else {
+              resetBtn('Check Side Panel');
+            }
           }
-        }
-      );
+        );
+      } else {
+        clearTimeout(safetyTimer);
+        resetBtn('Unavailable');
+      }
+    } catch {
+      clearTimeout(safetyTimer);
+      resetBtn('Check Side Panel');
     }
   });
 
@@ -639,7 +882,7 @@ export function initInPageHub(doc: Document = document): void {
   fetchCandidateProfile();
 
   // Listen to focus changes across the document
-  doc.addEventListener('focusin', async (e) => {
+  focusInListener = async (e: Event) => {
     const target = e.target as HTMLElement | null;
     if (!target) return;
 
@@ -654,15 +897,17 @@ export function initInPageHub(doc: Document = document): void {
     } else {
       if (fieldPillContainer) fieldPillContainer.style.display = 'none';
     }
-  });
+  };
+  doc.addEventListener('focusin', focusInListener);
 
-  doc.addEventListener('focusout', () => {
+  focusOutListener = () => {
     focusHideTimeout = setTimeout(() => {
       if (fieldPillContainer) {
         fieldPillContainer.style.display = 'none';
       }
     }, 300);
-  });
+  };
+  doc.addEventListener('focusout', focusOutListener);
 }
 
 /**
@@ -671,6 +916,10 @@ export function initInPageHub(doc: Document = document): void {
  * @param doc Target document.
  */
 export function unmountInPageHub(doc: Document = document): void {
+  if (focusInListener) doc.removeEventListener('focusin', focusInListener);
+  if (focusOutListener) doc.removeEventListener('focusout', focusOutListener);
+  focusInListener = null;
+  focusOutListener = null;
   const existingHost = doc.getElementById(IN_PAGE_HUB_HOST_ID);
   if (existingHost) {
     existingHost.remove();

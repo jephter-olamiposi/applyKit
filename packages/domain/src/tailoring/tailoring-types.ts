@@ -52,6 +52,16 @@ export interface TailoredProject {
 }
 
 /**
+ * Group of technical skills categorized under a standard domain taxonomy.
+ */
+export interface TailoredSkillCategory {
+  /** Domain category label (e.g. 'Languages', 'Frameworks & Runtimes', 'Databases & Storage'). */
+  readonly category: string;
+  /** Skills belonging to this domain category, ordered with job-matched skills first. */
+  readonly skills: readonly string[];
+}
+
+/**
  * Categorized candidate skills partitioned by target job requirement alignment.
  */
 export interface TailoredSkillsGroup {
@@ -61,6 +71,8 @@ export interface TailoredSkillsGroup {
   readonly matchedPreferred: readonly string[];
   /** Additional verified candidate skills demonstrating breadth. */
   readonly additionalSkills: readonly string[];
+  /** Categorized skills grouped by domain taxonomy for structured executive display. */
+  readonly domainCategories?: readonly TailoredSkillCategory[];
 }
 
 /**
@@ -231,6 +243,20 @@ export interface ResumePdfOptions {
   /** Vertical rhythm and padding density ('tight', 'standard', or 'relaxed'). */
   readonly density?: SpacingDensity;
   /** Whether to render the targeted job title badge in the document header. Defaults to true. */
+  readonly showTargetBadge?: boolean;
+}
+
+/**
+ * Options for generating tailored resume DOCX documents (ADR-0043, SKILL.md).
+ */
+export interface ResumeDocxOptions {
+  /** Selected visual styling template ('modern', 'classic', 'minimalist', 'compact'). */
+  readonly templateId?: ResumeTemplateId;
+  /** Spacing density rhythm ('tight' | 'standard' | 'relaxed'). */
+  readonly density?: SpacingDensity;
+  /** Whether to condense the output to fit single-page length limits. */
+  readonly onePageFit?: boolean;
+  /** Whether to include the targeted job title badge in the document header. Defaults to true. */
   readonly showTargetBadge?: boolean;
 }
 

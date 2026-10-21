@@ -17,6 +17,7 @@ import type {
   ListApplicationsResponse,
   UpdateApplicationStatusResponse,
   DeleteApplicationRecordResponse,
+  ExportAuditLogRequest,
   ExportAuditLogResponse,
 } from '../../messages/contracts.js';
 
@@ -113,7 +114,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
   const [activeRecruiterEmail, setActiveRecruiterEmail] = useState<string>('');
   const [activeExpectedSalary, setActiveExpectedSalary] = useState<string>('');
   const [statusUpdating, setStatusUpdating] = useState(false);
-  const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
+  const [exporting, setExporting] = useState<'csv' | 'json' | 'tracker-csv' | 'tracker-md' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Interview Prep & Email Scanner State (Phase 24, Phase 25)
@@ -351,12 +352,12 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
     }
   };
 
-  // Exports audit log as CSV or JSON and triggers browser download
-  const handleExport = async (format: 'csv' | 'json') => {
+  // Exports audit log as CSV, JSON, canonical tracker CSV, or Markdown and triggers browser download
+  const handleExport = async (format: ExportAuditLogRequest['format']) => {
     try {
       setExporting(format);
       const res = await sendToBackground<
-        { type: 'EXPORT_AUDIT_LOG'; format: 'csv' | 'json' },
+        ExportAuditLogRequest,
         ExportAuditLogResponse
       >({
         type: 'EXPORT_AUDIT_LOG',
@@ -368,7 +369,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = res.filename || `applykit-audit-trail.${format}`;
+        a.download = res.filename || `applykit-tracker.${format}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -406,7 +407,35 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               Local audit history and post-submission pipeline (ADR-0001, ADR-0006)
             </p>
           </div>
-          <div className="tracker-export-group">
+          <div className="tracker-export-group" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="export-btn export-btn-csv"
+              onClick={() => handleExport('tracker-csv')}
+              disabled={exporting !== null || applications.length === 0}
+              title="Export canonical 8-column pipeline tracker CSV (employer, role, status, date, url, source, note, key)"
+            >
+              {exporting === 'tracker-csv' ? 'Exporting...' : '📊 Tracker CSV'}
+            </button>
+            <button
+              type="button"
+              className="export-btn"
+              onClick={() => handleExport('tracker-md')}
+              disabled={exporting !== null || applications.length === 0}
+              title="Export pipeline tracker to Markdown table"
+              style={{
+                backgroundColor: '#f3f4f6',
+                border: '1px solid #d1d5db',
+                color: '#374151',
+                padding: '4px 8px',
+                fontSize: '11px',
+                borderRadius: '4px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {exporting === 'tracker-md' ? 'Exporting...' : '📝 Summary MD'}
+            </button>
             <button
               type="button"
               className="export-btn export-btn-csv"
@@ -414,7 +443,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               disabled={exporting !== null || applications.length === 0}
               title="Export complete audit trail to sanitized CSV"
             >
-              {exporting === 'csv' ? 'Exporting...' : 'Export CSV'}
+              {exporting === 'csv' ? 'Exporting...' : 'Audit CSV'}
             </button>
             <button
               type="button"

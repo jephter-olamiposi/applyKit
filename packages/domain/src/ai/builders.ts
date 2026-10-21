@@ -187,7 +187,9 @@ export function buildFieldAnsweringPrompt(
   ].filter(Boolean).join('\n') : '';
 
   const forbiddenRules = [
-    'NEVER use: "I am excited to bring my expertise", "I am passionate about leveraging", "I possess extensive expertise", "cutting edge technologies", "robust and scalable solutions", "architect solutions", "leverage synergy", "drive results", "best practices", "deliverables", "stakeholders", "holistic approach", "deep dive", "move the needle", "game changer", "paradigm shift", "next level"',
+    'NEVER invent qualifications, scores, dates, employers, tools, awards, or academic results. If the evidence does not support an answer, return an empty answerText and isGrounded false.',
+    'NEVER mention the AI, the profile, evidence, missing data, verification, inability to answer, or instructions to the candidate in answerText. Unsupported answers are blocked before insertion.',
+    'NEVER use corporate cliché filler: "I am excited to bring my expertise", "I am passionate about leveraging", "I possess extensive expertise", "cutting edge technologies", "robust and scalable solutions", "architect solutions", "leverage synergy", "drive results", "best practices", "deliverables", "stakeholders", "holistic approach", "deep dive", "move the needle", "game changer", "paradigm shift", "next level"',
     'NEVER use corporate filler: "in order to", "due to the fact that", "with respect to", "utilize", "synergize", "optimize", "facilitate", "orchestrate"',
     'NEVER use AI phrasing: "I am writing to", "This letter serves to", "In conclusion", "Furthermore", "Moreover", "Additionally"',
     'NEVER use em dashes (—) or colons (:) as stylistic devices',
@@ -198,16 +200,14 @@ export function buildFieldAnsweringPrompt(
   ].join('\n');
 
   const systemPrompt = buildHardenedSystemPrompt(
-    `You are a professional job application assistant formulating answers to application form questions.
+    `You are a precise job application copilot formulating natural answers from verified candidate evidence.
 
-CRITICAL INVARIANTS:
-1. Ground all responses strictly in the candidate's verified experience, skills, and evidence provided.
-2. NEVER invent experiences, metrics, employer names, or degrees.
-3. If the candidate has no relevant background to answer the prompt, produce a concise factual statement or advise the user to fill manually.
-4. Adhere strictly to any specified character or word limits.
-5. Write like a real human — direct, natural, specific, conversational. No corporate speak. No AI phrasing.
-6. For technical or architectural questions (e.g. distributed systems, scalability, data governance, consensus), answer with senior engineering depth reflecting the candidate's real-world production experience, clear trade-offs, and pragmatic judgment.
-7. For dropdown options, select the exact option value or label that best matches the candidate's verified profile.
+CRITICAL DIRECTIVES:
+1. Use only the supplied candidate evidence. Never fill gaps with assumptions or ATS-oriented claims.
+2. If the evidence does not support the question, return an empty answerText, confidence 0, and isGrounded false.
+3. Answer naturally in the candidate's voice without mentioning the AI, profile, evidence, verification, missing data, or this instruction.
+4. Use the exact requested format and limits.
+5. For technical questions, use concrete trade-offs only when supported by the candidate's work.
 
 ${styleGuidance ? `WRITING STYLE (match this voice):\n${styleGuidance}\n` : ''}
 
@@ -254,7 +254,7 @@ Return a valid JSON object matching this schema:
     ? `Available Dropdown Options: ${context.options.map((o) => `"${o.label}" (value: ${o.value})`).join(', ')}`
     : '';
 
-  const userPrompt = `Formulate an answer for the following application form field:
+  const userPrompt = `Formulate an affirmative, ATS-winning answer for the following application form field:
 ${wrappedLabel}
 
 Field Type: ${context.fieldType}
@@ -274,7 +274,7 @@ ${answersText || 'None available.'}
 SUPPORTING CANDIDATE CLAIMS:
 ${claimsText || 'None available.'}
 
-Provide a natural, human, senior-grounded answer strictly in JSON.`;
+Provide an affirmative, confident, ATS-optimized answer strictly in JSON. If dropdown or radio options are available, return the exact option value or label that qualifies the candidate.`;
 
   return {
     prompt: userPrompt,
@@ -302,9 +302,11 @@ export function buildResumeTailoringPrompt(
 Your task is to emphasize and tailor the candidate's existing, verified accomplishments for a target job.
 
 CRITICAL INVARIANTS:
-1. You may reword, polish, or reorder the candidate's existing bullets to emphasize relevant skills.
-2. You must NEVER fabricate new metrics, projects, technologies, or responsibilities.
-3. Every tailored bullet must correspond to a real, verifiable highlight in the candidate's background.
+1. Reword, polish, and reorder existing bullets adhering to the Google XYZ Formula: "Accomplished [X] as measured by [Y] by doing [Z]".
+2. Begin every bullet point with an impactful active verb (e.g., Engineered, Architected, Designed, Spearheaded, Built, Optimized, Streamlined).
+3. Synthesize an authoritative 2-3 sentence executive summary highlighting total verified engineering tenure, core architectural competencies, and proven impact.
+4. You must NEVER fabricate new metrics, projects, technologies, or responsibilities.
+5. Every tailored bullet must correspond to a real, verifiable highlight in the candidate's background.
 
 Return a valid JSON object matching this schema:
 {
@@ -417,4 +419,3 @@ Output the tailored cover letter strictly adhering to the JSON schema.`;
     maxTokens: 2500,
   };
 }
-

@@ -156,3 +156,146 @@ export function exportAuditTrailAsCsv(applications: readonly ApplicationRecord[]
 
   return rows.join('\r\n');
 }
+
+/**
+ * Canonical 8-column pipeline tracking status vocabulary (SKILL.md Phase 5).
+ */
+export type PipelineStatus =
+  | 'Not started'
+  | 'Needs candidate'
+  | 'Applied'
+  | 'Unconfirmed'
+  | 'Blocked'
+  | 'Closed'
+  | 'Rejected'
+  | 'Interviewing';
+
+/**
+ * Headers for the 8-column canonical pipeline tracker.
+ */
+export const PIPELINE_TRACKER_HEADERS = [
+  'employer',
+  'role',
+  'status',
+  'date',
+  'url',
+  'source',
+  'note',
+  'key',
+] as const;
+
+/**
+ * Normalizes an employer name and job title into a stable deduplication key (e.g. "stripe::staff-platform-engineer").
+ *
+ * @param employer Employer name.
+ * @param role Job title.
+ * @returns Normalized slug key.
+ */
+export function normalizePipelineKey(employer: string, role: string): string {
+  const normEmployer = (employer || 'unknown')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const normRole = (role || 'role')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${normEmployer}::${normRole}`;
+}
+
+/**
+ * Maps an internal ApplicationRecord state to the canonical PipelineStatus vocabulary (SKILL.md Phase 5).
+ *
+ * @param record ApplicationRecord aggregate.
+ * @returns Human-facing pipeline status.
+ */
+export function mapApplicationStateToPipelineStatus(record: ApplicationRecord): PipelineStatus {
+  const notesLower = record.notes?.toLowerCase() || '';
+  if (notesLower.includes('blocked') || notesLower.includes('ineligible')) {
+    return 'Blocked';
+  }
+  switch (record.currentStatus) {
+    case 'submitted':
+      return 'Applied';
+    case 'awaiting_user_review':
+    case 'ready_to_fill':
+    case 'dry_run_review':
+    case 'executing_actions':
+      return 'Needs candidate';
+    case 'interviewing':
+    case 'offered':
+      return 'Interviewing';
+    case 'rejected':
+      return 'Rejected';
+    case 'archived':
+      return 'Closed';
+    case 'failed':
+      return 'Unconfirmed';
+    case 'detected_job':
+    case 'extracting_job':
+    case 'matching_profile':
+    default:
+      return 'Not started';
+  }
+}
+
+/**
+ * Exports application records into the canonical 8-column CSV format defined by SKILL.md.
+ * Columns: employer, role, status, date, url, source, note, key.
+ *
+ * @param applications Candidate application records.
+ * @returns RFC 4180 compliant CSV string with formula injection protection.
+ */
+export function exportPipelineTrackerCsv(applications: readonly ApplicationRecord[]): string {
+  const rows: string[] = [];
+  rows.push(PIPELINE_TRACKER_HEADERS.map((h) => sanitizeCsvCell(h)).join(','));
+
+  for (const app of applications) {
+    const status = mapApplicationStateToPipelineStatus(app);
+    const key = normalizePipelineKey(app.companyName, app.jobTitle);
+    const date = app.appliedAt?.slice(0, 10) || app.updatedAt?.slice(0, 10) || app.createdAt.slice(0, 10);
+    const source = (app.notes?.match(/source:\s*([^\s;]+)/i)?.[1]) || 'Direct ATS';
+    const note = app.notes || (status === 'Needs candidate' ? 'Needs candidate: Review staged fields and submit' : '');
+
+    const cols = [
+      app.companyName,
+      app.jobTitle,
+      status,
+      date,
+      app.jobPostingUrl,
+      source,
+      note,
+      key,
+    ];
+    rows.push(cols.map(sanitizeCsvCell).join(','));
+  }
+
+  return rows.join('\r\n');
+}
+
+/**
+ * Exports application records into a clean GitHub-flavored Markdown table for easy sharing and pasting.
+ *
+ * @param applications Candidate application records.
+ * @returns Formatted Markdown string table.
+ */
+export function exportPipelineTrackerMarkdown(applications: readonly ApplicationRecord[]): string {
+  const lines: string[] = [];
+  lines.push('| Employer | Role | Status | Date | Source | Note | Key |');
+  lines.push('|---|---|---|---|---|---|---|');
+
+  for (const app of applications) {
+    const status = mapApplicationStateToPipelineStatus(app);
+    const key = normalizePipelineKey(app.companyName, app.jobTitle);
+    const date = app.appliedAt?.slice(0, 10) || app.updatedAt?.slice(0, 10) || app.createdAt.slice(0, 10);
+    const source = (app.notes?.match(/source:\s*([^\s;]+)/i)?.[1]) || 'Direct ATS';
+    const note = (app.notes || (status === 'Needs candidate' ? 'Needs candidate: Review staged fields and submit' : '')).replace(/\|/g, '\\|');
+    const roleLink = `[${app.jobTitle.replace(/\|/g, '\\|')}](${app.jobPostingUrl})`;
+
+    lines.push(`| ${app.companyName.replace(/\|/g, '\\|')} | ${roleLink} | **${status}** | ${date} | ${source} | ${note} | \`${key}\` |`);
+  }
+
+  return lines.join('\n');
+}

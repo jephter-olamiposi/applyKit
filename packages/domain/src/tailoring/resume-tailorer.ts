@@ -15,12 +15,15 @@ import type { EvidenceId } from '../types/ids.js';
 import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
 import type { WritingStyleProfile } from '../ai/writing-style.js';
 import { applyWritingQualityPassSync } from '../ai/human-answer-pipeline.js';
+import type { CandidateSkill, SkillCategory } from '../candidate/skill.js';
+import { categorizeSkill } from '../candidate/skill.js';
 import type {
   TailoredResume,
   TailoredExperience,
   TailoredProject,
   TailoredHighlight,
   TailoredSkillsGroup,
+  TailoredSkillCategory,
   ResumeTemplateId,
 } from './tailoring-types.js';
 import {
@@ -166,10 +169,56 @@ export function tailorCandidateResume(
     .map((s) => s.name)
     .filter((name) => !matchedAllSet.has(name));
 
+  // Dynamically group candidate skills into standard domain buckets
+  const categoryDefinitions: Array<{ label: string; matches: (cat: SkillCategory) => boolean }> = [
+    { label: 'Languages', matches: (cat) => cat === 'language' },
+    { label: 'Frameworks & Runtimes', matches: (cat) => cat === 'framework' || cat === 'library' },
+    { label: 'Databases & Storage', matches: (cat) => cat === 'database' },
+    { label: 'Cloud & DevOps', matches: (cat) => cat === 'cloud_infrastructure' || cat === 'devops_tool' },
+    { label: 'Architecture & Systems', matches: (cat) => cat === 'architecture_pattern' },
+    { label: 'Core Competencies', matches: (cat) => cat === 'domain_expertise' || cat === 'testing_qa' || cat === 'methodology' || cat === 'soft_skill' },
+  ];
+
+  const domainCategories: TailoredSkillCategory[] = [];
+  const allocatedSkillNames = new Set<string>();
+
+  for (const def of categoryDefinitions) {
+    const bucketSkills = profile.skills.filter((s) => {
+      const cat = s.category || categorizeSkill(s.name);
+      return def.matches(cat);
+    });
+
+    if (bucketSkills.length > 0) {
+      // Sort: required first, then preferred, then remainder
+      const sorted = [...bucketSkills].sort((a, b) => {
+        const scoreA = matchedRequiredSet.has(a.name) ? 2 : (matchedPreferredSet.has(a.name) ? 1 : 0);
+        const scoreB = matchedRequiredSet.has(b.name) ? 2 : (matchedPreferredSet.has(b.name) ? 1 : 0);
+        return scoreB - scoreA;
+      });
+
+      const names = sorted.map((s) => s.name);
+      for (const n of names) allocatedSkillNames.add(n);
+
+      domainCategories.push({
+        category: def.label,
+        skills: names,
+      });
+    }
+  }
+
+  const unallocated = profile.skills.filter((s) => !allocatedSkillNames.has(s.name)).map((s) => s.name);
+  if (unallocated.length > 0) {
+    domainCategories.push({
+      category: 'Additional Proficiencies',
+      skills: unallocated,
+    });
+  }
+
   const tailoredSkills: TailoredSkillsGroup = {
     matchedRequired: Array.from(matchedRequiredSet),
     matchedPreferred: Array.from(matchedPreferredSet),
     additionalSkills,
+    domainCategories,
   };
 
   // Rank and filter work experiences based on requirement overlap
@@ -349,7 +398,7 @@ export function tailorCandidateResume(
 
   const openingStatement =
     verifiedYears >= 3
-      ? `${candidateTitle} with ${verifiedYears}+ years of verified engineering experience, specializing in ${topSkills}.`
+      ? `${candidateTitle} with ${verifiedYears}+ years of verified engineering experience architecting scalable systems and cloud infrastructure, specializing in ${topSkills}.`
       : `${candidateTitle} specializing in ${topSkills}.`;
 
   const summaryParts: string[] = [openingStatement];
