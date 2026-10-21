@@ -106,14 +106,14 @@ export const RequirementsList: React.FC<RequirementsListProps> = ({ requirements
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => onNavigateToTab('match')}
+                onClick={() => onNavigateToTab('review_matches')}
               >
                 Analyze Match &amp; Gaps &rarr;
               </button>
               <button
                 type="button"
                 className="btn-primary btn-next-step"
-                onClick={() => onNavigateToTab('tailor')}
+                onClick={() => onNavigateToTab('tailor_resume')}
               >
                 Next Step: Tailor Materials &rarr;
               </button>

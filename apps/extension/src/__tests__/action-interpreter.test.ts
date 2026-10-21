@@ -226,6 +226,46 @@ describe('Browser Action Interpreter & Event Simulator', () => {
       expect(input.value).toBe('test@example.com');
     });
 
+    it('preserves existing candidate-entered text (Non-Overwrite Invariant, SKILL.md Line 159)', async () => {
+      document.body.innerHTML = `
+        <form id="app_form">
+          <input id="candidate_cover" type="text" value="Candidate Custom Intro" />
+        </form>
+      `;
+
+      const action: DryRunAction = {
+        id: 'action-custom' as ActionId,
+        action: {
+          actionType: 'fill_text',
+          selector: '#candidate_cover',
+          value: 'Automated Overwrite Text',
+          description: 'Fill intro',
+          requiresUserConfirmation: false,
+        },
+        fieldId: 'intro-field' as any,
+        riskLevel: 'low',
+        userConfirmed: true,
+        confidence: 1.0,
+        currentValue: 'Candidate Custom Intro',
+        candidateValueUsed: 'Automated Overwrite Text',
+        diffExplanation: 'Populate intro',
+      };
+
+      // Default preserveExistingValues: true — preserves existing candidate text
+      await executeSingleAction(action, document, { pacingDelayMs: 0, highlightElements: false });
+
+      const input = document.getElementById('candidate_cover') as HTMLInputElement;
+      expect(input.value).toBe('Candidate Custom Intro');
+
+      // Explicit overwrite allowed when preserveExistingValues: false
+      await executeSingleAction(action, document, {
+        pacingDelayMs: 0,
+        highlightElements: false,
+        preserveExistingValues: false,
+      });
+      expect(input.value).toBe('Automated Overwrite Text');
+    });
+
     it('throws error if target selector cannot be resolved in document', async () => {
       const action: DryRunAction = {
         id: 'action-missing' as ActionId,

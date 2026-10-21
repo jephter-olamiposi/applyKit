@@ -155,6 +155,11 @@ describe('Release Readiness, Packaging & End-to-End Suite', () => {
       const zipSignature = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
       expect(zipBuf.subarray(0, 4).equals(zipSignature)).toBe(true);
     });
+
+    it('packages the PDF.js worker required by browser resume ingestion', () => {
+      expect(fs.existsSync(path.join(DIST_DIR, 'assets/pdf.worker.mjs'))).toBe(true);
+      expect(fs.statSync(path.join(DIST_DIR, 'assets/pdf.worker.mjs')).size).toBeGreaterThan(100_000);
+    });
   });
 
   // Candidate Lifecycle Journey Verification

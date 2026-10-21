@@ -25,6 +25,10 @@ import {
   factCheckTailoredDocument,
   exportResumeAsMarkdown,
   exportCoverLetterAsMarkdown,
+  generateResumeDocxBlob,
+  generateCoverLetterDocxBlob,
+  getStandardResumeFilename,
+  getStandardCoverLetterFilename,
   type CandidateProfile,
   type JobPosting,
   type Evidence,
@@ -240,5 +244,35 @@ describe('Evidence-Grounded Tailoring & Fact-Checking Flow', () => {
     const letterMd = exportCoverLetterAsMarkdown(coverLetter, loadedProfile!);
     expect(letterMd).toContain('# Jesse Pinkman');
     expect(letterMd).toContain('**Application for:** Staff Platform Engineer at Stripe');
+  });
+
+  it('generates native Microsoft Word (.docx) documents with standard naming', async () => {
+    const loadedProfile = await profileRepo.getProfile();
+    const loadedJob = await jobRepo.getJobById(sampleJob.id);
+    const loadedEvidence = await evidenceRepo.listEvidence();
+    const graph = buildEvidenceGraph(loadedEvidence, []);
+
+    // 1. Standard Enterprise Naming (SKILL.md)
+    const resumeFilename = getStandardResumeFilename(loadedProfile, 'docx');
+    expect(resumeFilename).toBe('Jesse_Pinkman_Resume.docx');
+    const letterFilename = getStandardCoverLetterFilename(loadedProfile, 'docx');
+    expect(letterFilename).toBe('Jesse_Pinkman_Cover_Letter.docx');
+
+    // 2. Resume DOCX Generation
+    const tailored = tailorCandidateResume(loadedJob!, loadedProfile!, graph);
+    const resumeDocxBlob = await generateResumeDocxBlob(tailored, loadedProfile!, {
+      templateId: 'modern',
+      density: 'standard',
+    });
+    expect(resumeDocxBlob).toBeDefined();
+    expect(resumeDocxBlob.size).toBeGreaterThan(1000);
+    expect(resumeDocxBlob.type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+    // 3. Cover Letter DOCX Generation
+    const coverLetter = generateGroundedCoverLetter(loadedJob!, loadedProfile!, graph);
+    const letterDocxBlob = await generateCoverLetterDocxBlob(coverLetter, loadedProfile!);
+    expect(letterDocxBlob).toBeDefined();
+    expect(letterDocxBlob.size).toBeGreaterThan(1000);
+    expect(letterDocxBlob.type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   });
 });

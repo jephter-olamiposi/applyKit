@@ -62,6 +62,10 @@ export abstract class BaseHttpProvider implements AIProvider {
         if (response.status >= 500) {
           const bodyText = await response.text().catch(() => '');
           lastError = new Error(`Server error (HTTP ${response.status}): ${bodyText || response.statusText}`);
+          if (response.status === 503) {
+            // High demand on specific model: break immediately to failover to next candidate model
+            break;
+          }
           if (attempt < maxRetries) {
             const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
             await new Promise((r) => setTimeout(r, delay));

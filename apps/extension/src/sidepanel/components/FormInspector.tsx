@@ -114,7 +114,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
 
       if (res.success && res.plan) {
         if (onNavigateToTab) {
-          onNavigateToTab('dry_run');
+          onNavigateToTab('prepare_application');
         }
       } else {
         setError(res.error || 'Failed to generate dry run plan.');
@@ -147,7 +147,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
 
       if (res.success && res.report) {
         setAutoFillNotice(
-          `⚡ 1-Click Auto-Fill complete! ${res.report.executedCount} safe field(s) filled in sequence. Halting strictly at Anti-Autonomous Submit Gate for your manual review.`
+          `Filled ${res.report.executedCount} fields. Review, then submit manually.`
         );
       } else {
         setError(res.error || 'Auto-fill encountered an issue.');

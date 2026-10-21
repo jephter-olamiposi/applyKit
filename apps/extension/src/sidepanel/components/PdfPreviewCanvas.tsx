@@ -20,8 +20,14 @@ export interface PdfPreviewCanvasProps {
   isGenerating: boolean;
   /** Suggested download filename. */
   filename: string;
-  /** Download action handler. */
+  /** Download action handler for PDF. */
   onDownload: () => void;
+  /** Optional handler to download native Word (.docx) document (ADR-0043, SKILL.md). */
+  onDownloadDocx?: () => void;
+  /** Suggested DOCX download filename. */
+  docxFilename?: string;
+  /** Whether DOCX generation is currently in progress. */
+  isGeneratingDocx?: boolean;
   /** Active resume template. */
   templateId: ResumeTemplateId;
   /** Active spacing density rhythm. */
@@ -47,6 +53,9 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
   isGenerating,
   filename,
   onDownload,
+  onDownloadDocx,
+  docxFilename,
+  isGeneratingDocx,
   templateId,
   density,
   onePageFit,
@@ -196,6 +205,23 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
               ↗ Popout
             </button>
 
+            {onDownloadDocx && (
+              <button
+                type="button"
+                className="btn-canvas-download btn-canvas-download-docx"
+                onClick={onDownloadDocx}
+                disabled={isGenerating || isGeneratingDocx}
+                title={`Download ${docxFilename ?? 'Word document'} (Recommended: 100% ATS parse fidelity)`}
+                style={{
+                  backgroundColor: '#1d4ed8',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                }}
+              >
+                {isGeneratingDocx ? 'Generating Word...' : '⬇ Word (.docx) [ATS Best]'}
+              </button>
+            )}
+
             <button
               type="button"
               className="btn-canvas-download"
@@ -203,7 +229,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
               disabled={isGenerating || !blobUrl}
               title={`Download ${filename}`}
             >
-              ⬇ Download PDF
+              ⬇ PDF
             </button>
           </div>
         </div>

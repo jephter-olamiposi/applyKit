@@ -31,6 +31,24 @@ export interface ApplyKitBackupPayload {
   readonly applications: readonly ApplicationRecord[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isImportableProfile(value: unknown): value is CandidateProfile {
+  if (!isRecord(value) || typeof value.id !== 'string') return false;
+  if (!isRecord(value.identity) || !isRecord(value.professional)) return false;
+  return (
+    typeof value.identity.legalFirstName === 'string' &&
+    typeof value.identity.legalLastName === 'string' &&
+    typeof value.identity.email === 'string' &&
+    Array.isArray(value.experiences) &&
+    Array.isArray(value.projects) &&
+    Array.isArray(value.education) &&
+    Array.isArray(value.skills)
+  );
+}
+
 /**
  * Generates a complete, portable JSON backup of the candidate's local data.
  */
@@ -84,8 +102,16 @@ export async function importCandidateBackup(
     return { success: false, error: `Unsupported backup schema version: ${data.schemaVersion}` };
   }
 
-  if (!data.profile || typeof data.profile !== 'object' || !data.profile.id) {
+  if (!isImportableProfile(data.profile)) {
     return { success: false, error: 'Backup payload missing valid candidate profile' };
+  }
+  if (
+    (data.evidence !== undefined && !Array.isArray(data.evidence)) ||
+    (data.claims !== undefined && !Array.isArray(data.claims)) ||
+    (data.jobs !== undefined && !Array.isArray(data.jobs)) ||
+    (data.applications !== undefined && !Array.isArray(data.applications))
+  ) {
+    return { success: false, error: 'Backup payload contains invalid collection data' };
   }
 
   const profileRepo = new IndexedDbProfileRepository(customFactory);
@@ -95,7 +121,7 @@ export async function importCandidateBackup(
 
   try {
     // Restore profile
-    await profileRepo.saveProfile(data.profile as CandidateProfile);
+    await profileRepo.saveProfile(data.profile);
 
     // Restore evidence
     if (Array.isArray(data.evidence)) {

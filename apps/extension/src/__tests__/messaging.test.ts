@@ -15,6 +15,7 @@ import type {
   PingResponse,
   GetApiKeysStatusResponse,
 } from '../messages/contracts.js';
+import { isValidExtensionRequest } from '../messages/contracts.js';
 
 describe('Extension Messaging Bridge & Contracts', () => {
   let listeners: ((
@@ -44,6 +45,24 @@ describe('Extension Messaging Bridge & Contracts', () => {
         sendMessage: vi.fn(),
       },
     };
+  });
+
+  it('rejects malformed sensitive runtime payloads before handler access', () => {
+    expect(isValidExtensionRequest({ type: 'SET_API_KEY', provider: 'gemini', apiKey: '' })).toBe(false);
+    expect(isValidExtensionRequest({ type: 'EXECUTE_CONTENT_PLAN', plan: { actions: [{ id: 'a' }] } })).toBe(false);
+    expect(isValidExtensionRequest({ type: 'ANSWER_AD_HOC_QUESTION', question: 'x'.repeat(20_001) })).toBe(false);
+  });
+
+  it('accepts bounded execution and answer payloads', () => {
+    expect(isValidExtensionRequest({
+      type: 'EXECUTE_CONTENT_PLAN',
+      plan: { id: 'plan-1', actions: [{ id: 'action-1', actionType: 'fill_text', selector: '#email' }] },
+    })).toBe(true);
+    expect(isValidExtensionRequest({
+      type: 'ANSWER_AD_HOC_QUESTION',
+      question: 'Why are you interested in this role?',
+      maxLength: 500,
+    })).toBe(true);
   });
 
   afterEach(() => {

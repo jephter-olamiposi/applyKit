@@ -42,8 +42,8 @@ export class GeminiProvider extends BaseHttpProvider {
 
   constructor(
     apiKey: string,
-    modelName = 'gemini-flash-lite-latest',
-    timeoutMs = 30000,
+    modelName = 'gemini-3.1-flash-lite',
+    timeoutMs = 15000,
     customFetch?: typeof fetch
   ) {
     super(apiKey, modelName, timeoutMs, customFetch);
@@ -53,13 +53,11 @@ export class GeminiProvider extends BaseHttpProvider {
     const candidateModels = Array.from(
       new Set([
         this.modelName,
-        'gemini-flash-lite-latest',
-        'gemini-3.5-flash-lite',
         'gemini-3.1-flash-lite',
-        'gemini-3.8-flash',
-        'gemini-3.7-flash',
+        'gemini-3.5-flash-lite',
         'gemini-3.5-flash',
-        'gemini-2.0-flash',
+        'gemini-flash-lite-latest',
+        'gemini-2.5-flash-lite',
       ])
     );
 

@@ -7,21 +7,25 @@
  * - Tailoring highlight suggestions ranking candidate projects and work experiences.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import type {
-  JobPosting,
-  JobMatchMatrix,
-  GapAnalysisReport,
-  HighlightSuggestion,
-  Requirement,
-  RequirementMatch,
-  RequirementGap,
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  verifyJobEligibility,
+  type JobPosting,
+  type JobMatchMatrix,
+  type GapAnalysisReport,
+  type HighlightSuggestion,
+  type Requirement,
+  type RequirementMatch,
+  type RequirementGap,
+  type CandidateProfile,
+  type JobEligibilityReport,
 } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
 import type {
   MatchJobRequirementsRequest,
   MatchJobRequirementsResponse,
   AiRequirementAnalysisResult,
+  GetCandidateProfileResponse,
 } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
 
@@ -45,6 +49,27 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
 
   const [filterView, setFilterView] = useState<FilterView>('all');
   const [expandedReqId, setExpandedReqId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<CandidateProfile | null>(null);
+  const [showGateDetails, setShowGateDetails] = useState<boolean>(false);
+
+  useEffect(() => {
+    sendToBackground<{ type: 'GET_CANDIDATE_PROFILE' }, GetCandidateProfileResponse>({
+      type: 'GET_CANDIDATE_PROFILE',
+    })
+      .then((res) => {
+        if (res.profile) {
+          setProfile(res.profile);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load candidate profile for eligibility verification:', err);
+      });
+  }, []);
+
+  const eligibility: JobEligibilityReport | null = useMemo(() => {
+    if (!jobPosting || !profile) return null;
+    return verifyJobEligibility(jobPosting, profile);
+  }, [jobPosting, profile]);
 
   const runAnalysis = useCallback(async () => {
     if (!jobPosting || !jobPosting.requirements || jobPosting.requirements.length === 0) {
@@ -218,6 +243,168 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
 
       {!loading && matrix && gapAnalysis && (
         <>
+          {/* 5-Gate Eligibility Waterfall Card (SKILL.md Phase 2: Verification Precedes Effort) */}
+          {eligibility && (
+            <div
+              className={`eligibility-card eligibility-${eligibility.verdict.toLowerCase()}`}
+              style={{
+                marginBottom: '14px',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                border:
+                  eligibility.verdict === 'BLOCKED'
+                    ? '1px solid #ef4444'
+                    : eligibility.verdict === 'CONDITIONAL'
+                    ? '1px solid #f59e0b'
+                    : '1px solid #10b981',
+                backgroundColor:
+                  eligibility.verdict === 'BLOCKED'
+                    ? '#fef2f2'
+                    : eligibility.verdict === 'CONDITIONAL'
+                    ? '#fffbeb'
+                    : '#f0fdf4',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: '11px',
+                      textTransform: 'uppercase',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      color: '#ffffff',
+                      backgroundColor:
+                        eligibility.verdict === 'BLOCKED'
+                          ? '#dc2626'
+                          : eligibility.verdict === 'CONDITIONAL'
+                          ? '#d97706'
+                          : '#059669',
+                    }}
+                  >
+                    {eligibility.verdict === 'OPEN' && '✓ Eligibility: OPEN'}
+                    {eligibility.verdict === 'CONDITIONAL' && '⚠️ Eligibility: CONDITIONAL'}
+                    {eligibility.verdict === 'BLOCKED' && '🛑 Eligibility: BLOCKED'}
+                  </span>
+                  <span style={{ fontSize: '12px', color: '#374151', fontWeight: 500 }}>
+                    {eligibility.verdict === 'OPEN' && 'Passes 5-gate screening: Geography, Auth, Entity, Timezone, Requirements.'}
+                    {eligibility.verdict === 'CONDITIONAL' && 'Timezone or hours overlap conditional. Candidate confirmation needed.'}
+                    {eligibility.verdict === 'BLOCKED' && 'Ineligible. Hard gate failed. Do not tailor or apply.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowGateDetails(!showGateDetails)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#4b5563',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: '2px 4px',
+                  }}
+                >
+                  {showGateDetails ? 'Hide Gates ▲' : 'Inspect 5 Gates ▼'}
+                </button>
+              </div>
+
+              {/* Failing Gates Verbatim Alert */}
+              {eligibility.verdict === 'BLOCKED' && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: '#fee2e2',
+                    border: '1px solid #fca5a5',
+                    fontSize: '12px',
+                    color: '#991b1b',
+                  }}
+                >
+                  <strong>🛑 Gate Disqualification (Verification Precedes Effort):</strong>
+                  {eligibility.verbatimEvidence && (
+                    <div style={{ fontStyle: 'italic', marginTop: '4px', color: '#7f1d1d' }}>
+                      Employer verbatim: &ldquo;{eligibility.verbatimEvidence}&rdquo;
+                    </div>
+                  )}
+                  <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                    {eligibility.checks
+                      .filter((c) => c.status === 'blocked')
+                      .map((c) => (
+                        <li key={c.gate}>
+                          <strong style={{ textTransform: 'capitalize' }}>{c.gate.replace('_', ' ')}:</strong> {c.reason}
+                          {c.verbatimQuote && c.verbatimQuote !== eligibility.verbatimEvidence && (
+                            <div style={{ fontStyle: 'italic', marginTop: '2px', color: '#7f1d1d' }}>
+                              &ldquo;{c.verbatimQuote}&rdquo;
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                  </ul>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: '#b91c1c' }}>
+                    <em>SKILL.md Phase 2 Rule: Do not invest tailoring effort in roles with hard geographic or legal disqualifications.</em>
+                  </p>
+                </div>
+              )}
+
+              {/* Expandable 5-Gate Checklist */}
+              {showGateDetails && (
+                <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed #d1d5db' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px' }}>
+                    {eligibility.checks.map((c) => (
+                      <div
+                        key={c.gate}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: '4px',
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #e5e7eb',
+                          fontSize: '11px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600, color: '#1f2937', textTransform: 'capitalize' }}>
+                            {c.gate.replace('_', ' ')}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              color:
+                                c.status === 'passed'
+                                  ? '#059669'
+                                  : c.status === 'conditional'
+                                  ? '#d97706'
+                                  : '#dc2626',
+                            }}
+                          >
+                            {c.status}
+                          </span>
+                        </div>
+                        <p style={{ margin: '2px 0 0 0', color: '#6b7280', fontSize: '10px' }}>{c.reason}</p>
+                        {c.verbatimQuote && (
+                          <p style={{ margin: '2px 0 0 0', color: '#4b5563', fontStyle: 'italic', fontSize: '10px' }}>
+                            &ldquo;{c.verbatimQuote}&rdquo;
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Fit Score Hero Card */}
           <section className="fit-hero-card">
             <div className="fit-hero-main">
@@ -259,6 +446,24 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
                   {matrix.experienceShortfallsCount}
                 </span>
                 <span className="fit-metric-label">Shortfalls</span>
+              </div>
+              <div className="fit-metric-item">
+                <span
+                  className="fit-metric-num"
+                  style={{
+                    color:
+                      eligibility?.verdict === 'BLOCKED'
+                        ? '#f87171'
+                        : eligibility?.verdict === 'CONDITIONAL'
+                        ? '#fbbf24'
+                        : '#34d399',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                  }}
+                >
+                  {eligibility ? eligibility.verdict : '—'}
+                </span>
+                <span className="fit-metric-label">5-Gate Status</span>
               </div>
             </div>
           </section>
@@ -438,10 +643,10 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
                               </span>
                             )}
                             <span className="eval-competency-tag">
-                              {req.normalizedSkillOrCompetency}
+                              {req.normalizedSkillOrCompetency || req.category || 'skill'}
                             </span>
                             <span className={`eval-importance-badge ${req.isRequired ? 'badge-req' : 'badge-pref'}`}>
-                              {req.importance.replace('_', ' ')}
+                              {req.importance ? req.importance.replace('_', ' ') : req.isRequired ? 'required' : 'preferred'}
                             </span>
                           </div>
 
@@ -550,7 +755,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
             <button
               type="button"
               className="btn-primary btn-next-step"
-              onClick={() => onNavigateToTab('tailor')}
+              onClick={() => onNavigateToTab('tailor_resume')}
             >
               Next Step: Tailor Resume &amp; Materials &rarr;
             </button>

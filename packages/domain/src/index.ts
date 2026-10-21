@@ -17,6 +17,7 @@ export * from './candidate/links.js';
 export * from './candidate/document.js';
 export * from './candidate/saved-answer.js';
 export * from './candidate/profile.js';
+export * from './candidate/pipeline-yaml-adapter.js';
 
 export * from './evidence/evidence-source.js';
 export * from './evidence/evidence.js';
@@ -37,6 +38,10 @@ export * from './job/gap-analysis.js';
 export * from './job/highlight-engine.js';
 export * from './job/company-culture.js';
 export * from './job/salary-extractor.js';
+export * from './job/eligibility-verifier.js';
+export * from './job/sourcing-dork-generator.js';
+export * from './job/opportunity-ranker.js';
+export * from './job/ats-feed-harvester.js';
 
 export * from './form/field-type.js';
 export * from './form/canonical-fields.js';

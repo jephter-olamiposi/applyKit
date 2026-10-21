@@ -16,6 +16,7 @@ import { parsePlainTextResume } from './parser.js';
 import { createProfileFromParsedResume } from './decomposer.js';
 import { isImageResume, extractTextFromImageBytes } from './image-resume-parser.js';
 import type { ProfileId } from '../types/ids.js';
+import mammoth from 'mammoth';
 
 /**
  * Result of client-side resume ingestion and profile bootstrapping.
@@ -272,6 +273,15 @@ export async function decompressFlateStream(bytes: Uint8Array): Promise<Uint8Arr
  * @returns Clean, multi-line extracted text with sections intact.
  */
 export async function extractTextFromPdfBytes(pdfBytes: Uint8Array): Promise<string> {
+  try {
+    const extracted = await extractTextWithPdfJs(pdfBytes);
+    if (extracted.trim().length >= 32) {
+      return extracted;
+    }
+  } catch {
+    // Fall back to the local operator parser for environments without PDF.js support.
+  }
+
   const contentStreams: string[] = [];
   const cmaps: Array<Map<number, string>> = [];
 
@@ -292,6 +302,7 @@ export async function extractTextFromPdfBytes(pdfBytes: Uint8Array): Promise<str
       for (let d = dictStart; d < pos; d++) {
         dictText += String.fromCharCode(pdfBytes[d]!);
       }
+
       const isFlate = dictText.includes('/FlateDecode');
 
       // Skip the end-of-line marker right after 'stream' (\r\n or \n)
@@ -458,10 +469,125 @@ export async function extractTextFromPdfBytes(pdfBytes: Uint8Array): Promise<str
 }
 
 /**
+ * Extracts PDF text using PDF.js layout-aware text items.
+ *
+ * This path handles resumes where every glyph is emitted as an independent text
+ * object, which cannot be reconstructed reliably from PDF operators alone.
+ */
+async function extractTextWithPdfJs(pdfBytes: Uint8Array): Promise<string> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const runtime = globalThis as typeof globalThis & { location?: { href: string } };
+  if (runtime.location) {
+    const extensionRuntime = globalThis as typeof globalThis & {
+      chrome?: { runtime?: { getURL?: (path: string) => string } };
+    };
+    pdfjs.GlobalWorkerOptions.workerSrc =
+      extensionRuntime.chrome?.runtime?.getURL?.('assets/pdf.worker.mjs') ??
+      '/assets/pdf.worker.mjs';
+  }
+  const loadingTask = pdfjs.getDocument({
+    data: pdfBytes,
+    useWorkerFetch: false,
+  });
+  const document = await loadingTask.promise;
+  const pageTexts: string[] = [];
+
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const viewport = page.getViewport({ scale: 1 });
+      const lines: Array<{ y: number; x: number; text: string }> = [];
+
+      for (const item of content.items) {
+        if (!('str' in item) || !item.str.trim()) continue;
+        const x = item.transform[4] ?? 0;
+        const y = item.transform[5] ?? 0;
+        lines.push({ x, y, text: item.str });
+      }
+
+      const lineGroups: Array<{ y: number; items: Array<{ x: number; text: string }> }> = [];
+      for (const item of lines.sort((left, right) => right.y - left.y || left.x - right.x)) {
+        const line = lineGroups.find((candidate) => Math.abs(candidate.y - item.y) <= 2.5);
+        if (line) {
+          line.items.push({ x: item.x, text: item.text });
+        } else {
+          lineGroups.push({ y: item.y, items: [{ x: item.x, text: item.text }] });
+        }
+      }
+
+      const normalizedLines = lineGroups
+        .map((line) => ({
+          y: line.y,
+          x: Math.min(...line.items.map((item) => item.x)),
+          text: line.items
+            .sort((left, right) => left.x - right.x)
+            .map((item) => item.text)
+            .join(' ')
+            .replace(/\b([a-z])\s+(fi|ffi|fl)\s+(?=[a-z])/gi, '$1$2')
+            .replace(/\b(fi|ffi|fl)\s+(?=[a-z])/gi, '$1')
+            .replace(/\s+/g, ' ')
+            .trim(),
+        }))
+        .filter((line) => line.text);
+
+      const columnStarts = [...new Set(normalizedLines.map((line) => Math.round(line.x / 20) * 20))].sort(
+        (left, right) => left - right
+      );
+      const largestGap = columnStarts.reduce(
+        (largest, start, index) => Math.max(largest, index > 0 ? start - columnStarts[index - 1]! : 0),
+        0
+      );
+      const hasColumns = largestGap >= viewport.width * 0.18 && columnStarts.length >= 2;
+      const splitAt = hasColumns
+        ? columnStarts.findIndex((start, index) => index > 0 && start - columnStarts[index - 1]! === largestGap)
+        : -1;
+      const leftBoundary = splitAt > 0 ? columnStarts[splitAt]! : Number.POSITIVE_INFINITY;
+
+      const pageLines = hasColumns
+        ? [
+            ...normalizedLines.filter((line) => line.x < leftBoundary).sort((left, right) => right.y - left.y),
+            ...normalizedLines.filter((line) => line.x >= leftBoundary).sort((left, right) => right.y - left.y),
+          ]
+        : normalizedLines.sort((left, right) => right.y - left.y);
+
+      pageTexts.push(pageLines.map((line) => line.text).join('\n'));
+    }
+  } finally {
+    await loadingTask.destroy();
+  }
+
+  return pageTexts.join('\n');
+}
+
+/**
+ * Extracts paragraph text from a DOCX document without sending the file off-device.
+ *
+ * DOCX files are ZIP packages, so decoding their bytes as UTF-8 would expose
+ * archive metadata instead of resume content.
+ */
+export async function extractTextFromDocxBytes(docxBytes: Uint8Array): Promise<string> {
+  const arrayBuffer = docxBytes.buffer.slice(
+    docxBytes.byteOffset,
+    docxBytes.byteOffset + docxBytes.byteLength
+  ) as ArrayBuffer;
+  const input =
+    typeof Buffer !== 'undefined'
+      ? { buffer: Buffer.from(docxBytes) }
+      : { arrayBuffer };
+  const result = await mammoth.extractRawText(input);
+  const text = result.value.trim();
+  if (!text) {
+    throw new Error('The DOCX file contains no readable text.');
+  }
+  return text;
+}
+
+/**
  * Unified entry point to parse a resume document from binary or text input,
  * construct a structured CandidateProfile aggregate, and generate atomic Evidence nodes.
  *
- * Supports PDF (.pdf), Markdown (.md), Plain Text (.txt), and JSON (.json) files.
+ * Supports PDF (.pdf), DOCX (.docx), Markdown (.md), Plain Text (.txt), and JSON (.json) files.
  *
  * @param buffer Raw file bytes or UTF-8 text string.
  * @param fileName Optional file name used to assist format determination.
@@ -482,11 +608,14 @@ export async function bootstrapProfileFromResume(
     const isPdf =
       (fileName && /\.pdf$/i.test(fileName)) ||
       (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46); // %PDF
+    const isDocx = fileName ? /\.docx$/i.test(fileName) : false;
 
     const isImage = isImageResume(bytes, fileName);
 
     if (isPdf) {
       rawText = await extractTextFromPdfBytes(bytes);
+    } else if (isDocx) {
+      rawText = await extractTextFromDocxBytes(bytes);
     } else if (isImage) {
       rawText = extractTextFromImageBytes(bytes, fileName);
     } else {
@@ -541,6 +670,8 @@ export async function bootstrapProfileFromResume(
               graduationDate: ed.endDate,
             })),
             skills: profile.skills.map((s) => s.name),
+            unclassifiedText: [],
+            reviewWarnings: [],
           },
           profile,
           evidence: [],

@@ -17,6 +17,7 @@ import { TailoringStudio } from './components/TailoringStudio.js';
 import { ApiSettings } from './components/ApiSettings.js';
 import { OnboardingWizard } from './components/OnboardingWizard.js';
 import { InstantQuestionSolver } from './components/InstantQuestionSolver.js';
+import { SourcedOpportunitiesFeed } from './components/SourcedOpportunitiesFeed.js';
 import { sendToBackground } from '../messages/bridge.js';
 import type {
   ExtractedPageData,
@@ -207,49 +208,91 @@ export const App: React.FC = () => {
                 jobPosting={jobPosting}
                 isExtracting={isExtracting}
                 onExtract={handleExtract}
-                onViewRequirements={() => setActiveTab('requirements')}
-                onViewMatch={() => setActiveTab('match')}
+                onViewRequirements={() => setActiveTab('review_matches')}
+                onViewMatch={() => setActiveTab('review_matches')}
                 onNavigateToTab={setActiveTab}
                 error={extractionError}
               />
             )}
 
-            {activeTab === 'requirements' && (
-              <RequirementsList
-                requirements={jobPosting?.requirements || []}
+            {activeTab === 'sourced_feed' && (
+              <SourcedOpportunitiesFeed
+                profile={profile}
                 onNavigateToTab={setActiveTab}
               />
             )}
 
-            {activeTab === 'match' && (
-              <MatchAnalysis
-                jobPosting={jobPosting}
-                onNavigateToTab={setActiveTab}
-              />
+            {activeTab === 'review_matches' && (
+              <div className="focused-page">
+                <div className="focused-page-header">
+                  <p className="focused-page-kicker">Step 2</p>
+                  <h2>Review Matches</h2>
+                  <p>Check eligibility, requirements, and evidence before preparing documents.</p>
+                </div>
+                <MatchAnalysis jobPosting={jobPosting} onNavigateToTab={setActiveTab} />
+                <RequirementsList
+                  requirements={jobPosting?.requirements || []}
+                  onNavigateToTab={setActiveTab}
+                />
+              </div>
             )}
 
-            {activeTab === 'tailor' && (
-              <TailoringStudio onNavigateToTab={setActiveTab} />
+            {activeTab === 'tailor_resume' && (
+              <div className="focused-page">
+                <div className="focused-page-header">
+                  <p className="focused-page-kicker">Step 3</p>
+                  <h2>Tailor Resume</h2>
+                  <p>Reorder and emphasize verified experience without changing your facts.</p>
+                </div>
+                <TailoringStudio
+                  initialMode="resume"
+                  showModeSwitcher={false}
+                  onNavigateToTab={setActiveTab}
+                />
+              </div>
+            )}
+
+            {activeTab === 'cover_letter' && (
+              <div className="focused-page">
+                <div className="focused-page-header">
+                  <p className="focused-page-kicker">Step 3</p>
+                  <h2>Cover Letter</h2>
+                  <p>Prepare an evidence-backed letter for the selected job.</p>
+                </div>
+                <TailoringStudio
+                  initialMode="cover_letter"
+                  showModeSwitcher={false}
+                  onNavigateToTab={setActiveTab}
+                />
+              </div>
             )}
 
             {activeTab === 'evidence' && (
               <EvidenceViewer onProfileUpdated={loadInitialData} />
             )}
 
-            {activeTab === 'form' && (
-              <FormInspector onNavigateToTab={setActiveTab} />
+            {activeTab === 'prepare_application' && (
+              <div className="focused-page">
+                <div className="focused-page-header">
+                  <p className="focused-page-kicker">Step 5</p>
+                  <h2>Prepare Application</h2>
+                  <p>Review fields, answers, and browser actions before you submit manually.</p>
+                </div>
+                <FormInspector onNavigateToTab={setActiveTab} />
+                <DryRunInspector onNavigateToTab={setActiveTab} />
+                <InstantQuestionSolver initialOpen={false} isDedicatedTab={false} />
+              </div>
             )}
 
-            {activeTab === 'dry_run' && (
-              <DryRunInspector onNavigateToTab={setActiveTab} />
-            )}
-
-            {activeTab === 'instant_qa' && (
-              <InstantQuestionSolver initialOpen={true} isDedicatedTab={true} />
-            )}
-
-            {activeTab === 'history' && (
-              <ApplicationTracker onNavigateToTab={setActiveTab} />
+            {activeTab === 'track' && (
+              <div className="focused-page">
+                <div className="focused-page-header">
+                  <p className="focused-page-kicker">Step 6</p>
+                  <h2>Track</h2>
+                  <p>Keep every application, status, and next action in one place.</p>
+                </div>
+                <ApplicationTracker onNavigateToTab={setActiveTab} />
+              </div>
             )}
 
             {activeTab === 'profile' && (

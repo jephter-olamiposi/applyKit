@@ -128,6 +128,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [ingestStats, setIngestStats] = useState<{ evidenceCount: number; claimsCount: number } | null>(null);
+  const [reviewWarnings, setReviewWarnings] = useState<readonly string[]>([]);
 
   // Step 2: Contact, Location, Work Authorization & Compensation State
   const [firstName, setFirstName] = useState('');
@@ -184,6 +185,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
     try {
       const parsed = parsePlainTextResume(raw);
+      setReviewWarnings(parsed.reviewWarnings);
 
       if (parsed.identity.fullName) {
         const parts = parsed.identity.fullName.trim().split(/\s+/);
@@ -234,6 +236,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       } else if (!resumeFileName) {
         setResumeFileName('Master_Resume.txt');
       }
+      setCurrentStep(2);
 
       // Grounding invariant: Decompose resume into EvidenceGraph in background worker
       const res = await sendToBackground<IngestResumeRequest, IngestResumeResponse>({
@@ -248,8 +251,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         });
       }
 
-      // Auto-advance to Step 2 so the user can verify pre-filled profile data
-      setCurrentStep(2);
     } catch (err) {
       setErrorMsg('Resume parsing notice: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -274,7 +275,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   };
 
   /**
-   * Processes incoming resume file (PDF, TXT, MD, JSON) client-side.
+   * Processes incoming resume file (PDF, DOCX, TXT, MD, JSON) client-side.
    */
   const processIncomingResumeFile = async (file: File) => {
     setResumeFileName(file.name);
@@ -282,11 +283,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setErrorMsg(null);
 
     const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+    const isDocx =
+      file.name.toLowerCase().endsWith('.docx') ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
     try {
-      if (isPdf) {
+      if (isPdf || isDocx) {
         const buffer = await file.arrayBuffer();
         const bootstrapped = await bootstrapProfileFromResume(buffer, file.name);
+        setReviewWarnings(bootstrapped.parsed.reviewWarnings);
+        if (
+          bootstrapped.rawText.trim().length < 32 ||
+          (!bootstrapped.profile.identity.email &&
+            !bootstrapped.profile.identity.legalFirstName &&
+            bootstrapped.profile.experiences.length === 0 &&
+            bootstrapped.profile.skills.length === 0)
+        ) {
+          throw new Error(
+            'The document text could not be read reliably. Try exporting the resume as a text-based PDF or DOCX, then upload it again.'
+          );
+        }
         populateFromCandidateProfile(bootstrapped.profile, bootstrapped.rawText, file.name);
 
         const res = await sendToBackground<CommitBootstrappedProfileRequest, CommitBootstrappedProfileResponse>({
@@ -295,12 +311,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           evidence: [...bootstrapped.evidence],
         });
 
-        if (res && res.success) {
-          setIngestStats({
-            evidenceCount: bootstrapped.evidence.length,
-            claimsCount: bootstrapped.profile.claims.length,
-          });
+        if (!res?.success) {
+          throw new Error(res?.error || 'Resume evidence indexing failed.');
         }
+        setIngestStats({
+          evidenceCount: bootstrapped.evidence.length,
+          claimsCount: bootstrapped.profile.claims.length,
+        });
         setCurrentStep(2);
       } else {
         const text = await file.text();
@@ -588,7 +605,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <input
               id="resume-file-input"
               type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.text,.json,application/pdf,image/*"
+              accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.txt,.md,.text,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
               style={{ display: 'none' }}
               onChange={handleFileUpload}
             />
@@ -597,7 +614,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               {resumeFileName ? `Selected: ${resumeFileName}` : 'Drop your resume file here, or click to browse'}
             </p>
             <p className="resume-dropzone-sub">
-              Supports .pdf, .png, .jpg, .txt, .md, or .json CVs (Local-first vector extraction)
+              Supports .pdf or .docx resumes, plus .png, .jpg, .txt, .md, or .json CVs (local extraction)
             </p>
           </div>
 
@@ -670,6 +687,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           {ingestStats && (
             <div className="ingest-stats-pill" style={{ margin: '0 0 4px 0' }}>
               ✓ Resume decomposed into {ingestStats.evidenceCount} atomic evidence items & {ingestStats.claimsCount} verified claims.
+            </div>
+          )}
+          {reviewWarnings.length > 0 && (
+            <div className="resume-review-warning" role="status">
+              <strong>Review before saving:</strong>
+              <ul>
+                {reviewWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
             </div>
           )}
 

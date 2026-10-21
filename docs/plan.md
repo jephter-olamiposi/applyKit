@@ -348,5 +348,16 @@ ApplyKit is a local-first, privacy-respecting browser extension and engine that 
   - Integrated image support into `bootstrapProfileFromResume`, `OnboardingWizard.tsx`, and `ProfileSummary.tsx`.
 - **Exit Criteria:** Tested and verified with 4/4 tests green.
 
+---
+
+## Phase 28: Runtime Boundary Validation & Release Hygiene — ✅ Complete
+- **Objective:** Reject malformed cross-context messages and ensure generated release artifacts are complete and reproducible.
+- **Deliverables:**
+  - Runtime validation for sensitive background and content-script message payloads.
+  - Grounded answer validation across ad-hoc and form-filling paths.
+  - PDF.js worker packaging through the release script.
+  - Release and regression coverage for the worker, manifest, archive, resume ingestion, and submission hard gate.
+  - Git ignore rules for local pipeline references and generated resume scratch files.
+- **Exit Criteria:** Full suite passes, production build succeeds, and the release archive contains all required runtime assets.
 
 

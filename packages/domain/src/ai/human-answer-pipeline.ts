@@ -90,26 +90,7 @@ export const HUMAN_ANSWER_PIPELINE_STEPS: readonly PipelineStep[] = [
     name: 'remove_generic_ai_language',
     execute: async (ctx) => {
       if (!ctx.draftedAnswer) return ctx;
-      let cleaned = ctx.draftedAnswer;
-      
-      for (const pattern of FORBIDDEN_PATTERNS) {
-        cleaned = cleaned.replace(pattern, '');
-      }
-      for (const pattern of CORPORATE_FILLER_PATTERNS) {
-        cleaned = cleaned.replace(pattern, '');
-      }
-      for (const pattern of AI_PHRASING_PATTERNS) {
-        cleaned = cleaned.replace(pattern, '');
-      }
-      
-      cleaned = cleaned
-        .replace(/—/g, '')
-        .replace(/:/g, '')
-        .replace(/^\s*[-•]\s+/gm, '')
-        .replace(/^#{1,6}\s+/gm, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-      
+      const cleaned = sanitizeHumanText(ctx.draftedAnswer);
       return { ...ctx, cleanedAnswer: cleaned };
     },
   },
@@ -347,19 +328,13 @@ export async function generateHumanAnswer(
 }
 
 /**
- * Applies the writing quality validation and cleaning to already-generated text (synchronous version).
- * Used for deterministic content (cover letters, resumes) that wasn't AI-generated.
+ * Programmatically cleans and humanizes text by stripping AI phrasing,
+ * conversational throat-clearing, corporate clichés, and markdown formatting.
+ *
+ * @param text The input text to clean.
+ * @returns Cleaned, human-authentic text.
  */
-export function applyWritingQualityPassSync(
-  text: string,
-  writingStyle: WritingStyleProfile
-): {
-  cleanedText: string;
-  passedQualityCheck: boolean;
-  violations: readonly string[];
-  suggestions: readonly string[];
-} {
-  // Apply cleaning steps directly (no async)
+export function sanitizeHumanText(text: string): string {
   let cleaned = text;
 
   // Remove forbidden patterns
@@ -373,6 +348,16 @@ export function applyWritingQualityPassSync(
     cleaned = cleaned.replace(pattern, '');
   }
 
+  // Remove conversational preambles & throat-clearing
+  cleaned = cleaned.replace(
+    /^(Certainly!|Sure!|Sure thing!|Here is|Here's an|I'd be happy to|Gladly|Of course!)[,\.\s]+/i,
+    ''
+  );
+  cleaned = cleaned.replace(
+    /^(As an experienced|As a seasoned|With over \d+ years of experience in)[^,]+,\s*/i,
+    ''
+  );
+
   // Remove unnecessary explanation
   cleaned = cleaned.replace(
     /^(I think|I believe|In my opinion|It seems to me|From my perspective),?\s*/i,
@@ -383,20 +368,57 @@ export function applyWritingQualityPassSync(
     ''
   );
   cleaned = cleaned.replace(
-    /(in conclusion|to summarize|overall|in summary),?\s*$/i,
+    /\s*(?:I look forward to (?:hearing from you|discussing this opportunity)|Thank you for (?:your time and consideration|considering my application))\.?\s*$/i,
+    ''
+  );
+  cleaned = cleaned.replace(
+    /\b(in conclusion|to summarize|in summary|to conclude),?\s*/gi,
     ''
   );
 
-  // Remove stylistic devices
+  // Remove stylistic devices & markdown in plain answers
   cleaned = cleaned
-    .replace(/—/g, '')
-    .replace(/:/g, '')
-    .replace(/^\s*[-•]\s+/gm, '')
+    .replace(/—/g, ', ')
+    .replace(/:\s*$/gm, '.')
+    .replace(/^\s*[-•*]\s+/gm, '')
     .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n{3,}/g, '\n\n');
+
+  // Collapse duplicate spaces and clean up orphan punctuation
+  cleaned = cleaned
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/^\s*[,;.-]\s*/, '')
+    .replace(/([.!?])\s*[,;]\s*/g, '$1 ')
+    .replace(/\s+([,;.!?])/g, '$1')
     .trim();
 
-  // Validate quality
+  // Capitalize initial letter if stripped first word was lowercase
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  return cleaned;
+}
+
+/**
+ * Applies writing quality validation and cleaning to text (synchronous version).
+ * Cleans conversational preambles, forbidden AI phrases, and corporate filler,
+ * then validates against the candidate's WritingStyleProfile.
+ *
+ * @param text The input text to clean and validate.
+ * @param writingStyle The candidate's writing style profile.
+ * @returns Object containing cleaned text, quality check status, violations, and suggestions.
+ */
+export function applyWritingQualityPassSync(
+  text: string,
+  writingStyle: WritingStyleProfile
+): {
+  cleanedText: string;
+  passedQualityCheck: boolean;
+  violations: readonly string[];
+  suggestions: readonly string[];
+} {
+  const cleaned = sanitizeHumanText(text);
   const result = validateWritingQuality(cleaned, writingStyle);
 
   return {

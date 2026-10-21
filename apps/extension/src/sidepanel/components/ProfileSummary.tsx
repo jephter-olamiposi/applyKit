@@ -15,6 +15,8 @@ import type {
   SaveCandidateProfileResponse,
   ExportBackupResponse,
   ImportBackupResponse,
+  ExportProfileYamlResponse,
+  ImportProfileYamlResponse,
   PurgeAllDataResponse,
   IngestResumeRequest,
   IngestResumeResponse,
@@ -28,6 +30,10 @@ import {
   type CandidateProfile,
   type CandidateSkill,
   type SavedAnswer,
+  type EmploymentPreference,
+  type SkillCategory,
+  type SkillProficiency,
+  type TargetSeniority,
 } from '@applykit/domain';
 
 interface ProfileSummaryProps {
@@ -35,6 +41,14 @@ interface ProfileSummaryProps {
   readonly loading: boolean;
   readonly onProfileUpdated: () => void;
   readonly onPurged?: () => void;
+}
+
+interface SkillDraft {
+  readonly id: string;
+  name: string;
+  category: SkillCategory;
+  proficiency: SkillProficiency;
+  yearsOfExperience: string;
 }
 
 /**
@@ -55,6 +69,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editHeadline, setEditHeadline] = useState('');
+  const [editTargetSeniority, setEditTargetSeniority] = useState<TargetSeniority>('any');
 
   // Location Form States
   const [editCity, setEditCity] = useState('');
@@ -73,6 +88,11 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
   const [editCurrency, setEditCurrency] = useState('USD');
   const [editNoticePeriodDays, setEditNoticePeriodDays] = useState<number | string>('');
   const [editEarliestStartDate, setEditEarliestStartDate] = useState('');
+  const [editWorkplacePreference, setEditWorkplacePreference] = useState<
+    'remote' | 'hybrid' | 'onsite' | 'any'
+  >('remote');
+  const [editEmploymentPreference, setEditEmploymentPreference] =
+    useState<EmploymentPreference>('any');
 
   // Links Form States
   const [editLinkedin, setEditLinkedin] = useState('');
@@ -80,7 +100,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
   const [editPortfolio, setEditPortfolio] = useState('');
 
   // Skills
-  const [editSkills, setEditSkills] = useState('');
+  const [editSkillDrafts, setEditSkillDrafts] = useState<SkillDraft[]>([]);
 
   // Master Resume Hub State
   const [showResumeModal, setShowResumeModal] = useState(false);
@@ -116,6 +136,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     setEditEmail(p.identity.email || '');
     setEditPhone(p.identity.phone || '');
     setEditHeadline(p.professional.headline || '');
+    setEditTargetSeniority(p.professional.targetSeniority || 'any');
 
     setEditCity(p.identity.location?.city || '');
     setEditStateOrProvince(p.identity.location?.stateOrProvince || '');
@@ -131,12 +152,26 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     setEditCurrency(p.professional.compensationExpectation?.currency || 'USD');
     setEditNoticePeriodDays(p.professional.noticePeriodDays ?? '');
     setEditEarliestStartDate(p.professional.earliestStartDate || '');
+    setEditWorkplacePreference(
+      p.professional.workplacePreference === 'flexible'
+        ? 'any'
+        : p.professional.workplacePreference
+    );
+    setEditEmploymentPreference(p.professional.employmentPreference || 'any');
 
     setEditLinkedin(p.links?.linkedin || '');
     setEditGithub(p.links?.github || '');
     setEditPortfolio(p.links?.portfolio || p.links?.personalBlog || '');
 
-    setEditSkills(p.skills.map((s) => s.name).join(', '));
+    setEditSkillDrafts(
+      p.skills.map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        category: skill.category,
+        proficiency: skill.proficiency,
+        yearsOfExperience: skill.yearsOfExperience?.toString() || '',
+      }))
+    );
   };
 
   const startEdit = async () => {
@@ -168,20 +203,21 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     try {
       let baseProfile: CandidateProfile = fullProfile ?? createEmptyProfile();
 
-      // Parse comma-separated skills
-      const skillNames = editSkills
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-
-      const parsedSkills: CandidateSkill[] = skillNames.map((name) => ({
-        id: createSkillId(),
-        name,
-        normalizedName: normalizeSkillName(name),
-        category: 'framework',
-        proficiency: 'advanced',
-        evidenceRefs: [],
-      }));
+      const parsedSkills: CandidateSkill[] = editSkillDrafts
+        .filter((skill) => skill.name.trim().length > 0)
+        .map((skill) => {
+          const existing = baseProfile.skills.find((candidateSkill) => candidateSkill.id === skill.id);
+          const years = skill.yearsOfExperience.trim() ? Number(skill.yearsOfExperience) : undefined;
+          return {
+            id: existing?.id || createSkillId(),
+            name: skill.name.trim(),
+            normalizedName: normalizeSkillName(skill.name),
+            category: skill.category,
+            proficiency: skill.proficiency,
+            yearsOfExperience: years !== undefined && Number.isFinite(years) && years >= 0 ? years : undefined,
+            evidenceRefs: existing?.evidenceRefs || [],
+          };
+        });
 
       const numSalary = editSalaryMin !== '' ? Number(editSalaryMin) : undefined;
       const numNotice = editNoticePeriodDays !== '' ? Number(editNoticePeriodDays) : undefined;
@@ -211,6 +247,9 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         professional: {
           ...baseProfile.professional,
           headline: editHeadline.trim(),
+          targetSeniority: editTargetSeniority,
+          workplacePreference: editWorkplacePreference,
+          employmentPreference: editEmploymentPreference,
           noticePeriodDays: numNotice,
           earliestStartDate: editEarliestStartDate.trim() || undefined,
           compensationExpectation: numSalary
@@ -333,6 +372,62 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     e.target.value = '';
   };
 
+  const handleExportYaml = async () => {
+    setActionStatus(null);
+    try {
+      const res = await sendToBackground<
+        { type: 'EXPORT_PROFILE_YAML' },
+        ExportProfileYamlResponse
+      >({ type: 'EXPORT_PROFILE_YAML' });
+
+      if (res && res.success && res.yaml) {
+        const blob = new Blob([res.yaml], { type: 'text/yaml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.filename || 'profile.yaml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setActionStatus(`profile.yaml downloaded successfully (${res.filename || 'profile.yaml'}).`);
+      } else {
+        setActionStatus(`Export YAML error: ${res?.error || 'Failed to export YAML'}`);
+      }
+    } catch (err) {
+      setActionStatus(`Export YAML error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleImportYaml = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setActionStatus(null);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const yamlContent = event.target?.result as string;
+        const res = await sendToBackground<
+          { type: 'IMPORT_PROFILE_YAML'; yamlContent: string },
+          ImportProfileYamlResponse
+        >({ type: 'IMPORT_PROFILE_YAML', yamlContent });
+
+        if (res && res.success) {
+          setActionStatus('profile.yaml imported and merged successfully.');
+          await loadFullProfile();
+          onProfileUpdated();
+        } else {
+          setActionStatus(`YAML Import failed: ${res?.error || 'Malformed YAML file'}`);
+        }
+      } catch (err) {
+        setActionStatus(`YAML Import error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const handlePurge = async () => {
     if (
       !window.confirm(
@@ -366,9 +461,12 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     if (!file) return;
     setNewResumeFileName(file.name);
     const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+    const isDocx =
+      file.name.toLowerCase().endsWith('.docx') ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
     try {
-      if (isPdf) {
+      if (isPdf || isDocx) {
         const buffer = await file.arrayBuffer();
         const bootstrapped = await bootstrapProfileFromResume(buffer, file.name);
         setNewResumeText(bootstrapped.rawText);
@@ -490,6 +588,23 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                 placeholder="e.g. Senior Full Stack Engineer"
               />
             </div>
+            <div className="form-group">
+              <label className="form-label">Target Role Level</label>
+              <select
+                className="form-select"
+                value={editTargetSeniority}
+                onChange={(e) => setEditTargetSeniority(e.target.value as TargetSeniority)}
+              >
+                <option value="any">Any level</option>
+                <option value="intern">Internship</option>
+                <option value="junior">Junior</option>
+                <option value="mid">Mid-level</option>
+                <option value="senior">Senior</option>
+                <option value="staff">Staff</option>
+                <option value="principal">Principal</option>
+              </select>
+              <small className="form-help">This controls targeting; it does not change your past job titles.</small>
+            </div>
           </div>
 
           {/* Section: Location */}
@@ -595,6 +710,41 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
             <h4 className="form-section-title">💰 Compensation & Availability</h4>
             <div className="form-row-2col">
               <div className="form-group">
+                <label className="form-label">Workplace Preference</label>
+                <select
+                  className="form-select"
+                  value={editWorkplacePreference}
+                  onChange={(e) =>
+                    setEditWorkplacePreference(
+                      e.target.value as 'remote' | 'hybrid' | 'onsite' | 'any'
+                    )
+                  }
+                >
+                  <option value="remote">Remote only</option>
+                  <option value="hybrid">Hybrid only</option>
+                  <option value="onsite">Onsite only</option>
+                  <option value="any">Any workplace</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Employment Type</label>
+                <select
+                  className="form-select"
+                  value={editEmploymentPreference}
+                  onChange={(e) =>
+                    setEditEmploymentPreference(e.target.value as EmploymentPreference)
+                  }
+                >
+                  <option value="any">Any employment type</option>
+                  <option value="full_time">Full time</option>
+                  <option value="part_time">Part time</option>
+                  <option value="contract">Contract</option>
+                  <option value="internship">Internship</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-row-2col">
+              <div className="form-group">
                 <label className="form-label">Target Salary (Min)</label>
                 <input
                   type="number"
@@ -684,16 +834,127 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
           {/* Section: Skills */}
           <div className="form-section-card">
             <h4 className="form-section-title">⚡ Skills</h4>
-            <div className="form-group">
-              <label className="form-label">Skills (comma-separated)</label>
-              <input
-                type="text"
-                className="form-input"
-                value={editSkills}
-                onChange={(e) => setEditSkills(e.target.value)}
-                placeholder="e.g. TypeScript, React, Rust, PostgreSQL, Docker"
-              />
-            </div>
+            <p className="form-help">
+              Add a skill only when you can stand behind it. Tailored resumes can include these confirmed skills.
+            </p>
+            {editSkillDrafts.map((skill, index) => (
+              <div className="form-section-card" key={skill.id} style={{ marginBottom: '8px' }}>
+                <div className="form-row-2col">
+                  <div className="form-group">
+                    <label className="form-label">Skill</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={skill.name}
+                      onChange={(e) =>
+                        setEditSkillDrafts((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, name: e.target.value } : item
+                          )
+                        )
+                      }
+                      placeholder="e.g. Go"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
+                    <select
+                      className="form-select"
+                      value={skill.category}
+                      onChange={(e) =>
+                        setEditSkillDrafts((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, category: e.target.value as SkillCategory }
+                              : item
+                          )
+                        )
+                      }
+                    >
+                      <option value="language">Programming language</option>
+                      <option value="framework">Framework</option>
+                      <option value="library">Library</option>
+                      <option value="database">Database</option>
+                      <option value="cloud_infrastructure">Cloud / infrastructure</option>
+                      <option value="devops_tool">Tool</option>
+                      <option value="architecture_pattern">Architecture</option>
+                      <option value="soft_skill">Soft skill</option>
+                      <option value="domain_expertise">Domain expertise</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-row-2col">
+                  <div className="form-group">
+                    <label className="form-label">Level</label>
+                    <select
+                      className="form-select"
+                      value={skill.proficiency}
+                      onChange={(e) =>
+                        setEditSkillDrafts((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, proficiency: e.target.value as SkillProficiency }
+                              : item
+                          )
+                        )
+                      }
+                    >
+                      <option value="beginner">Beginner</option>
+                      <option value="intermediate">Intermediate</option>
+                      <option value="advanced">Advanced</option>
+                      <option value="expert">Expert</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Years used (optional)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      className="form-input"
+                      value={skill.yearsOfExperience}
+                      onChange={(e) =>
+                        setEditSkillDrafts((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, yearsOfExperience: e.target.value }
+                              : item
+                          )
+                        )
+                      }
+                      placeholder="e.g. 3"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-small btn-secondary"
+                  onClick={() =>
+                    setEditSkillDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                  }
+                >
+                  Remove skill
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn btn-small btn-secondary"
+              onClick={() =>
+                setEditSkillDrafts((current) => [
+                  ...current,
+                  {
+                    id: `new-skill-${Date.now()}-${current.length}`,
+                    name: '',
+                    category: 'language',
+                    proficiency: 'intermediate',
+                    yearsOfExperience: '',
+                  },
+                ])
+              }
+            >
+              Add skill
+            </button>
           </div>
 
           <div className="form-actions">
@@ -1006,6 +1267,32 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
               >
                 Factory Reset / Wipe All
               </button>
+            </div>
+
+            {/* Pipeline YAML Interoperability */}
+            <div className="pipeline-yaml-actions" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e5e7eb' }}>
+              <div style={{ fontSize: '11px', color: '#4b5563', marginBottom: '6px', fontWeight: 600 }}>
+                Job Application Pipeline (profile.yaml)
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-small btn-secondary"
+                  onClick={handleExportYaml}
+                  title="Export profile into job-application-pipeline compatible YAML format"
+                >
+                  📤 Export profile.yaml
+                </button>
+                <label className="btn btn-small btn-secondary file-upload-label" style={{ cursor: 'pointer' }}>
+                  📥 Import profile.yaml
+                  <input
+                    type="file"
+                    accept=".yaml,.yml,text/yaml,text/plain"
+                    onChange={handleImportYaml}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              </div>
             </div>
           </div>
         </div>

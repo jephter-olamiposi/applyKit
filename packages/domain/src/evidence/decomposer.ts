@@ -24,7 +24,7 @@ import {
 } from '../types/ids.js';
 import type { Evidence } from './evidence.js';
 import type { ParsedResumeDocument } from './parser.js';
-import { normalizeSkillName } from '../candidate/skill.js';
+import { normalizeSkillName, categorizeSkill } from '../candidate/skill.js';
 
 /**
  * Result of decomposing a candidate profile or document into atomic evidence nodes.
@@ -32,32 +32,6 @@ import { normalizeSkillName } from '../candidate/skill.js';
 export interface DecompositionResult {
   readonly evidence: readonly Evidence[];
   readonly updatedProfile: CandidateProfile;
-}
-
-/**
- * Heuristically categorizes a skill based on common terminology.
- */
-function categorizeSkill(name: string): SkillCategory {
-  const lower = name.toLowerCase();
-  if (/typescript|javascript|python|rust|go|golang|java|c\+\+|c#|ruby|php|swift|kotlin|sql/i.test(lower)) {
-    return 'language';
-  }
-  if (/react|vue|angular|svelte|next\.?js|express|nestjs|django|flask|spring|rails/i.test(lower)) {
-    return 'framework';
-  }
-  if (/postgres|mysql|mongodb|redis|cassandra|dynamodb|sqlite|elasticsearch/i.test(lower)) {
-    return 'database';
-  }
-  if (/aws|gcp|azure|docker|kubernetes|terraform|ci\/cd|linux|serverless/i.test(lower)) {
-    return 'cloud_infrastructure';
-  }
-  if (/git|github|jira|webpack|vite|vitest|jest|cypress|playwright/i.test(lower)) {
-    return 'devops_tool';
-  }
-  if (/microservices|event-driven|domain-driven|rest|graphql|grpc|distributed/i.test(lower)) {
-    return 'architecture_pattern';
-  }
-  return 'domain_expertise';
 }
 
 /**

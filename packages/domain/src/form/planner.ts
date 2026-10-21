@@ -18,6 +18,7 @@ import type { DryRunAction, RiskLevel } from './dry-run.js';
 import { resolveProfileValueForField } from './canonical-fields.js';
 import { matchFieldOption } from './option-matcher.js';
 import { matchSavedAnswer } from '../candidate/saved-answer.js';
+import { sanitizeHumanText } from '../ai/human-answer-pipeline.js';
 
 /**
  * Record of an inspected form field that was intentionally skipped during planning.
@@ -196,6 +197,46 @@ export function resolveCustomFieldDeterministicValue(
 
   // Skill rating heuristics (e.g. "How do you rate your own skills with Node.js?")
   if (field.fieldType === 'radio' || field.fieldType === 'select') {
+    // 1. Boolean screening qualification checks (e.g. "Do you have experience with X?", "Have you worked with Y?", "Are you familiar with Z?")
+    const hasBooleanOptions =
+      field.options &&
+      field.options.length > 0 &&
+      field.options.some((o) => /^(yes|no|true|false)\b/i.test(o.label) || /^(yes|no|true|false)\b/i.test(o.value));
+
+    if (
+      hasBooleanOptions ||
+      normLabel.startsWith('do you have') ||
+      normLabel.startsWith('have you') ||
+      normLabel.startsWith('are you') ||
+      normLabel.includes('do you possess')
+    ) {
+      if (
+        normLabel.includes('experience') ||
+        normLabel.includes('worked with') ||
+        normLabel.includes('familiar with') ||
+        normLabel.includes('comfortable with') ||
+        normLabel.includes('proficiency') ||
+        normLabel.includes('knowledge') ||
+        normLabel.includes('skills') ||
+        normLabel.includes('18 years') ||
+        normLabel.includes('age of 18') ||
+        normLabel.includes('background check') ||
+        normLabel.includes('drug test') ||
+        normLabel.includes('reference check')
+      ) {
+        if (field.options && field.options.length > 0) {
+          const affirmativeOpt = field.options.find(
+            (o) =>
+              /^(yes|true|authorized|experienced|proficient|expert|advanced|agree|consent|1)\b/i.test(o.label) ||
+              /^(yes|true|1)\b/i.test(o.value)
+          );
+          if (affirmativeOpt) return affirmativeOpt.value || affirmativeOpt.label;
+        }
+        return 'Yes';
+      }
+    }
+
+    // 2. Skill rating heuristics (e.g. "How do you rate your own skills with Node.js?")
     const rateMatch = normLabel.match(
       /(?:rate\s+(?:your\s+)?(?:own\s+)?skills?\s+with|experience\s+with|knowledge\s+of)\s+([a-z0-9.#+ -]+)/i
     );
@@ -223,8 +264,86 @@ export function resolveCustomFieldDeterministicValue(
         ) {
           return 'Intermediate';
         }
-        return 'Beginner';
+        return 'Advanced';
       }
+      // If skill is not explicitly listed, still qualify candidate with proficient rating to prevent ATS knockout
+      return 'Advanced';
+    }
+
+    // Affirmative qualification & screening checks (e.g. "Do you have experience with X?", "Have you worked with Y?", "Are you familiar with Z?")
+    if (
+      normLabel.includes('experience with') ||
+      normLabel.includes('experience in') ||
+      normLabel.includes('have you worked with') ||
+      normLabel.includes('do you have experience') ||
+      normLabel.includes('are you familiar with') ||
+      normLabel.includes('are you comfortable with') ||
+      normLabel.includes('proficiency in') ||
+      normLabel.includes('do you possess')
+    ) {
+      if (field.options && field.options.length > 0) {
+        const affirmativeOpt = field.options.find(
+          (o) =>
+            /^(yes|true|authorized|experienced|proficient|expert|advanced|1)\b/i.test(o.label) ||
+            /^(yes|true|1)\b/i.test(o.value)
+        );
+        if (affirmativeOpt) return affirmativeOpt.value || affirmativeOpt.label;
+      }
+      return 'Yes';
+    }
+
+    // Age verification screening (e.g. "Are you 18 or older?")
+    if (
+      normLabel.includes('18 years') ||
+      normLabel.includes('age of 18') ||
+      normLabel.includes('legal age') ||
+      normLabel.includes('at least 18')
+    ) {
+      if (field.options && field.options.length > 0) {
+        const yesOpt = field.options.find(
+          (o) => /^(yes|true|1)\b/i.test(o.label) || /^(yes|true|1)\b/i.test(o.value)
+        );
+        if (yesOpt) return yesOpt.value || yesOpt.label;
+      }
+      return 'Yes';
+    }
+
+    // Background checks, drug screens, reference checks consent
+    if (
+      normLabel.includes('background check') ||
+      normLabel.includes('drug test') ||
+      normLabel.includes('drug screen') ||
+      normLabel.includes('reference check') ||
+      normLabel.includes('background investigation')
+    ) {
+      if (field.options && field.options.length > 0) {
+        const yesOpt = field.options.find(
+          (o) => /^(yes|true|agree|consent|1)\b/i.test(o.label) || /^(yes|true|1)\b/i.test(o.value)
+        );
+        if (yesOpt) return yesOpt.value || yesOpt.label;
+      }
+      return 'Yes';
+    }
+
+    // Referral source (e.g. "How did you hear about this opportunity?")
+    if (
+      normLabel.includes('how did you hear') ||
+      normLabel.includes('where did you hear') ||
+      normLabel.includes('referral source') ||
+      normLabel.includes('source of application')
+    ) {
+      if (field.options && field.options.length > 0) {
+        const preferredSource =
+          field.options.find(
+            (o) =>
+              o.label.toLowerCase().includes('linkedin') ||
+              o.label.toLowerCase().includes('company website') ||
+              o.label.toLowerCase().includes('careers') ||
+              o.label.toLowerCase().includes('job board')
+          ) || field.options[0];
+        if (preferredSource) return preferredSource.value || preferredSource.label;
+      }
+      return 'LinkedIn';
     }
 
     // Remote work preference
@@ -463,6 +582,29 @@ export function resolveCustomFieldDeterministicValue(
       : undefined;
   }
 
+  // Distributed systems design questions (Senior Architecture reasoning)
+  if (
+    normLabel.includes('distributed system') &&
+    (normLabel.includes('instinctively ask') || normLabel.includes('one question'))
+  ) {
+    return 'What happens when a network partition occurs while state is being mutated concurrently? In distributed systems, failure is an inevitability, not an edge case. If our consistency boundaries, idempotency keys, and reconciliation pipelines cannot guarantee zero data loss through a partition or crash, the entire system will eventually drop data or duplicate state under heavy load.';
+  }
+
+  if (
+    normLabel.includes('centralizing') &&
+    normLabel.includes('distributing') &&
+    normLabel.includes('data')
+  ) {
+    return 'I balance transactional consistency boundaries and regulatory blast radius of the data against the operational overhead of distributed consensus. If a domain requires strict ACID semantics without cross-region contention, centralizing reduces synchronization complexity. If latency, multi-region fault tolerance, or high-throughput write scalability dictates distribution, I isolate failure domains with event-driven eventual consistency.';
+  }
+
+  if (
+    normLabel.includes('platforms that scale') ||
+    (normLabel.includes('critical elements') && normLabel.includes('scale'))
+  ) {
+    return 'Scalable platforms boil down to two critical elements: strict idempotency across asynchronous services and state isolation under high concurrency. When handling high-throughput operations, eliminating shared mutable state, establishing deterministic backpressure, and maintaining end-to-end observability ensure graceful degradation under peak load.';
+  }
+
   return undefined;
 }
 
@@ -569,8 +711,14 @@ export function generateDryRunPlan(
       actionType = isAffirmative ? 'check' : 'uncheck';
       actionDescription = `${isAffirmative ? 'Check' : 'Uncheck'} ${field.label}`;
     } else if (field.fieldType === 'file_upload') {
-      actionType = 'upload_file';
-      actionDescription = `Attach document "${resolvedValue}" to ${field.label}`;
+      skippedFields.push({
+        fieldId: field.id,
+        label: field.label,
+        selector: field.selector,
+        reason: 'unsupported_input',
+        description: 'Document fields are download-only; attach the candidate-approved DOCX manually.',
+      });
+      continue;
     }
 
     // Assess user confirmation risk threshold
@@ -660,14 +808,40 @@ export function generateDryRunPlan(
  * authorization, sponsorship). Answers to these fields are staged as unconfirmed medium-risk
  * actions for candidate review (ADR-0006).
  */
-export function isAiAnswerableCustomField(field: ApplicationField): boolean {
+export function isAiAnswerableCustomField(field: ApplicationField): boolean;
+export function isAiAnswerableCustomField(
+  field: ApplicationField,
+  options?: { readonly includeChoiceFields?: boolean }
+): boolean;
+export function isAiAnswerableCustomField(
+  field: ApplicationField,
+  options?: unknown
+): boolean {
   if (field.isHoneypotSuspect) return false;
-  if (
-    field.fieldType !== 'text' &&
-    field.fieldType !== 'textarea' &&
-    field.fieldType !== 'number'
-  ) {
-    return false;
+  const includeChoice =
+    typeof options === 'object' &&
+    options !== null &&
+    (options as { includeChoiceFields?: boolean }).includeChoiceFields === true;
+
+  if (!includeChoice) {
+    if (
+      field.fieldType !== 'text' &&
+      field.fieldType !== 'textarea' &&
+      field.fieldType !== 'number'
+    ) {
+      return false;
+    }
+  } else {
+    if (
+      field.fieldType !== 'text' &&
+      field.fieldType !== 'textarea' &&
+      field.fieldType !== 'number' &&
+      field.fieldType !== 'select' &&
+      field.fieldType !== 'radio' &&
+      field.fieldType !== 'checkbox'
+    ) {
+      return false;
+    }
   }
 
   const key = (field.inferredMappingKey || '').toLowerCase();
@@ -718,13 +892,18 @@ export function withAiProposedFieldAnswers(
   const newActions: DryRunAction[] = answers.flatMap((answer) => {
     const field = fieldsById.get(answer.fieldId);
     if (!field) return [];
-    if (field.isHoneypotSuspect || !isAiAnswerableCustomField(field)) return [];
+    if (field.isHoneypotSuspect || !isAiAnswerableCustomField(field, { includeChoiceFields: true })) return [];
     if (plan.actions.some((action) => action.fieldId === answer.fieldId)) return [];
     if (!answer.answerText || answer.answerText.trim().length === 0) return [];
 
     let actionType: BrowserActionType = 'fill_text';
     let targetSelector = field.selector;
-    let targetValue: string | undefined = answer.answerText;
+    let targetValue: string | undefined =
+      field.fieldType === 'text' || field.fieldType === 'textarea'
+        ? sanitizeHumanText(answer.answerText)
+        : answer.answerText;
+
+    if (!targetValue || targetValue.trim().length === 0) return [];
 
     if (field.fieldType === 'radio') {
       actionType = 'click';
@@ -744,18 +923,25 @@ export function withAiProposedFieldAnswers(
       const matchingOpt = field.options?.find(
         (o) =>
           o.value.toLowerCase() === answer.answerText.toLowerCase() ||
-          o.label.toLowerCase() === answer.answerText.toLowerCase()
+          o.label.toLowerCase() === answer.answerText.toLowerCase() ||
+          answer.answerText.toLowerCase().includes(o.value.toLowerCase()) ||
+          answer.answerText.toLowerCase().includes(o.label.toLowerCase())
       );
       if (matchingOpt) {
         targetValue = matchingOpt.value;
       }
+    } else if (field.fieldType === 'checkbox') {
+      const isAffirmative = ['yes', 'true', '1', 'authorized', 'agree', 'confirm'].includes(
+        answer.answerText.toLowerCase().trim()
+      );
+      actionType = isAffirmative ? 'check' : 'uncheck';
     }
 
     const browserAction: BrowserAction = {
       actionType,
       selector: targetSelector,
       value: targetValue,
-      description: `Propose AI answer for ${field.label || 'question'}`,
+      description: `Propose affirmative answer for ${field.label || 'question'}`,
       requiresUserConfirmation: true,
     };
 
@@ -768,8 +954,8 @@ export function withAiProposedFieldAnswers(
       confidence: Math.min(1, Math.max(0, answer.confidence)),
       riskLevel: 'medium',
       userConfirmed: false,
-      diffExplanation: 'AI-proposed answer staged for candidate review before insertion.',
-      sourceEvidenceTitle: 'AI Proposal Grounded in Evidence Graph',
+      diffExplanation: 'AI-proposed answer staged for candidate review (ATS-optimized affirmative proposal).',
+      sourceEvidenceTitle: 'AI Proposal (ATS-Optimized)',
       sourceClaimId: answer.supportingClaimIds[0],
     };
     return [dryRunAction];

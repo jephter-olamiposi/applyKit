@@ -39,6 +39,7 @@ import type {
   ResumeQualityAuditReport,
   AnswerCategory,
   SpacingDensity,
+  SourcedOpportunity,
 } from '@applykit/domain';
 import type { StorageUsageSummary, PurgeResult } from '../storage/purge-engine.js';
 
@@ -220,6 +221,112 @@ export interface SaveCandidateProfileRequest {
 export interface SaveCandidateProfileResponse {
   type: 'SAVE_CANDIDATE_PROFILE_RESULT';
   success: boolean;
+  error?: string;
+}
+
+/**
+ * Request to export candidate profile into job-application-pipeline YAML format.
+ */
+export interface ExportProfileYamlRequest {
+  type: 'EXPORT_PROFILE_YAML';
+}
+
+/**
+ * Result payload containing the generated profile.yaml string.
+ */
+export interface ExportProfileYamlResponse {
+  type: 'EXPORT_PROFILE_YAML_RESULT';
+  success: boolean;
+  yaml?: string;
+  filename?: string;
+  error?: string;
+}
+
+/**
+ * Request to import and merge profile.yaml into local candidate profile.
+ */
+export interface ImportProfileYamlRequest {
+  type: 'IMPORT_PROFILE_YAML';
+  yamlContent: string;
+}
+
+/**
+ * Result payload after parsing and saving candidate profile from YAML.
+ */
+export interface ImportProfileYamlResponse {
+  type: 'IMPORT_PROFILE_YAML_RESULT';
+  success: boolean;
+  profile?: CandidateProfile;
+  error?: string;
+}
+
+/**
+ * Request to fetch and screen live jobs from direct ATS boards (Greenhouse, Ashby, Lever).
+ */
+export interface FetchAtsJobsRequest {
+  type: 'FETCH_ATS_JOBS';
+  /** Optional custom company slugs or undefined to scan the curated default watchlist. */
+  slugs?: readonly { name: string; slug: string; platform: 'greenhouse' | 'ashby' | 'lever' }[];
+  /** Optional keyword filter (e.g. 'backend', 'staff', 'typescript'). */
+  keyword?: string;
+  /** Temporary workplace filter for this search; saved profile preference remains unchanged. */
+  workplacePreference?: 'remote' | 'hybrid' | 'onsite' | 'any';
+  /** Temporary employment filter for this search; saved profile preference remains unchanged. */
+  employmentPreference?: 'full_time' | 'part_time' | 'contract' | 'internship' | 'any';
+}
+
+/**
+ * Per-provider result for a bounded ATS sourcing scan.
+ */
+export interface AtsSourceStatus {
+  readonly company: string;
+  readonly platform: 'greenhouse' | 'ashby' | 'lever';
+  readonly status: 'ok' | 'failed';
+  readonly error?: string;
+}
+
+/**
+ * Result payload containing normalized, 5-gate screened, and EV-ranked opportunities.
+ */
+export interface FetchAtsJobsResponse {
+  type: 'FETCH_ATS_JOBS_RESULT';
+  success: boolean;
+  opportunities: SourcedOpportunity[];
+  scannedCount: number;
+  sourceStatuses?: readonly AtsSourceStatus[];
+  error?: string;
+}
+
+/**
+ * Request to retrieve previously sourced opportunities from background cache/storage.
+ */
+export interface GetSourcedOpportunitiesRequest {
+  type: 'GET_SOURCED_OPPORTUNITIES';
+}
+
+/**
+ * Result payload with cached sourced opportunities.
+ */
+export interface GetSourcedOpportunitiesResponse {
+  type: 'GET_SOURCED_OPPORTUNITIES_RESULT';
+  success: boolean;
+  opportunities: SourcedOpportunity[];
+}
+
+/**
+ * Request to harvest job posting links visible on the active browser tab.
+ */
+export interface HarvestPageLinksRequest {
+  type: 'HARVEST_PAGE_LINKS';
+}
+
+/**
+ * Result payload containing links discovered on the active page.
+ */
+export interface HarvestPageLinksResponse {
+  type: 'HARVEST_PAGE_LINKS_RESULT';
+  success: boolean;
+  links: Array<{ url: string; title: string }>;
   error?: string;
 }
 
@@ -753,11 +860,11 @@ export interface DeleteApplicationRecordResponse {
 }
 
 /**
- * Export application history and audit logs as JSON or sanitized CSV.
+ * Export application history and audit logs as JSON, sanitized CSV, canonical 8-col tracker CSV, or Markdown.
  */
 export interface ExportAuditLogRequest {
   type: 'EXPORT_AUDIT_LOG';
-  format: 'json' | 'csv';
+  format: 'json' | 'csv' | 'tracker-csv' | 'tracker-md';
 }
 
 export interface ExportAuditLogResponse {
@@ -825,7 +932,8 @@ export interface AnswerAdHocQuestionRequest {
   type: 'ANSWER_AD_HOC_QUESTION';
   question: string;
   maxLength?: number;
-  tone?: 'concise' | 'star' | 'motivational' | 'bullets' | 'technical' | 'conversational' | 'executive';
+  tone?: 'concise' | 'star' | 'motivational' | 'bullets' | 'technical' | 'conversational' | 'executive' | 'ats_aggressive';
+  userNotes?: string;
 }
 
 export interface AnswerAdHocQuestionResponse {
@@ -948,6 +1056,45 @@ export interface GenerateResumePdfResponse {
 }
 
 /**
+ * Generate native Word (.docx) document for tailored resume (ADR-0043).
+ */
+export interface GenerateResumeDocxRequest {
+  type: 'GENERATE_RESUME_DOCX';
+  jobId?: string;
+  maxBulletsPerItem?: number;
+  maxProjects?: number;
+  templateId?: ResumeTemplateId;
+  density?: SpacingDensity;
+  showTargetBadge?: boolean;
+}
+
+export interface GenerateResumeDocxResponse {
+  type: 'GENERATE_RESUME_DOCX_RESULT';
+  success: boolean;
+  docxBase64?: string;
+  filename?: string;
+  error?: string;
+}
+
+/**
+ * Generate native Word (.docx) document for tailored cover letter (ADR-0043).
+ */
+export interface GenerateCoverLetterDocxRequest {
+  type: 'GENERATE_COVER_LETTER_DOCX';
+  jobId?: string;
+  recipient?: string;
+  tone?: 'technical' | 'conversational' | 'executive';
+}
+
+export interface GenerateCoverLetterDocxResponse {
+  type: 'GENERATE_COVER_LETTER_DOCX_RESULT';
+  success: boolean;
+  docxBase64?: string;
+  filename?: string;
+  error?: string;
+}
+
+/**
  * Automated ATS submission detected by content script observer or background navigation (Phase 20).
  */
 export interface SubmissionDetectedNotification {
@@ -1038,7 +1185,70 @@ export type ExtensionRequest =
   | CommitBootstrappedProfileRequest
   | GenerateCoverLetterPdfRequest
   | GenerateResumePdfRequest
+  | GenerateCoverLetterDocxRequest
+  | GenerateResumeDocxRequest
+  | ExportProfileYamlRequest
+  | ImportProfileYamlRequest
+  | FetchAtsJobsRequest
+  | GetSourcedOpportunitiesRequest
+  | HarvestPageLinksRequest
   | SubmissionDetectedNotification;
+
+/**
+ * Performs boundary validation for untrusted runtime messages before handlers
+ * access payload fields. TypeScript types are erased in the service worker.
+ */
+export function isValidExtensionRequest(value: unknown): value is ExtensionRequest {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Record<string, unknown>;
+  if (typeof message.type !== 'string') return false;
+
+  const nonEmptyText = (candidate: unknown, maxLength: number): candidate is string =>
+    typeof candidate === 'string' && candidate.trim().length > 0 && candidate.length <= maxLength;
+  const objectValue = (candidate: unknown): candidate is Record<string, unknown> =>
+    typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate);
+  const id = (candidate: unknown): candidate is string => nonEmptyText(candidate, 256);
+
+  switch (message.type) {
+    case 'SET_API_KEY':
+      return ['openai', 'anthropic', 'gemini', 'openrouter'].includes(String(message.provider)) &&
+        nonEmptyText(message.apiKey, 4096);
+    case 'SAVE_CANDIDATE_PROFILE':
+      return objectValue(message.profile);
+    case 'IMPORT_BACKUP':
+      return nonEmptyText(message.jsonString, 20 * 1024 * 1024);
+    case 'IMPORT_PROFILE_YAML':
+      return nonEmptyText(message.yamlContent, 2 * 1024 * 1024);
+    case 'UPDATE_PLAN_ACTION':
+      return id(message.actionId) && typeof message.userValue === 'string' && message.userValue.length <= 100_000;
+    case 'TOGGLE_PLAN_ACTION_APPROVAL':
+    case 'EXCLUDE_PLAN_ACTION':
+    case 'EXECUTE_SELECTIVE_ACTION':
+      return id(message.actionId);
+    case 'EXECUTE_PLAN':
+      return message.planId === undefined || id(message.planId);
+    case 'EXECUTE_CONTENT_PLAN': {
+      if (!objectValue(message.plan) || !Array.isArray(message.plan.actions)) return false;
+      return message.plan.actions.every((action) => {
+        if (!objectValue(action) || !id(action.id) || !nonEmptyText(action.actionType, 64)) return false;
+        if ('selector' in action && action.selector !== undefined && !nonEmptyText(action.selector, 4096)) return false;
+        return true;
+      });
+    }
+    case 'ANSWER_AD_HOC_QUESTION':
+      return nonEmptyText(message.question, 20_000) &&
+        (message.maxLength === undefined || (Number.isInteger(message.maxLength) && Number(message.maxLength) > 0 && Number(message.maxLength) <= 100_000)) &&
+        (message.userNotes === undefined || typeof message.userNotes === 'string' && message.userNotes.length <= 20_000);
+    case 'SAVE_REUSABLE_ANSWER':
+      return nonEmptyText(message.question, 20_000) && nonEmptyText(message.answerText, 100_000);
+    case 'INSERT_TEXT_INTO_ACTIVE_ELEMENT':
+      return typeof message.text === 'string' && message.text.length <= 100_000;
+    case 'EXECUTE_ONE_CLICK_AUTO_FILL':
+      return message.form === undefined || objectValue(message.form);
+    default:
+      return true;
+  }
+}
 
 /**
  * Discriminated union of all extension RPC response types.
@@ -1052,6 +1262,11 @@ export type ExtensionResponse =
   | CurrentExtractionResponse
   | GetCandidateProfileResponse
   | SaveCandidateProfileResponse
+  | ExportProfileYamlResponse
+  | ImportProfileYamlResponse
+  | FetchAtsJobsResponse
+  | GetSourcedOpportunitiesResponse
+  | HarvestPageLinksResponse
   | ListSavedJobsResponse
   | ListApplicationsResponse
   | GetApplicationDetailResponse
@@ -1091,12 +1306,11 @@ export type ExtensionResponse =
   | GenerateCoverLetterResponse
   | GenerateCoverLetterPdfResponse
   | GenerateResumePdfResponse
+  | GenerateCoverLetterDocxResponse
+  | GenerateResumeDocxResponse
   | FactCheckDocumentResponse
   | AnswerCustomFieldsResponse
   | GetActiveFormResponse
   | BootstrapProfileFromResumeResponse
   | CommitBootstrappedProfileResponse
   | SubmissionDetectedResponse;
-
-
-

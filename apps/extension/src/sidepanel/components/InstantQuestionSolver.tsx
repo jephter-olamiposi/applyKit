@@ -20,7 +20,7 @@ import type {
   SaveReusableAnswerResponse,
 } from '../../messages/contracts.js';
 
-export type QuestionTone = 'concise' | 'star' | 'motivational' | 'bullets';
+export type QuestionTone = 'ats_aggressive' | 'concise' | 'star' | 'motivational' | 'bullets';
 
 interface InstantQuestionSolverProps {
   readonly className?: string;
@@ -29,6 +29,7 @@ interface InstantQuestionSolverProps {
 }
 
 const TONE_OPTIONS: readonly { id: QuestionTone; label: string; desc: string }[] = [
+  { id: 'ats_aggressive', label: '🚀 ATS Maximizer', desc: 'Affirmative, confident, keyword-rich to pass every filter' },
   { id: 'concise', label: '🎯 Concise', desc: 'Direct, factual, outcome-oriented' },
   { id: 'star', label: '⭐ STAR Method', desc: 'Situation, Task, Action, Result' },
   { id: 'motivational', label: '🔥 Motivational', desc: 'Enthusiastic and team-focused' },
@@ -64,7 +65,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
   const [supportingCount, setSupportingCount] = useState<number>(0);
   const [answerNotes, setAnswerNotes] = useState<string | null>(null);
 
-  const [selectedTone, setSelectedTone] = useState<QuestionTone>('concise');
+  const [selectedTone, setSelectedTone] = useState<QuestionTone>('ats_aggressive');
   const [maxLength, setMaxLength] = useState<number | null>(null);
 
   const [isGenerating, setIsGenerating] = useState(false);

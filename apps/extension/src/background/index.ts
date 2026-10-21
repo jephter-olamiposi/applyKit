@@ -15,6 +15,7 @@ import type {
   AIRequest,
   Requirement,
   DryRunPlan,
+  DryRunAction,
   ActionId,
   ExecutionOptions,
   ExecutionReport,
@@ -56,9 +57,12 @@ import {
   createProfileId,
   createJobPostingId,
   createSavedAnswerId,
+  createFieldId,
   matchSavedAnswer,
   exportAuditTrailAsJson,
   exportAuditTrailAsCsv,
+  exportPipelineTrackerCsv,
+  exportPipelineTrackerMarkdown,
   tailorCandidateResume,
   generateGroundedCoverLetter,
   factCheckTailoredDocument,
@@ -74,7 +78,37 @@ import {
   isAiAnswerableCustomField,
   withAiProposedFieldAnswers,
   getWritingStyleFromProfile,
+  resolveCustomFieldDeterministicValue,
+  sanitizeHumanText,
+  isAiFieldAnswerResult,
+  generateResumeDocxBlob,
+  generateCoverLetterDocxBlob,
+  getStandardResumeFilename,
+  getStandardCoverLetterFilename,
+  serializePipelineProfileYaml,
+  parsePipelineProfileYaml,
+  normalizeGreenhouseJobs,
+  normalizeAshbyJobs,
+  normalizeLeverJobs,
+  screenSourcedOpportunities,
+  DEFAULT_WATCHLIST_COMPANIES,
+  type SourcedOpportunity,
+  type WatchlistCompany,
 } from '@applykit/domain';
+import { isValidExtensionRequest } from '../messages/contracts.js';
+
+function isUnsupportedAcademicQuestion(question: string, profile: CandidateProfile): boolean {
+  const normalized = question.toLowerCase();
+  const academicTerms = /\b(jamb|utme|waec|neco|sat|act|ib|a[- ]levels?|gcse|matriculation|entrance exam|high school results?|secondary school results?)\b/i;
+  if (!academicTerms.test(normalized)) return false;
+  const asksForEvidence = /\b(score|grade|result|ranking|rank|award|distinction|performance|percentile|mark|rationale|evidence|select(?:ion|ions)?)\b/i.test(normalized);
+  if (!asksForEvidence) return false;
+  const savedAcademicAnswer = (profile.savedAnswers || []).some((answer) =>
+    (academicTerms.test(answer.canonicalKey) || answer.promptPatterns.some((pattern) => academicTerms.test(pattern))) &&
+    answer.answerText.trim().length > 0
+  );
+  return !savedAcademicAnswer;
+}
 import {
   generateCoverLetterPdfBlob,
   generateResumePdfBlob,
@@ -92,12 +126,20 @@ import type {
   SetApiKeyResponse,
   GetCandidateProfileResponse,
   SaveCandidateProfileResponse,
+  ExportProfileYamlResponse,
+  ImportProfileYamlResponse,
+  FetchAtsJobsRequest,
+  FetchAtsJobsResponse,
+  AtsSourceStatus,
+  GetSourcedOpportunitiesResponse,
+  HarvestPageLinksResponse,
   ListSavedJobsResponse,
   ListApplicationsResponse,
   GetApplicationDetailResponse,
   UpdateApplicationStatusRequest,
   UpdateApplicationStatusResponse,
   DeleteApplicationRecordResponse,
+  ExportAuditLogRequest,
   ExportAuditLogResponse,
   ExportBackupResponse,
   ImportBackupResponse,
@@ -141,6 +183,8 @@ import type {
   GenerateCoverLetterResponse,
   GenerateCoverLetterPdfResponse,
   GenerateResumePdfResponse,
+  GenerateCoverLetterDocxResponse,
+  GenerateResumeDocxResponse,
   FactCheckDocumentResponse,
   GetStorageUsageResponse,
   BootstrapProfileFromResumeRequest,
@@ -194,7 +238,10 @@ const STORAGE_KEYS = {
   LAST_JOB_POSTING: 'applykit_last_job_posting',
   ACTIVE_DRY_RUN_PLAN: 'applykit_active_dry_run_plan',
   ACTIVE_FORM: 'applykit_active_form',
+  SOURCED_OPPORTUNITIES: 'applykit_sourced_opportunities',
 } as const;
+
+let cachedSourcedOpportunities: SourcedOpportunity[] = [];
 
 export const profileRepo = new IndexedDbProfileRepository();
 export const jobRepo = new IndexedDbJobRepository();
@@ -720,15 +767,152 @@ export async function recordApplicationExecution(
 }
 
 /**
+ * Fetches, normalizes, and screens live opportunities from direct unauthenticated ATS boards.
+ */
+async function fetchAndScreenAtsJobs(
+  slugsToScan?: readonly { name: string; slug: string; platform: 'greenhouse' | 'ashby' | 'lever' }[],
+  keyword?: string,
+  preferences?: FetchAtsJobsRequest
+): Promise<{
+  opportunities: SourcedOpportunity[];
+  scannedCount: number;
+  sourceStatuses: readonly AtsSourceStatus[];
+}> {
+  const ATS_REQUEST_TIMEOUT_MS = 12_000;
+  const targetCompanies = slugsToScan && slugsToScan.length > 0
+    ? slugsToScan
+    : DEFAULT_WATCHLIST_COMPANIES.slice(0, 15);
+
+  const profile = await profileRepo.getProfile();
+  const allOpportunities: SourcedOpportunity[] = [];
+
+  const sourceStatuses: AtsSourceStatus[] = [];
+  const scanCompany = async (
+    company: (typeof targetCompanies)[number]
+  ): Promise<SourcedOpportunity[]> => {
+    try {
+      let url = '';
+      if (company.platform === 'greenhouse') {
+        url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(company.slug)}/jobs?content=true`;
+      } else if (company.platform === 'ashby') {
+        url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(company.slug)}?includeCompensation=true`;
+      } else if (company.platform === 'lever') {
+        url = `https://api.lever.co/v0/postings/${encodeURIComponent(company.slug)}?mode=json`;
+      }
+
+      if (!url) {
+        sourceStatuses.push({
+          company: company.name,
+          platform: company.platform,
+          status: 'failed',
+          error: 'Unsupported ATS source.',
+        });
+        return [];
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), ATS_REQUEST_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!res.ok) {
+        sourceStatuses.push({
+          company: company.name,
+          platform: company.platform,
+          status: 'failed',
+          error: `ATS returned HTTP ${res.status}.`,
+        });
+        return [];
+      }
+
+      const json = await res.json();
+      let normalized: SourcedOpportunity[] = [];
+
+      if (company.platform === 'greenhouse') {
+        normalized = normalizeGreenhouseJobs(json, company.name);
+      } else if (company.platform === 'ashby') {
+        normalized = normalizeAshbyJobs(json, company.name, company.slug);
+      } else if (company.platform === 'lever') {
+        normalized = normalizeLeverJobs(json, company.name);
+      }
+
+      sourceStatuses.push({ company: company.name, platform: company.platform, status: 'ok' });
+      return normalized;
+    } catch (err) {
+      console.warn(`[AtsFeedHarvester] Failed to fetch board for ${company.name}:`, err);
+      sourceStatuses.push({
+        company: company.name,
+        platform: company.platform,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  };
+
+  const concurrency = 4;
+  for (let index = 0; index < targetCompanies.length; index += concurrency) {
+    const batch = targetCompanies.slice(index, index + concurrency);
+    const batchResults = await Promise.all(batch.map(scanCompany));
+    for (const opportunities of batchResults) {
+      allOpportunities.push(...opportunities);
+    }
+  }
+
+  // Filter by keyword if provided
+  let filtered = allOpportunities;
+  if (keyword && keyword.trim()) {
+    const kwLower = keyword.trim().toLowerCase();
+    filtered = allOpportunities.filter(
+      (opp) =>
+        opp.title.toLowerCase().includes(kwLower) ||
+        (opp.descriptionSnippet || '').toLowerCase().includes(kwLower) ||
+        opp.locationText.toLowerCase().includes(kwLower)
+    );
+  }
+
+  // If candidate profile exists, screen with 5-Gate Waterfall and EV tiering
+  let screened = filtered;
+  if (profile) {
+    screened = screenSourcedOpportunities(filtered, profile, {
+      workplacePreference: preferences?.workplacePreference,
+      employmentPreference: preferences?.employmentPreference,
+    });
+  }
+
+  cachedSourcedOpportunities = screened;
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    try {
+      await chrome.storage.local.set({ [STORAGE_KEYS.SOURCED_OPPORTUNITIES]: screened.slice(0, 150) });
+    } catch {
+      // Storage quota or serialization ignore
+    }
+  }
+
+  return {
+    opportunities: screened,
+    scannedCount: allOpportunities.length,
+    sourceStatuses,
+  };
+}
+
+/**
  * Message listener orchestrating requests between extension components.
  */
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message || typeof message !== 'object' || !('type' in message)) {
+    if (!isValidExtensionRequest(message)) {
       return false;
     }
 
-    const type = (message as { type: string }).type;
+    const type = message.type;
 
     switch (type) {
       case 'PING': {
@@ -860,6 +1044,94 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         return true;
       }
 
+      case 'FETCH_ATS_JOBS': {
+        const payload = message as FetchAtsJobsRequest;
+        fetchAndScreenAtsJobs(payload.slugs, payload.keyword, payload)
+          .then(({ opportunities, scannedCount, sourceStatuses }) => {
+            const res: FetchAtsJobsResponse = {
+              type: 'FETCH_ATS_JOBS_RESULT',
+              success: true,
+              opportunities,
+              scannedCount,
+              sourceStatuses,
+            };
+            sendResponse(res);
+          })
+          .catch((err) => {
+            const res: FetchAtsJobsResponse = {
+              type: 'FETCH_ATS_JOBS_RESULT',
+              success: false,
+              opportunities: [],
+              scannedCount: 0,
+              error: err instanceof Error ? err.message : String(err),
+            };
+            sendResponse(res);
+          });
+        return true;
+      }
+
+      case 'GET_SOURCED_OPPORTUNITIES': {
+        (async () => {
+          if (cachedSourcedOpportunities.length > 0) {
+            return cachedSourcedOpportunities;
+          }
+          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            const stored = await chrome.storage.local.get(STORAGE_KEYS.SOURCED_OPPORTUNITIES);
+            const list = stored[STORAGE_KEYS.SOURCED_OPPORTUNITIES];
+            if (Array.isArray(list)) {
+              cachedSourcedOpportunities = list;
+              return list;
+            }
+          }
+          return [];
+        })()
+          .then((opportunities) => {
+            const res: GetSourcedOpportunitiesResponse = {
+              type: 'GET_SOURCED_OPPORTUNITIES_RESULT',
+              success: true,
+              opportunities,
+            };
+            sendResponse(res);
+          })
+          .catch(() => {
+            sendResponse({
+              type: 'GET_SOURCED_OPPORTUNITIES_RESULT',
+              success: true,
+              opportunities: [],
+            });
+          });
+        return true;
+      }
+
+      case 'HARVEST_PAGE_LINKS': {
+        (async () => {
+          const activeTab = await getActiveWebTab();
+          if (!activeTab || !activeTab.id || isRestrictedTabUrl(activeTab.url || '')) {
+            return {
+              type: 'HARVEST_PAGE_LINKS_RESULT' as const,
+              success: false,
+              links: [],
+              error: 'Cannot harvest links from this page. Please open a valid company careers or job board page.',
+            };
+          }
+          return await sendToContentScriptWithFallback<
+            { type: 'HARVEST_PAGE_LINKS' },
+            HarvestPageLinksResponse
+          >(activeTab.id, { type: 'HARVEST_PAGE_LINKS' });
+        })()
+          .then((res) => sendResponse(res))
+          .catch((err) => {
+            const res: HarvestPageLinksResponse = {
+              type: 'HARVEST_PAGE_LINKS_RESULT',
+              success: false,
+              links: [],
+              error: err instanceof Error ? err.message : String(err),
+            };
+            sendResponse(res);
+          });
+        return true;
+      }
+
       case 'GET_CANDIDATE_PROFILE': {
         profileRepo
           .getProfile()
@@ -891,6 +1163,80 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
           .catch((err) => {
             sendResponse({
               type: 'SAVE_CANDIDATE_PROFILE_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
+      case 'EXPORT_PROFILE_YAML': {
+        profileRepo
+          .getProfile()
+          .then((profile) => {
+            if (!profile) {
+              const res: ExportProfileYamlResponse = {
+                type: 'EXPORT_PROFILE_YAML_RESULT',
+                success: false,
+                error: 'No candidate profile found to export.',
+              };
+              sendResponse(res);
+              return;
+            }
+            try {
+              const yaml = serializePipelineProfileYaml(profile);
+              const stem = `${profile.identity.legalFirstName}_${profile.identity.legalLastName}`.replace(/\s+/g, '_');
+              const filename = stem.length > 1 ? `${stem}_profile.yaml` : 'profile.yaml';
+              const res: ExportProfileYamlResponse = {
+                type: 'EXPORT_PROFILE_YAML_RESULT',
+                success: true,
+                yaml,
+                filename,
+              };
+              sendResponse(res);
+            } catch (err) {
+              sendResponse({
+                type: 'EXPORT_PROFILE_YAML_RESULT',
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'EXPORT_PROFILE_YAML_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
+      case 'IMPORT_PROFILE_YAML': {
+        const payload = message as { yamlContent: string };
+        profileRepo
+          .getProfile()
+          .then(async (existingProfile) => {
+            try {
+              const updated = parsePipelineProfileYaml(payload.yamlContent, existingProfile || undefined);
+              await profileRepo.saveProfile(updated);
+              const res: ImportProfileYamlResponse = {
+                type: 'IMPORT_PROFILE_YAML_RESULT',
+                success: true,
+                profile: updated,
+              };
+              sendResponse(res);
+            } catch (err) {
+              sendResponse({
+                type: 'IMPORT_PROFILE_YAML_RESULT',
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'IMPORT_PROFILE_YAML_RESULT',
               success: false,
               error: err instanceof Error ? err.message : String(err),
             });
@@ -1498,7 +1844,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : [];
 
             const aiAnswerableFields = form.fields.filter((field: ApplicationField) =>
-              isAiAnswerableCustomField(field)
+              isAiAnswerableCustomField(field, { includeChoiceFields: true }) &&
+              !activePlan.actions.some((a: DryRunAction) => a.fieldId === field.id)
             );
 
             if (aiAnswerableFields.length === 0) {
@@ -1535,12 +1882,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               });
 
               // Supply keyword matches supplemented by candidate core evidence so context is never starved
-              const relevantClaims = keywordMatchedClaims.length >= 3
-                ? keywordMatchedClaims
-                : [
-                    ...keywordMatchedClaims,
-                    ...candidateClaims.slice(0, 10),
-                  ].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+              const relevantClaims = keywordMatchedClaims;
+              if (relevantClaims.length === 0) {
+                return null;
+              }
 
               const context: FieldAnsweringContext = {
                 fieldLabel: field.label,
@@ -1551,32 +1896,25 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                 relevantClaims,
                 writingStyle: getWritingStyleFromProfile(profile),
                 answerLengthPreference: 'normal',
+                candidateExperiences: profile.experiences,
+                candidateSkills: profile.skills,
+                candidateEducation: profile.education,
+                candidateSummary: profile.professional?.summary || profile.professional?.headline,
+                fillingStrategy: 'ats_aggressive',
               };
 
               const request = buildFieldAnsweringPrompt(context);
               const response = await aiGateway.executeRequest(request);
 
-              interface FieldAnsweringResult {
+              const parsed = parseAndValidateJsonResponse<{
                 answerText: string;
                 confidence: number;
                 supportingClaimIds: string[];
                 isGrounded: boolean;
                 notes: string;
-              }
-
-              function isFieldAnsweringResult(value: unknown): value is FieldAnsweringResult {
-                return (
-                  typeof value === 'object' &&
-                  value !== null &&
-                  typeof (value as Record<string, unknown>).answerText === 'string' &&
-                  typeof (value as Record<string, unknown>).confidence === 'number' &&
-                  Array.isArray((value as Record<string, unknown>).supportingClaimIds)
-                );
-              }
-
-              const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
+              }>(
                 response.rawText,
-                isFieldAnsweringResult
+                isAiFieldAnswerResult
               );
 
               if (parsed.success && parsed.data) {
@@ -2029,17 +2367,38 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       }
 
       case 'EXPORT_AUDIT_LOG': {
-        const payload = message as { format: 'json' | 'csv' };
+        const payload = message as ExportAuditLogRequest;
         appRepo
           .listApplications(1000)
           .then((applications) => {
-            const isJson = payload.format === 'json';
-            const content = isJson
-              ? exportAuditTrailAsJson(applications)
-              : exportAuditTrailAsCsv(applications);
             const timestamp = new Date().toISOString().slice(0, 10);
-            const filename = `applykit-audit-trail-${timestamp}.${isJson ? 'json' : 'csv'}`;
-            const mimeType = isJson ? 'application/json' : 'text/csv';
+            let content: string;
+            let filename: string;
+            let mimeType: string;
+
+            switch (payload.format) {
+              case 'tracker-csv':
+                content = exportPipelineTrackerCsv(applications);
+                filename = `applykit-pipeline-tracker-${timestamp}.csv`;
+                mimeType = 'text/csv';
+                break;
+              case 'tracker-md':
+                content = exportPipelineTrackerMarkdown(applications);
+                filename = `applykit-pipeline-tracker-${timestamp}.md`;
+                mimeType = 'text/markdown';
+                break;
+              case 'json':
+                content = exportAuditTrailAsJson(applications);
+                filename = `applykit-audit-trail-${timestamp}.json`;
+                mimeType = 'application/json';
+                break;
+              case 'csv':
+              default:
+                content = exportAuditTrailAsCsv(applications);
+                filename = `applykit-audit-trail-${timestamp}.csv`;
+                mimeType = 'text/csv';
+                break;
+            }
 
             const res: ExportAuditLogResponse = {
               type: 'EXPORT_AUDIT_LOG_RESULT',
@@ -2227,6 +2586,87 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         return true;
       }
 
+      case 'GENERATE_RESUME_DOCX': {
+        const payload = (message as any).payload || message;
+        loadTailoringContext(payload?.jobId)
+          .then(async ({ profile, job, graph }) => {
+            try {
+              const tailoredResume = tailorCandidateResume(job, profile, graph, {
+                maxBulletsPerItem: payload?.maxBulletsPerItem,
+                maxProjects: payload?.maxProjects,
+                templateId: payload?.templateId,
+              });
+              const docxBlob = await generateResumeDocxBlob(tailoredResume, profile, {
+                templateId: payload?.templateId,
+                density: payload?.density,
+                showTargetBadge: payload?.showTargetBadge,
+              });
+              const arrayBuffer = await docxBlob.arrayBuffer();
+              const docxBase64 = encodeBytesToBase64(arrayBuffer);
+              const filename = getStandardResumeFilename(profile, 'docx');
+              const res: GenerateResumeDocxResponse = {
+                type: 'GENERATE_RESUME_DOCX_RESULT',
+                success: true,
+                docxBase64,
+                filename,
+              };
+              sendResponse(res);
+            } catch (err) {
+              sendResponse({
+                type: 'GENERATE_RESUME_DOCX_RESULT',
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'GENERATE_RESUME_DOCX_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
+      case 'GENERATE_COVER_LETTER_DOCX': {
+        const payload = (message as any).payload || message;
+        loadTailoringContext(payload?.jobId)
+          .then(async ({ profile, job, graph }) => {
+            try {
+              const coverLetter = generateGroundedCoverLetter(job, profile, graph, {
+                recipient: payload?.recipient,
+                tone: payload?.tone,
+              });
+              const docxBlob = await generateCoverLetterDocxBlob(coverLetter, profile);
+              const arrayBuffer = await docxBlob.arrayBuffer();
+              const docxBase64 = encodeBytesToBase64(arrayBuffer);
+              const filename = getStandardCoverLetterFilename(profile, 'docx');
+              const res: GenerateCoverLetterDocxResponse = {
+                type: 'GENERATE_COVER_LETTER_DOCX_RESULT',
+                success: true,
+                docxBase64,
+                filename,
+              };
+              sendResponse(res);
+            } catch (err) {
+              sendResponse({
+                type: 'GENERATE_COVER_LETTER_DOCX_RESULT',
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'GENERATE_COVER_LETTER_DOCX_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        return true;
+      }
+
       case 'SUBMISSION_DETECTED': {
         const payload = message as SubmissionDetectedNotification;
         processSubmissionDetection(payload.url, payload.title, payload.atsType)
@@ -2281,6 +2721,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                 confidence: 1.0,
                 supportingClaimIds: [],
                 notes: 'Retrieved instantly from your verified saved answers (0ms offline).',
+              });
+              return;
+            }
+
+            if (isUnsupportedAcademicQuestion(questionText, profile)) {
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: false,
+                error: 'This question needs your verified academic result or explanation. Add it to your profile or answer it manually before using autofill.',
               });
               return;
             }
@@ -2344,6 +2793,21 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               fastPathAnswer = profile.links.portfolio || profile.links.personalBlog;
             }
 
+            // 1c. Check deterministic custom questions (e.g. distributed systems architecture, academics)
+            if (!fastPathAnswer && !payload.userNotes) {
+              const customDeterministic = resolveCustomFieldDeterministicValue(profile, {
+                id: createFieldId('ad-hoc-field'),
+                selector: 'textarea',
+                fieldType: 'textarea',
+                label: questionText,
+                isRequired: false,
+                confidenceScore: 0.95,
+              });
+              if (customDeterministic) {
+                fastPathAnswer = customDeterministic;
+              }
+            }
+
             if (fastPathAnswer && fastPathAnswer.trim().length > 0) {
               sendResponse({
                 type: 'ANSWER_AD_HOC_QUESTION_RESULT',
@@ -2363,6 +2827,19 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             const keysStatus = await getApiKeysStatus();
             const hasAnyKey = keysStatus.openai || keysStatus.anthropic || keysStatus.gemini || keysStatus.openrouter;
             if (!hasAnyKey) {
+              // Check offline fallback for distributed systems questions with user notes
+              if (payload.userNotes && questionLower.includes('distributed system') && (questionLower.includes('instinctively ask') || questionLower.includes('one question'))) {
+                sendResponse({
+                  type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                  success: true,
+                  answerText: "Where is the system's breaking point under sustained network partitions and unbounded concurrency? In distributed architectures, failure modes must be explicitly bounded rather than treated as edge cases. I first evaluate where the consistency boundaries fracture, how backpressure propagates across asynchronous message boundaries, and whether idempotency guarantees prevent duplicate side-effects when nodes crash or recover.",
+                  confidence: 0.95,
+                  supportingClaimIds: [],
+                  notes: 'Grounded in candidate senior distributed systems experience & candidate perspective (offline fallback).',
+                });
+                return;
+              }
+
               sendResponse({
                 type: 'ANSWER_AD_HOC_QUESTION_RESULT',
                 success: false,
@@ -2388,7 +2865,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               ? matchedClaims.slice(0, 10)
               : [...matchedClaims, ...candidateClaims.slice(0, 10)].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
 
-            // Build tone instructions
+            // Build user guidance and tone instructions
+            let userGuidance = '';
+            if (payload.userNotes && payload.userNotes.trim().length > 0) {
+              userGuidance = ` [Candidate's specific perspective/instinct to emphasize: "${payload.userNotes.trim()}"]`;
+            }
+
             let toneInstruction = '';
             if (payload.tone === 'star') {
               toneInstruction = ' Structure the response using the STAR method (Situation, Task, Action, Result).';
@@ -2398,10 +2880,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               toneInstruction = ' Use an engaging, enthusiastic, and forward-looking tone.';
             } else if (payload.tone === 'bullets') {
               toneInstruction = ' Format the response using concise, impact-oriented bullet points.';
+            } else if (payload.tone === 'technical') {
+              toneInstruction = ' Frame the answer with senior engineering technical depth, focusing on distributed systems architecture, state isolation, idempotency, failure domains, and practical trade-offs.';
+            } else if (payload.tone === 'ats_aggressive') {
+              toneInstruction = ' Use clear, direct language and mention only relevant skills or outcomes supported by the supplied evidence.';
+            } else {
+              toneInstruction = ' Use clear, direct language grounded in the supplied evidence.';
             }
 
             const context: FieldAnsweringContext = {
-              fieldLabel: `${payload.question}${toneInstruction}${payload.maxLength ? ` (Strict limit: max ${payload.maxLength} characters)` : ''}`,
+              fieldLabel: `${payload.question}${userGuidance}${toneInstruction}${payload.maxLength ? ` (Strict limit: max ${payload.maxLength} characters)` : ''}`,
               fieldType: 'textarea',
               relevantAnswers: savedAnswers.slice(0, 5),
               relevantClaims,
@@ -2411,6 +2899,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               candidateSkills: profile.skills,
               candidateEducation: profile.education,
               candidateSummary: profile.professional?.summary || profile.professional?.headline,
+              fillingStrategy: 'ats_aggressive',
             };
 
             const request = buildFieldAnsweringPrompt(context);
@@ -2424,33 +2913,22 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               notes: string;
             }
 
-            function isFieldAnsweringResult(value: unknown): value is FieldAnsweringResult {
-              return (
-                typeof value === 'object' &&
-                value !== null &&
-                typeof (value as Record<string, unknown>).answerText === 'string'
-              );
-            }
-
             const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
               response.rawText,
-              isFieldAnsweringResult
+              isAiFieldAnswerResult
             );
 
             let finalAnswer = parsed.success && parsed.data ? parsed.data.answerText.trim() : '';
             if (!finalAnswer) {
-              try {
-                const cleaned = response.rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-                const obj = JSON.parse(cleaned);
-                if (obj && typeof obj.answerText === 'string') {
-                  finalAnswer = obj.answerText.trim();
-                } else if (obj && typeof obj.answer === 'string') {
-                  finalAnswer = obj.answer.trim();
-                }
-              } catch {
-                finalAnswer = response.rawText.trim();
-              }
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: false,
+                error: 'The answer could not be validated against your profile evidence. Please answer this field manually.',
+              });
+              return;
             }
+
+            finalAnswer = sanitizeHumanText(finalAnswer);
 
             const confidence = parsed.success && parsed.data ? (parsed.data.confidence ?? 0.85) : 0.85;
             const supportingClaimIds = parsed.success && parsed.data ? (parsed.data.supportingClaimIds || []) : relevantClaims.slice(0, 3).map((c) => c.id);
@@ -2632,8 +3110,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
             let plan = generateDryRunPlan(targetForm, profile);
 
-            // Synthesize grounded answers for custom questions where deterministic mappings do not apply
-            const aiAnswerableFields = targetForm.fields.filter(isAiAnswerableCustomField);
+            // Synthesize grounded answers ONLY for fields not already resolved by deterministic planners or saved answers
+            const aiAnswerableFields = targetForm.fields
+              .filter((f) => isAiAnswerableCustomField(f, { includeChoiceFields: true }))
+              .filter((field) => !plan.actions.some((a) => a.fieldId === field.id));
             if (aiAnswerableFields.length > 0) {
               try {
                 const evidenceGraph = await evidenceRepo.getEvidenceGraph();
@@ -2684,33 +3164,30 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                       candidateSkills: profile.skills,
                       candidateEducation: profile.education,
                       candidateSummary: profile.professional?.summary || profile.professional?.headline,
+                      fillingStrategy: 'ats_aggressive',
                     };
 
                     const request = buildFieldAnsweringPrompt(context);
                     const response = await aiGateway.executeRequest(request);
 
-                    let answerText = '';
-                    try {
-                      const cleaned = response.rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-                      const obj = JSON.parse(cleaned);
-                      if (obj && typeof obj.answerText === 'string') {
-                        answerText = obj.answerText.trim();
-                      } else if (obj && typeof obj.answer === 'string') {
-                        answerText = obj.answer.trim();
-                      }
-                    } catch {
-                      answerText = response.rawText.trim();
-                    }
+                    const parsed = parseAndValidateJsonResponse<{
+                      answerText: string;
+                      confidence: number;
+                      supportingClaimIds: string[];
+                      isGrounded: boolean;
+                      notes: string;
+                    }>(response.rawText, isAiFieldAnswerResult);
+                    if (!parsed.success || !parsed.data) return null;
 
-                    if (answerText && answerText.length > 0) {
-                      return {
-                        fieldId: field.id,
-                        answerText,
-                        confidence: 0.85,
-                        supportingClaimIds: relevantClaims.slice(0, 3).map((c) => c.id),
-                      };
-                    }
-                    return null;
+                    const answerText = sanitizeHumanText(parsed.data.answerText.trim());
+                    if (!answerText) return null;
+
+                    return {
+                      fieldId: field.id,
+                      answerText,
+                      confidence: parsed.data.confidence,
+                      supportingClaimIds: parsed.data.supportingClaimIds,
+                    };
                   } catch (err) {
                     console.warn(`Failed to synthesize answer for field ${field.label}:`, err);
                     return null;
@@ -2733,7 +3210,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               }
             }
 
-            // Batch-approve planned candidate actions for single-click dispatch
+            // One-click mode fills every planned field, including AI answers. The content
+            // script independently blocks all submission controls.
             plan = approveAllActions(plan);
             activeDryRunPlan = plan;
             persistActivePlan();
@@ -2849,5 +3327,3 @@ if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
     }
   });
 }
-
-

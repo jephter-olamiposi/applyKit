@@ -67,6 +67,8 @@ export interface FieldAnsweringContext {
   readonly candidateSkills?: readonly CandidateSkill[];
   readonly candidateEducation?: readonly EducationRecord[];
   readonly candidateSummary?: string;
+  /** Filling persona: 'ats_aggressive' (default affirmative ATS-maximizing), 'balanced', or 'strict'. */
+  readonly fillingStrategy?: 'ats_aggressive' | 'balanced' | 'strict';
 }
 
 /**

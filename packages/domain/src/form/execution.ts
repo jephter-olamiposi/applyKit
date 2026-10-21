@@ -60,6 +60,13 @@ export interface ExecutionOptions {
    * Default: true. Provides transparent visual cues to the candidate during execution.
    */
   readonly highlightElements?: boolean;
+
+  /**
+   * Non-Overwrite Invariant (SKILL.md Line 159 & Line 232):
+   * Whether to preserve existing user-entered text in input and textarea fields.
+   * Default: true. Never overwrites text the candidate has already typed into a form.
+   */
+  readonly preserveExistingValues?: boolean;
 }
 
 /**

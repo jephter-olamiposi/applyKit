@@ -123,6 +123,49 @@ Go, Python, Kubernetes, GCP
       expect(parsed.skills).toContain('Go');
       expect(parsed.skills).toContain('Kubernetes');
     });
+
+    it('separates identity fields when pasted contact details share one line', () => {
+      const pastedResume = `
+Name: Jephter Olamiposi Olaifa | Software Engineer | Lagos, Nigeria
+Email: jephter@example.com | Phone: +234 801 234 5678 | LinkedIn: linkedin.com/in/jephter
+
+PROFESSIONAL SUMMARY
+Software engineer building reliable web applications.
+
+WORK EXPERIENCE
+Acme Ltd | Software Engineer | 2022 - Present
+- Built customer-facing web applications.
+`;
+
+      const parsed = parsePlainTextResume(pastedResume);
+
+      expect(parsed.identity.fullName).toBe('Jephter Olamiposi Olaifa');
+      expect(parsed.identity.email).toBe('jephter@example.com');
+      expect(parsed.identity.phone).toBe('+234 801 234 5678');
+      expect(parsed.identity.location).toBe('Lagos, Nigeria');
+      expect(parsed.identity.links.linkedin).toBe('https://linkedin.com/in/jephter');
+    });
+
+    it('keeps full month date ranges and exploration projects in their sections', () => {
+      const parsed = parsePlainTextResume(`
+Boluwatife Jonathan Olaifa
+boluwatife@example.com
+
+WORK EXPERIENCE
+Rocksteady - Senior Software Engineer
+OCTOBER 2025 - PRESENT
+- Built resilient services.
+
+EXPLORATIONS
+- LSM-Tree DB (Go) - Built a storage engine.
+`);
+
+      expect(parsed.experiences).toHaveLength(1);
+      expect(parsed.experiences[0]?.startDate).toBe('2025-10');
+      expect(parsed.experiences[0]?.isCurrent).toBe(true);
+      expect(parsed.projects).toHaveLength(1);
+      expect(parsed.projects[0]?.title).toContain('LSM-Tree DB');
+    });
   });
 
   describe('Evidence Decomposition', () => {

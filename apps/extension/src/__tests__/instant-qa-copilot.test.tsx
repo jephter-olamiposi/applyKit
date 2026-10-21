@@ -215,6 +215,7 @@ describe('InstantQuestionSolver React Component', () => {
     expect(container.textContent).toContain('0ms Offline Fast-Path for Profile Data');
     expect(container.textContent).toContain('Zero Hallucination Evidence Grounding');
     expect(container.textContent).toContain('What country are you located in?');
+    expect(container.textContent).toContain('ATS Maximizer');
     expect(container.textContent).toContain('STAR Method');
     expect(container.textContent).toContain('150 chars');
   });
@@ -271,7 +272,7 @@ describe('InstantQuestionSolver React Component', () => {
       expect.objectContaining({
         type: 'ANSWER_AD_HOC_QUESTION',
         question: 'What is your notice period?',
-        tone: 'concise',
+        tone: 'ats_aggressive',
       })
     );
 

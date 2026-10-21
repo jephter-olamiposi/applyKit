@@ -340,6 +340,16 @@ export async function executeSingleAction(
     switch (browserAction.actionType) {
       case 'fill_text': {
         const input = element as HTMLInputElement | HTMLTextAreaElement;
+        // Non-Overwrite Invariant (SKILL.md Line 159 & Line 232):
+        // If a field already holds non-empty text typed by the candidate, never overwrite it.
+        if (
+          options.preserveExistingValues !== false &&
+          typeof input.value === 'string' &&
+          input.value.trim().length > 0
+        ) {
+          break;
+        }
+
         if (options.pacingMode === 'natural' && options.simulateKeystrokes !== false) {
           await typeTextProgressively(input, browserAction.value || '', options);
         } else {
@@ -370,9 +380,7 @@ export async function executeSingleAction(
       }
 
       case 'upload_file': {
-        const fileInput = element as HTMLInputElement;
-        simulateFileUpload(fileInput, browserAction.value || 'resume.pdf');
-        break;
+        throw new Error('Document upload is manual only. Download the approved DOCX and attach it yourself.');
       }
 
       case 'scroll_into_view': {
