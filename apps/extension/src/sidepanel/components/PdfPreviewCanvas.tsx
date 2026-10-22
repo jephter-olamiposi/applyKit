@@ -94,9 +94,9 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
                   disabled={isGenerating}
                 >
                   {tId === 'modern' && '✨ Modern'}
-                  {tId === 'classic' && '🏛️ Classic'}
-                  {tId === 'minimalist' && '📄 Minimalist'}
-                  {tId === 'compact' && '⚡ Compact'}
+                  {tId === 'classic' && 'Classic'}
+                  {tId === 'minimalist' && 'Minimalist'}
+                  {tId === 'compact' && 'Compact'}
                 </button>
               ))}
             </div>
@@ -191,7 +191,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
               </span>
             ) : (
               <span className="budget-status-pill budget-status-multi" title="Comprehensive multi-page resume">
-                📄 Multi-Page
+                Multi-page
               </span>
             )}
 
@@ -246,7 +246,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
 
         {error && (
           <div className="pdf-render-error" role="alert">
-            <span>⚠️ {error}</span>
+            <span>{error}</span>
           </div>
         )}
 
@@ -272,7 +272,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
       </div>
 
       <div className="pdf-canvas-footer-tip">
-        <span>💡 Tip: If content spills onto page 2, toggle <strong>1-Page Fit</strong> or select <strong>Tight</strong> density.</span>
+        <span>If content spills onto page 2, toggle <strong>1-Page Fit</strong> or select <strong>Tight</strong> density.</span>
       </div>
     </div>
   );

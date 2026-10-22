@@ -164,7 +164,7 @@ export const App: React.FC = () => {
       <header className="app-header">
         <div className="brand">
           <h1 className="brand-title">ApplyKit</h1>
-          <span className="brand-subtitle">Job Application Copilot</span>
+          <span className="brand-subtitle">Job application workspace</span>
         </div>
         <div className="header-actions">
           <button
@@ -173,7 +173,7 @@ export const App: React.FC = () => {
             onClick={() => setActiveTab('profile')}
             title="Candidate Profile"
           >
-            👤 Profile
+            Profile
           </button>
           <button
             type="button"
@@ -181,7 +181,7 @@ export const App: React.FC = () => {
             onClick={() => setActiveTab('settings')}
             title="API Keys & Settings"
           >
-            ⚙️ Settings
+            Settings
           </button>
         </div>
       </header>
@@ -318,7 +318,7 @@ export const App: React.FC = () => {
 
       <footer className="app-footer">
         <p className="footer-text">
-          Local-first &bull; Evidence-backed &bull; Candidate controlled
+          Review every action before it runs.
         </p>
       </footer>
     </div>

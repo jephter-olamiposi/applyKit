@@ -144,7 +144,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     setEditAddressLine1(p.identity.location?.addressLine1 || '');
     setEditPostalCode(p.identity.location?.postalCode || '');
 
-    setEditIsAuthorized(p.identity.workAuthorization?.isAuthorizedInCountry ?? true);
+    setEditIsAuthorized(p.identity.workAuthorization?.isAuthorizedInCountry ?? false);
     setEditRequiresSponsorship(p.identity.workAuthorization?.requiresSponsorship ?? false);
     setEditVisaStatus(p.identity.workAuthorization?.visaStatus || '');
 
@@ -528,7 +528,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
           {/* Section: Basic Identity */}
           <div className="form-section-card">
-            <h4 className="form-section-title">👤 Personal Identity & Contact</h4>
+            <h4 className="form-section-title">Personal identity and contact</h4>
             <div className="form-row-2col">
               <div className="form-group">
                 <label className="form-label">First Name</label>
@@ -672,7 +672,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
           {/* Section: Work Authorization */}
           <div className="form-section-card">
-            <h4 className="form-section-title">🛡️ Work Authorization</h4>
+            <h4 className="form-section-title">Work authorization</h4>
             <div className="form-checkbox-row">
               <label className="checkbox-label">
                 <input
@@ -833,7 +833,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
           {/* Section: Skills */}
           <div className="form-section-card">
-            <h4 className="form-section-title">⚡ Skills</h4>
+            <h4 className="form-section-title">Skills</h4>
             <p className="form-help">
               Add a skill only when you can stand behind it. Tailored resumes can include these confirmed skills.
             </p>
@@ -977,7 +977,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
             <div>
               <h2 className="profile-name">{profile?.fullName || 'Candidate'}</h2>
               <p className="profile-headline">{profile?.headline || 'No headline set'}</p>
-              {profile?.email && <p className="profile-email">✉️ {profile.email}</p>}
+              {profile?.email && <p className="profile-email">{profile.email}</p>}
               {fullProfile?.identity?.phone && (
                 <p className="profile-email">📞 {fullProfile.identity.phone}</p>
               )}
@@ -1007,7 +1007,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                 onClick={startEdit}
                 style={{ marginTop: '0.5rem' }}
               >
-                ✏️ Edit Profile
+                Edit profile
               </button>
             </div>
           </div>
@@ -1046,7 +1046,6 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '20px' }}>📄</span>
                     <div>
                       <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#f1f5f9' }}>
                         Master Resume & Grounded Evidence
@@ -1114,7 +1113,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                         onClick={handleApplyResumeUpdate}
                         disabled={isIngestingResume || !newResumeText.trim()}
                       >
-                        {isIngestingResume ? 'Re-indexing...' : '⚡ Re-Index Evidence Graph'}
+                        {isIngestingResume ? 'Re-indexing...' : 'Re-index evidence'}
                       </button>
                     </div>
                   </div>
@@ -1154,13 +1153,13 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
             <div className="detail-item">
               <span className="detail-label">Work Auth:</span>
               <span className="detail-val">
-                {fullProfile?.identity?.workAuthorization?.isAuthorizedInCountry ? '✅ Authorized' : '❌ Not Authorized'}
+                {fullProfile?.identity?.workAuthorization?.isAuthorizedInCountry ? 'Authorized' : 'Not confirmed'}
               </span>
             </div>
             <div className="detail-item">
               <span className="detail-label">Sponsorship:</span>
               <span className="detail-val">
-                {fullProfile?.identity?.workAuthorization?.requiresSponsorship ? '⚠️ Needed' : '✅ Not Needed'}
+                {fullProfile?.identity?.workAuthorization?.requiresSponsorship ? 'Required' : 'Not required'}
               </span>
             </div>
             {fullProfile?.professional?.compensationExpectation?.targetSalaryMin && (
@@ -1205,7 +1204,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
           {/* Reusable Saved Answers Section */}
           <div className="saved-answers-section">
             <h4 className="data-sovereignty-title">
-              ⚡ Verified Saved Answers ({savedAnswersList.length})
+              Verified saved answers ({savedAnswersList.length})
             </h4>
             <p className="saved-answers-desc">
               These answers resolve automatically in 0ms without hitting external AI or requiring API keys.
@@ -1213,7 +1212,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
             {savedAnswersList.length === 0 ? (
               <p className="no-saved-answers-text">
-                No custom saved answers yet. Use the ⚡ Instant Q&A Copilot to generate and save answers.
+                No saved answers yet. Use Instant Q&A to create and save reusable answers.
               </p>
             ) : (
               <div className="saved-answers-list">
@@ -1284,7 +1283,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                   📤 Export profile.yaml
                 </button>
                 <label className="btn btn-small btn-secondary file-upload-label" style={{ cursor: 'pointer' }}>
-                  📥 Import profile.yaml
+                  Import profile.yaml
                   <input
                     type="file"
                     accept=".yaml,.yml,text/yaml,text/plain"

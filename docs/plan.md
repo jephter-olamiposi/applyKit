@@ -360,4 +360,14 @@ ApplyKit is a local-first, privacy-respecting browser extension and engine that 
   - Git ignore rules for local pipeline references and generated resume scratch files.
 - **Exit Criteria:** Full suite passes, production build succeeds, and the release archive contains all required runtime assets.
 
+---
+
+## Phase 29: Side Panel Visual Simplification — ✅ Complete
+- **Objective:** Make the side panel feel like a focused application workspace rather than a promotional AI dashboard.
+- **Deliverables:**
+  - Removed decorative emoji, gradient backgrounds, launch language, and repeated “one-click” marketing copy from user-facing views.
+  - Replaced status icons with accessible text labels such as Pass, Review, and Fail.
+  - Changed work authorization onboarding and profile editing to require explicit confirmation instead of assuming authorization.
+  - Updated UI regression assertions to match the simplified labels.
+- **Exit Criteria:** No side-panel emoji or CSS gradients remain, the build succeeds, and the full test suite passes.
 

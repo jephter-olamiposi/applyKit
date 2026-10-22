@@ -47,7 +47,8 @@ export class RecruiteeFormAdapter implements AtsFormAdapter {
       return true;
     }
     return Boolean(
-      doc.querySelector('#offer-application-form, form[action*="recruitee"], [data-recruitee-form]')
+      doc.querySelector('#offer-application-form, form[action*="recruitee"], [data-recruitee-form]') ||
+      doc.querySelector('[src*="recruiteecdn.com"], [href*="recruiteecdn.com"]')
     );
   }
 

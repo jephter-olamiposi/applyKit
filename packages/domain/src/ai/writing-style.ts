@@ -85,7 +85,7 @@ export const FORBIDDEN_PATTERNS = [
 
 export const CORPORATE_FILLER_PATTERNS = [
   /\b(in order to|due to the fact that|with respect to|in terms of|as far as.*is concerned)\b/gi,
-  /\b(utilize|leverage|synergize|optimize|facilitate|orchestrate)\b/gi,
+  /\b(utiliz(?:e|ed|ing|es)|leverag(?:e|ed|ing|es)|synergiz(?:e|ed|ing|es)|facilitat(?:e|ed|ing|es)|orchestrat(?:e|ed|ing|es))\b/gi,
   /\b(strong passion|deep passion|excited to|thrilled to|eager to)\b/gi,
   /\b(proven track record|extensive experience|solid background|wealth of experience)\b/gi,
   /\b(cross-functional|end-to-end|best-in-class|world-class|top-tier)\b/gi,

@@ -96,7 +96,7 @@ body {
   color: #fff;
 }
 
-/* 4-Stage Pipeline Navigation */
+/* 5-Stage Pipeline Navigation */
 .pipeline-nav-container {
   display: flex;
   flex-direction: column;
@@ -235,7 +235,7 @@ body {
 .pipeline-next-step-card {
   margin-top: 20px;
   padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+  background-color: var(--color-surface);
   border: 1px solid #3b82f644;
   border-radius: 8px;
   display: flex;
@@ -298,7 +298,7 @@ body {
   padding: 16px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(30, 41, 59, 0.94));
+  background-color: #172554;
 }
 
 .focused-page-header h2 {
@@ -1820,7 +1820,7 @@ body {
   flex-direction: column;
   gap: 6px;
   padding: 12px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.05) 100%);
+  background-color: rgba(37, 99, 235, 0.12);
   border: 1px solid rgba(59, 130, 246, 0.4);
   border-radius: 8px;
 }
@@ -4410,7 +4410,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18) 0%, rgba(99, 102, 241, 0.12) 100%);
+  background-color: rgba(30, 64, 175, 0.22);
   border: 1px solid rgba(59, 130, 246, 0.35);
   border-radius: 10px;
   padding: 14px;
@@ -4769,7 +4769,7 @@ body {
 }
 
 .quick-tip-card {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(37, 99, 235, 0.04) 100%);
+  background-color: rgba(37, 99, 235, 0.08);
   border: 1px solid rgba(59, 130, 246, 0.25);
   border-radius: 8px;
   padding: 10px 12px;
@@ -4873,7 +4873,7 @@ body {
 }
 
 .template-pill-active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(139, 92, 246, 0.2) 100%);
+  background-color: rgba(99, 102, 241, 0.2);
   border-color: #818cf8;
   color: #c7d2fe;
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.25);
@@ -4899,7 +4899,7 @@ body {
    14-POINT RESUME GOLDEN STANDARD QUALITY CARD
    ========================================================================== */
 .resume-quality-audit-card {
-  background: linear-gradient(145deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  background-color: rgba(30, 41, 59, 0.8);
   border: 1px solid rgba(99, 102, 241, 0.35);
   border-radius: 10px;
   padding: 14px;
@@ -5015,7 +5015,7 @@ body {
 }
 
 .btn-auto-fix-golden {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  background-color: #d97706;
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -5132,7 +5132,7 @@ body {
    1-CLICK AUTO-FILL HERO BANNER & BUTTONS
    ========================================================================== */
 .one-click-autofill-banner {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(5, 150, 105, 0.12) 100%);
+  background-color: rgba(5, 150, 105, 0.16);
   border: 1px solid rgba(16, 185, 129, 0.35);
   border-radius: 8px;
   padding: 12px 14px;
@@ -5162,7 +5162,7 @@ body {
 }
 
 .btn-one-click-autofill {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background-color: #059669;
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -5195,7 +5195,7 @@ body {
 .btn-one-click-hero {
   flex: 1;
   min-width: 180px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background-color: #059669;
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -5243,7 +5243,7 @@ body {
    INSTANT QUESTION SOLVER COMPONENT
    ========================================================================== */
 .instant-solver-card {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.7) 100%);
+  background-color: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 8px;
   margin-bottom: 12px;
@@ -5348,7 +5348,7 @@ body {
 }
 
 .btn-solver-generate {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background-color: #2563eb;
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -5450,7 +5450,7 @@ body {
 }
 
 .btn-solver-insert {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background-color: #059669;
   color: #ffffff;
   border: none;
   border-radius: 4px;
@@ -5831,7 +5831,7 @@ body {
 }
 
 .free-gemini-box {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%);
+  background-color: rgba(37, 99, 235, 0.14);
   border: 1px solid rgba(59, 130, 246, 0.4);
   border-radius: 8px;
   padding: 12px;
@@ -5867,7 +5867,7 @@ body {
 .btn-get-gemini-key {
   display: inline-block;
   align-self: flex-start;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background-color: #2563eb;
   color: #fff;
   text-decoration: none;
   font-size: 10px;
@@ -5897,7 +5897,7 @@ body {
 }
 
 .btn-activate {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  background-color: #059669 !important;
 }
 
 /* ==========================================================================
@@ -6092,7 +6092,7 @@ body {
 }
 
 .btn-canvas-download {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background-color: #1d4ed8;
   border: none;
   color: #fff;
   font-size: 11px;
@@ -6505,4 +6505,3 @@ body {
   border-color: #f59e0b;
   color: #0f172a;
 }
-

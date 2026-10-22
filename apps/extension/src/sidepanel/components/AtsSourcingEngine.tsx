@@ -101,10 +101,9 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>🎯</span>
           <div>
             <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
-              Direct ATS Job Sourcing Engine (Phase 1)
+              Search job boards
             </h3>
             <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
               Target unindexed &amp; worldwide remote roles directly on Ashby, Greenhouse, Lever
@@ -234,7 +233,7 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
                       }}
                       title="Copy search query string"
                     >
-                      {copiedIndex === index ? '✓ Copied' : '📋 Copy'}
+                      {copiedIndex === index ? '✓ Copied' : 'Copy'}
                     </button>
                     <button
                       type="button"
@@ -293,7 +292,7 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
               }}
             >
               <span style={{ fontSize: '11px', fontWeight: 600, color: '#334155' }}>
-                ⚡ Unauthenticated ATS Board API Probes ({DIRECT_ATS_REGISTRY.length} Platforms)
+                ATS board probes ({DIRECT_ATS_REGISTRY.length} platforms)
               </span>
               <span style={{ fontSize: '10px', color: '#2563eb' }}>
                 {showDirectEndpoints ? 'Hide Endpoints ▲' : 'Show Endpoints ▼'}

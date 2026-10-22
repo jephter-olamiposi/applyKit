@@ -188,7 +188,7 @@ describe('AI Provider Subsystem & Payload Scoping Suite', () => {
       expect(callCount).toBe(2);
       expect(response.parsed?.analysis).toBe('resilient_fallback');
       const secondCallUrl = mockFetch.mock.calls[1]![0] as string;
-      expect(secondCallUrl).toContain('gemini-3.1-flash-lite');
+      expect(secondCallUrl).toContain('gemini-flash-lite-latest');
     });
   });
 

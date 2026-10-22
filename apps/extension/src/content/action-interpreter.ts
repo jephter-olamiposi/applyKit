@@ -99,6 +99,14 @@ export function simulateTextInput(
   element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
   element.focus();
 
+  // Clear existing pre-filled values (e.g. intl-tel-input geo-IP country codes like '+855') to prevent value corruption
+  if (element.value && element.value !== text) {
+    setNativeInputValue(element, '');
+    element.dispatchEvent(
+      new InputEvent('input', { bubbles: true, composed: true, data: '', inputType: 'deleteContentBackward' })
+    );
+  }
+
   setNativeInputValue(element, text);
 
   element.dispatchEvent(

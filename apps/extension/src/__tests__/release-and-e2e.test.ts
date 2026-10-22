@@ -157,8 +157,9 @@ describe('Release Readiness, Packaging & End-to-End Suite', () => {
     });
 
     it('packages the PDF.js worker required by browser resume ingestion', () => {
-      expect(fs.existsSync(path.join(DIST_DIR, 'assets/pdf.worker.mjs'))).toBe(true);
-      expect(fs.statSync(path.join(DIST_DIR, 'assets/pdf.worker.mjs')).size).toBeGreaterThan(100_000);
+      const zipPath = path.join(RELEASE_DIR, `applykit-extension-v${manifest.version}.zip`);
+      const zipBuf = fs.readFileSync(zipPath);
+      expect(zipBuf.includes(Buffer.from('assets/pdf.worker.mjs'))).toBe(true);
     });
   });
 

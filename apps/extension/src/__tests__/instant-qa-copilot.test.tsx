@@ -212,11 +212,11 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     expect(container.textContent).toContain('Instant Q&A Copilot');
-    expect(container.textContent).toContain('0ms Offline Fast-Path for Profile Data');
-    expect(container.textContent).toContain('Zero Hallucination Evidence Grounding');
+    expect(container.textContent).toContain('Offline profile lookup');
+    expect(container.textContent).toContain('Evidence-backed answers');
     expect(container.textContent).toContain('What country are you located in?');
-    expect(container.textContent).toContain('ATS Maximizer');
-    expect(container.textContent).toContain('STAR Method');
+    expect(container.textContent).toContain('Keyword-focused');
+    expect(container.textContent).toContain('STAR method');
     expect(container.textContent).toContain('150 chars');
   });
 
@@ -260,7 +260,7 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     const generateBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Generate Grounded Answer')
+      b.textContent?.includes('Generate answer')
     );
     expect(generateBtn).toBeDefined();
 
@@ -309,14 +309,14 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     const generateBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Generate Grounded Answer')
+      b.textContent?.includes('Generate answer')
     );
     await act(async () => {
       generateBtn?.click();
     });
 
     const saveBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Save to Profile')
+      b.textContent?.includes('Save to profile')
     );
     expect(saveBtn).toBeDefined();
 
@@ -332,7 +332,7 @@ describe('InstantQuestionSolver React Component', () => {
       })
     );
 
-    expect(container.textContent).toContain('Answer saved to profile!');
+    expect(container.textContent).toContain('Answer saved to profile.');
   });
 
   it('copies generated answer to system clipboard', async () => {
@@ -365,14 +365,14 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     const generateBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Generate Grounded Answer')
+      b.textContent?.includes('Generate answer')
     );
     await act(async () => {
       generateBtn?.click();
     });
 
     const copyBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Copy Answer')
+      b.textContent?.includes('Copy answer')
     );
     expect(copyBtn).toBeDefined();
 
@@ -410,14 +410,14 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     const generateBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Generate Grounded Answer')
+      b.textContent?.includes('Generate answer')
     );
     await act(async () => {
       generateBtn?.click();
     });
 
     const insertBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Insert into Focused Field')
+      b.textContent?.includes('Insert into focused field')
     );
     expect(insertBtn).toBeDefined();
 
@@ -464,7 +464,7 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     const generateBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Generate Grounded Answer')
+      b.textContent?.includes('Generate answer')
     );
     await act(async () => {
       generateBtn?.click();

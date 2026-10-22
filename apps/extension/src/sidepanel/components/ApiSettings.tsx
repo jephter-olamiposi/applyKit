@@ -276,7 +276,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
               <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534' }}>
-                ✨ 60-Second Free Key Guide (Google AI Studio)
+                Get a free Gemini key
               </span>
               <button
                 type="button"
@@ -435,7 +435,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
             </button>
           ) : (
             <div className="purge-confirm-box">
-              <span className="purge-warning-text">⚠️ Permanently erase all local profiles, evidence, and keys?</span>
+              <span className="purge-warning-text">Permanently erase all local profiles, evidence, and keys?</span>
               <div className="purge-buttons-group">
                 <button
                   type="button"
@@ -464,14 +464,14 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
         <div className="onboarding-settings-card">
           <h4 className="section-title">Setup & Onboarding Wizard</h4>
           <p className="onboarding-settings-desc">
-            Re-run the initial 4-step candidate profile, evidence import, and provider setup wizard.
+            Review your profile, resume evidence, and provider setup again.
           </p>
           <button
             type="button"
             className="btn-secondary"
             onClick={onRerunOnboarding}
           >
-            Launch Onboarding Wizard 🚀
+            Open setup
           </button>
         </div>
       )}

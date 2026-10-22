@@ -334,7 +334,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
               gap: '6px',
             }}
           >
-            {isLoading ? '⏳ Scanning Boards...' : '🔍 Scan Curated Watchlist'}
+            {isLoading ? 'Scanning boards...' : 'Scan watchlist'}
           </button>
 
           <button
@@ -356,7 +356,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
             }}
             title="Scan current browser tab for ATS job links"
           >
-            {isHarvesting ? '⏳' : '📥'} Harvest Active Tab
+            {isHarvesting ? 'Harvesting...' : 'Harvest active tab'}
           </button>
         </div>
 
@@ -449,7 +449,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
         )}
         {errorMessage && (
           <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#dc2626' }}>
-            ⚠ {errorMessage}
+            {errorMessage}
           </p>
         )}
       </div>
@@ -772,7 +772,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
                       borderRadius: '4px',
                     }}
                   >
-                    ⚠️ Conditional Review Required
+                    Conditional review required
                   </span>
                 )}
                 {opp.verdict === 'BLOCKED' && (
@@ -786,7 +786,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span style={{ fontSize: '10px', fontWeight: 700, color: '#dc2626' }}>
-                        🛑 Blocked: {opp.fatalGate ? opp.fatalGate.replace('_', ' ') : 'Ineligible'}
+                        Blocked: {opp.fatalGate ? opp.fatalGate.replace('_', ' ') : 'Ineligible'}
                       </span>
                     </div>
                     {opp.verbatimEvidence && (
@@ -856,7 +856,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
                   gap: '4px',
                 }}
               >
-                🚀 Open &amp; Stage
+                Open and stage
               </button>
             </div>
           </div>

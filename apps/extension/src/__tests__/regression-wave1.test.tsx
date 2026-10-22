@@ -284,7 +284,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     // --- Step 4: finish onboarding ---
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Launch ApplyKit Copilot')
+        b.textContent?.includes('Open workspace')
       )?.click();
     });
 
@@ -354,7 +354,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     // --- Step 4: finish onboarding ---
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Launch ApplyKit Copilot')
+        b.textContent?.includes('Open workspace')
       )?.click();
     });
 
@@ -420,7 +420,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     // --- Step 4: launch copilot ---
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Launch ApplyKit Copilot')
+        b.textContent?.includes('Open workspace')
       )?.click();
     });
 

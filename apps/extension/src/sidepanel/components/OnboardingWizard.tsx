@@ -4,7 +4,7 @@
  * Implements a candidate-controlled, resume-first onboarding architecture (ADR-0004, ADR-0017):
  * Step 1: Resume Upload & Fast Decomposition (Dropzone, file picker, text paste, sample CV fast-track)
  * Step 2: Profile Review & Confirmation (Pre-filled contact, location taxonomy, work authorization, compensation, links)
- * Step 3: AI Provider Setup (Isolated background key storage, Free Gemini 1-Click, BYOK, or offline rules)
+ * Step 3: Provider setup (isolated background key storage, BYOK, or offline rules)
  * Step 4: Ready to Apply & Copilot Activation (Summary checklist, Hard gate badge, activation)
  *
  * Design rationale: Inverting onboarding to be resume-first grounds the entire EvidenceGraph from
@@ -143,7 +143,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [addressLine1, setAddressLine1] = useState('');
   const [postalCode, setPostalCode] = useState('');
 
-  const [isAuthorized, setIsAuthorized] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [requiresSponsorship, setRequiresSponsorship] = useState(false);
   const [visaStatus, setVisaStatus] = useState('');
 
@@ -528,7 +528,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {/* Header Banner */}
       <div className="onboarding-header">
         <div className="onboarding-brand">
-          <div className="onboarding-logo-icon">🚀</div>
+          <div className="onboarding-logo-icon" aria-hidden="true">A</div>
           <div>
             <h2 className="onboarding-title">Welcome to ApplyKit</h2>
             <p className="onboarding-tagline">
@@ -547,26 +547,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       <div className="onboarding-stepper" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={4}>
         <div className={`step-item ${currentStep >= 1 ? 'step-active' : ''} ${currentStep > 1 ? 'step-done' : ''}`}>
           <div className="step-circle">{currentStep > 1 ? '✓' : '1'}</div>
-          <span className="step-label">📄 Resume</span>
+          <span className="step-label">Resume</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 2 ? 'step-active' : ''} ${currentStep > 2 ? 'step-done' : ''}`}>
           <div className="step-circle">{currentStep > 2 ? '✓' : '2'}</div>
-          <span className="step-label">👤 Profile</span>
+          <span className="step-label">Profile</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 3 ? 'step-active' : ''} ${currentStep > 3 ? 'step-done' : ''}`}>
           <div className="step-circle">{currentStep > 3 ? '✓' : '3'}</div>
-          <span className="step-label">🤖 AI Setup</span>
+          <span className="step-label">Provider</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 4 ? 'step-active' : ''}`}>
           <div className="step-circle">4</div>
-          <span className="step-label">🚀 Ready</span>
+          <span className="step-label">Ready</span>
         </div>
       </div>
 
-      {errorMsg && <div className="onboarding-error-alert" role="alert">⚠️ {errorMsg}</div>}
+      {errorMsg && <div className="onboarding-error-alert" role="alert">{errorMsg}</div>}
 
       {/* =========================================================================
           STEP 1: Resume Upload & Fast Decomposition (Hero Step)
@@ -575,7 +575,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         <div className="onboarding-step-content">
           <div className="step-heading-row">
             <div>
-              <h3 className="step-title">📄 Upload or Paste Your Resume</h3>
+              <h3 className="step-title">Upload or paste your resume</h3>
               <p className="step-desc">
                 ApplyKit grounds everything in your verified experience. Upload or paste your CV to extract your contact details, work history, skills, and links in seconds.
               </p>
@@ -587,7 +587,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={handleSampleResume}
               disabled={isParsing}
             >
-              💡 Try Sample Resume
+              Use sample resume
             </button>
           </div>
 
@@ -609,7 +609,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               style={{ display: 'none' }}
               onChange={handleFileUpload}
             />
-            <div className="resume-dropzone-icon">📄</div>
+            <div className="resume-dropzone-icon" aria-hidden="true">PDF</div>
             <p className="resume-dropzone-title">
               {resumeFileName ? `Selected: ${resumeFileName}` : 'Drop your resume file here, or click to browse'}
             </p>
@@ -664,7 +664,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={() => handleParseResume()}
               disabled={isParsing || !resumeText.trim()}
             >
-              {isParsing ? '⚡ Extracting & Ingesting...' : '⚡ Ingest Resume & Build Profile ➔'}
+              {isParsing ? 'Extracting resume...' : 'Continue to profile review'}
             </button>
           </div>
         </div>
@@ -677,7 +677,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         <div className="onboarding-step-content">
           <div className="step-heading-row">
             <div>
-              <h3 className="step-title">👤 Review & Confirm Profile</h3>
+              <h3 className="step-title">Review your profile</h3>
               <p className="step-desc">
                 We pre-filled these details from your resume. Review and fill any missing information to guarantee 100% accurate autofill.
               </p>
@@ -836,7 +836,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
             {/* Work Authorization Card */}
             <div className="work-auth-card" style={{ marginTop: '4px' }}>
-              <h4 className="work-auth-title">🛡️ Work Authorization</h4>
+              <h4 className="work-auth-title">Work authorization</h4>
               <label className="checkbox-row">
                 <input
                   id="work-auth-checkbox"
@@ -984,12 +984,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           ========================================================================= */}
       {currentStep === 3 && (
         <div className="onboarding-step-content">
-          <h3 className="step-title">🤖 AI Provider Key Configuration</h3>
+          <h3 className="step-title">Provider key configuration</h3>
           <p className="step-desc">
             ApplyKit keeps your API keys strictly isolated inside the Extension Service Worker (ADR-0002). Webpages and scripts have zero access.
           </p>
 
-          {/* Free Gemini 1-Click Callout */}
+          {/* Gemini setup callout */}
           <div className="free-gemini-box">
             <div className="free-gemini-header">
               <span className="free-gemini-icon">🌟</span>
@@ -1086,7 +1086,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {currentStep === 4 && (
         <div className="onboarding-step-content">
           <div className="celebration-box">
-            <span className="celebration-icon">🎉</span>
+            <span className="celebration-icon" aria-hidden="true">✓</span>
             <h3 className="celebration-title">You're All Set!</h3>
             <p className="celebration-subtitle">
               ApplyKit is configured and ready to assist with your real job applications.
@@ -1111,7 +1111,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <div className="checklist-item">
               <span className="check-icon">✓</span>
               <div>
-                <strong>Work Authorization:</strong> {isAuthorized ? 'Authorized in resident country' : 'Not authorized'}{requiresSponsorship ? ' (Sponsorship required)' : ''}
+                <strong>Work Authorization:</strong> {isAuthorized ? 'Authorized in resident country' : 'Not confirmed'}{requiresSponsorship ? ' (Sponsorship required)' : ''}
               </div>
             </div>
             <div className="checklist-item">
@@ -1135,7 +1135,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           </div>
 
           <div className="quick-tip-card">
-            <h4>💡 How to apply with ApplyKit:</h4>
+            <h4>How to use ApplyKit</h4>
             <ol>
               <li>Navigate to any job posting on Greenhouse, Workday, Lever, or Ashby.</li>
               <li>Click <strong>Extract Job</strong> in the Side Panel to parse requirements.</li>
@@ -1159,7 +1159,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={handleFinishOnboarding}
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Finalizing Setup...' : 'Launch ApplyKit Copilot 🚀'}
+              {isSubmitting ? 'Saving setup...' : 'Open workspace'}
             </button>
           </div>
         </div>

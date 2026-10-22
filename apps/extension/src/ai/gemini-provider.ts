@@ -42,7 +42,7 @@ export class GeminiProvider extends BaseHttpProvider {
 
   constructor(
     apiKey: string,
-    modelName = 'gemini-3.1-flash-lite',
+    modelName = 'gemini-flash-lite-latest',
     timeoutMs = 15000,
     customFetch?: typeof fetch
   ) {
@@ -50,14 +50,14 @@ export class GeminiProvider extends BaseHttpProvider {
   }
 
   async complete<T = unknown>(request: AIRequest): Promise<AIResponse<T>> {
+    // Priority order uses active, high-throughput Gemini models before experimental fallbacks
     const candidateModels = Array.from(
       new Set([
         this.modelName,
-        'gemini-3.1-flash-lite',
-        'gemini-3.5-flash-lite',
-        'gemini-3.5-flash',
         'gemini-flash-lite-latest',
-        'gemini-2.5-flash-lite',
+        'gemini-3.5-flash-lite',
+        'gemini-3.8-flash',
+        'gemini-3.5-flash',
       ])
     );
 

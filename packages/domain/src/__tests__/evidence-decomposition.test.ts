@@ -166,6 +166,35 @@ EXPLORATIONS
       expect(parsed.projects).toHaveLength(1);
       expect(parsed.projects[0]?.title).toContain('LSM-Tree DB');
     });
+
+    it('keeps role headers and dates intact when a location follows the date', () => {
+      const parsed = parsePlainTextResume(`Jane Developer
+jane.dev@example.org | +1 (555) 019-2834 | San Francisco, CA
+
+WORK EXPERIENCE
+Staff Software Engineer — CloudScale Systems (2022 - Present) | San Francisco, CA
+• Architected a real-time event streaming pipeline.
+
+Senior Software Engineer — Apex Labs (2019 - 2022) | Remote`);
+
+      expect(parsed.experiences[0]).toMatchObject({
+        title: 'Staff Software Engineer',
+        company: 'CloudScale Systems',
+        startDate: '2022-01',
+        isCurrent: true,
+        location: 'San Francisco, CA',
+      });
+      expect(parsed.experiences[1]).toMatchObject({
+        title: 'Senior Software Engineer',
+        company: 'Apex Labs',
+        startDate: '2019-01',
+        endDate: '2022-01',
+        location: 'Remote',
+      });
+      expect(parsed.reviewWarnings).not.toContain(
+        'One or more experience dates could not be identified; review them before saving.'
+      );
+    });
   });
 
   describe('Evidence Decomposition', () => {

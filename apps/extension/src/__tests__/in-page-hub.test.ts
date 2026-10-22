@@ -96,7 +96,7 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
     const autofillBtn = host?.shadowRoot?.querySelector('#btn-hub-autofill') as HTMLButtonElement;
 
     expect(autofillBtn).toBeDefined();
-    expect(autofillBtn.textContent).toBe('1-Click Auto-Fill');
+    expect(autofillBtn.textContent).toBe('Fill safe fields');
 
     // Click auto-fill button
     autofillBtn.click();
@@ -152,7 +152,7 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
 
     expect(pill).toBeDefined();
     expect(pill.style.display).toBe('flex');
-    expect(pill.textContent).toContain('Draft Answer with ApplyKit');
+    expect(pill.textContent).toContain('Draft answer with ApplyKit');
   });
 
   it('strictly ignores submit buttons and password fields (Submission Hard Gate)', async () => {
@@ -190,7 +190,7 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
 
     expect(pill).toBeDefined();
     expect(pill.style.display).toBe('flex');
-    expect(pill.textContent).toContain('Attach Tailored Resume PDF');
+    expect(pill.textContent).toContain('Attach tailored resume PDF');
 
     pill.click();
     expect((globalThis as any).chrome.runtime.sendMessage).toHaveBeenCalledWith(

@@ -201,7 +201,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     }
   }, [selectedTemplate, onePageFit]);
 
-  // 1-Click Auto-Polish for 14-Point Resume Golden Standard
+  // Refine the generated document without changing source evidence.
   const handleAutoFix = async () => {
     if (!tailoredResume) return;
     try {
@@ -223,7 +223,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
       if (res.qualityAudit) {
         setQualityAudit(res.qualityAudit);
       }
-      setCopyFeedback('⚡ Auto-polished! 14-point golden standard applied (removed pronouns & buzzwords, improved metrics & action verbs, budgeted to 1 page).');
+      setCopyFeedback('Resume refined. Unsupported claims were not added, and the content was kept to one page.');
       setTimeout(() => setCopyFeedback(null), 4500);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -483,7 +483,6 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
 
         {error && (
           <div className="tailoring-error-banner" role="alert">
-            <span className="error-icon">⚠️</span>
             <span>{error}</span>
           </div>
         )}
@@ -538,7 +537,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                   className={`resume-subtab-btn ${resumeSubView === 'canvas' ? 'resume-subtab-active' : ''}`}
                   onClick={() => setResumeSubView('canvas')}
                 >
-                  📄 Live PDF Canvas Preview
+                  Live PDF preview
                 </button>
                 <button
                   type="button"
@@ -608,9 +607,9 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                         onClick={() => setSelectedTemplate(tId)}
                       >
                         {tId === 'modern' && '✨ Modern'}
-                        {tId === 'classic' && '🏛️ Classic'}
-                        {tId === 'minimalist' && '📄 Minimalist ATS'}
-                        {tId === 'compact' && '⚡ Compact'}
+                        {tId === 'classic' && 'Classic'}
+                        {tId === 'minimalist' && 'Minimalist ATS'}
+                        {tId === 'compact' && 'Compact'}
                       </button>
                     ))}
                   </div>
@@ -661,7 +660,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                             </span>
                             {pageBudgetCheck && (
                               <span className={`budget-pill ${pageBudgetCheck.status === 'passed' ? 'budget-fit' : 'budget-over'}`}>
-                                {pageBudgetCheck.status === 'passed' ? '✓ Fits 1 Page' : '⚠️ Over budget'}
+                                {pageBudgetCheck.status === 'passed' ? 'Fits 1 page' : 'Over budget'}
                               </span>
                             )}
                           </div>
@@ -676,7 +675,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                           onClick={handleAutoFix}
                           title="Automatically remove buzzwords, eliminate 'I', normalize typos, and budget to 1 page"
                         >
-                          {isAutoFixing ? 'Polishing...' : '⚡ 1-Click Auto-Polish'}
+                          {isAutoFixing ? 'Refining...' : 'Refine resume'}
                         </button>
                         <button
                           type="button"
@@ -696,7 +695,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                             <div key={check.id} className={`audit-item-card audit-item-${check.status}`}>
                               <div className="audit-item-top">
                                 <span className="audit-check-icon">
-                                  {check.status === 'passed' ? '✅' : check.status === 'warning' ? '⚠️' : '❌'}
+                                  {check.status === 'passed' ? 'Pass' : check.status === 'warning' ? 'Review' : 'Fail'}
                                 </span>
                                 <span className="audit-item-name">{check.name}</span>
                                 <span className="audit-item-score">{check.score}pts</span>
@@ -706,7 +705,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                                 <div className="audit-item-recs">
                                   {check.recommendations.map((rec, rIdx) => (
                                     <span key={rIdx} className="audit-rec-chip">
-                                      💡 {rec}
+                                      {rec}
                                     </span>
                                   ))}
                                 </div>
@@ -986,7 +985,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                       <h4 className="fact-check-title">
                         {letterFactCheck.isPristine
                           ? '✓ 100% Evidence-Grounded'
-                          : `⚠️ Grounding Verification: ${letterFactCheck.groundingScore}%`}
+                          : `Grounding verification: ${letterFactCheck.groundingScore}%`}
                       </h4>
                       <p className="fact-check-desc">
                         {letterFactCheck.verifiedStatements.length} verified statements cited directly from CandidateProfile and EvidenceGraph.

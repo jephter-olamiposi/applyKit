@@ -28,8 +28,8 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
     const hasRecruiteeDom = Boolean(
       doc.querySelector('#offer-application-form') ||
       doc.querySelector('meta[name="offer-guid"]') ||
-      doc.querySelector('link[href*="recruitee"]') ||
-      doc.querySelector('.offer-header')
+      doc.querySelector('link[href*="recruitee"], script[src*="recruitee"], [src*="recruiteecdn.com"], [href*="recruiteecdn.com"]') ||
+      doc.querySelector('.offer-header, [data-recruitee-form], .sc-1ntuzce-5')
     );
     return isHostMatch || hasRecruiteeDom;
   }
@@ -40,7 +40,14 @@ export class RecruiteeJobSiteAdapter implements JobSiteAdapter {
       doc.querySelector('h1[class*="gVUetx"]') ||
       doc.querySelector('.offer-title') ||
       doc.querySelector('h1');
-    const title = titleEl?.textContent?.trim() || doc.title.replace(/\s*[-|]\s*Recruitee.*$/i, '').trim();
+    let title = titleEl?.textContent?.trim() || doc.title.replace(/\s*[-|]\s*Recruitee.*$/i, '').trim();
+
+    // Normalize noisy suffixes common on candidate application routes (e.g. " - Internal - Application")
+    title = title
+      .replace(/\s*[-–—]\s*(?:Internal\s*[-–—]\s*)?Application\s*$/i, '')
+      .replace(/\s*[-–—]\s*Internal\s*$/i, '')
+      .replace(/^Apply\s+for\s+/i, '')
+      .trim();
 
     let companyName = 'Unknown Company';
     const siteNameMeta = doc.querySelector('meta[property="og:site_name"]');

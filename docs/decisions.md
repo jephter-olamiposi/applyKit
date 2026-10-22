@@ -1744,3 +1744,34 @@ leaving domain validation to the existing planner and executor.
 - Invalid sensitive messages are rejected before handler field access.
 - Existing domain safety gates remain the source of truth for action semantics.
 - The validator must be updated when a new sensitive request shape is added.
+
+---
+
+## ADR-0020: Real-World ATS Adaptation, Gemini Model Modernization, and Anti-AI Linguistic Guardrails
+
+### Status
+Accepted
+
+### Context
+Live verification against active ATS boards (such as Holepunch and Tether on Recruitee) identified real-world operational friction points:
+1. Google Generative Language API retired legacy models (`gemini-1.5-flash`, `gemini-2.0-flash`, `gemini-2.5-flash`), returning 404/not found errors for `v1beta generateContent`, while `gemini-flash-lite-latest` and `gemini-3.5-flash-lite` provide stable 200 OK throughput.
+2. Employer career boards increasingly utilize custom CNAME domains (e.g. `careers.tether.io`) requiring asset and script signature detection rather than rigid hostname string matching.
+3. Modern ATS application routes (`/c/new`) often append noisy metadata suffixes (`- Internal - Application`) to job titles.
+4. Pre-populated international dialing codes (`intl-tel-input`) corrupt phone number inputs if not wiped prior to candidate text insertion.
+5. Large language model outputs frequently introduce corporate buzzwords (`utilizing`, `leveraging`, em-dashes) that trigger recruiter anti-AI heuristics.
+
+### Decision
+1. Modernize `GeminiProvider` to default to `gemini-flash-lite-latest` and fallback through active production models (`gemini-3.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.5-flash`).
+2. Detect Recruitee boards across custom domains via CDN asset signatures (`careers.recruiteecdn.com`) and DOM structural markers (`.sc-1ntuzce-5`, `#offer-application-form`).
+3. Sanitize job titles by stripping application route suffixes (`- Application`, `- Internal`, `Apply for `).
+4. Clear pre-filled input values in `simulateTextInput` before inserting candidate contact values.
+5. Enhance option matching with compound token splitting (`Advanced / Expert`) and Levenshtein typo distance matching (`Begineer` -> `Beginner`).
+6. Enforce natural verb replacement (`utilizing` -> `using`, `leveraging` -> `applying`) in `sanitizeHumanText` and strip corporate buzzwords before candidate answer presentation.
+7. Provide graceful local storage fallback in `sendToBackground` when executing in standalone web preview mode outside the extension runtime.
+
+### Consequences
+- Reliable AI answer generation without 404 model retirement errors.
+- Seamless detection of branded employer career sites on custom CNAME domains.
+- Authentic, human-sounding screening answers free of repetitive AI corporate jargon.
+- Ability to develop and test the extension sidepanel directly in standard browser environments.
+

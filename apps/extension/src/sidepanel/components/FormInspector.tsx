@@ -217,7 +217,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
 
       {autoFillNotice && (
         <div className="alert-autofill-success" role="status">
-          <p className="alert-title">⚡ 1-Click Auto-Fill</p>
+          <p className="alert-title">Safe field fill</p>
           <p className="alert-message">{autoFillNotice}</p>
         </div>
       )}
@@ -227,7 +227,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
           {/* 1-Click Auto-Fill Hero Banner */}
           <div className="one-click-autofill-banner">
             <div className="autofill-banner-text">
-              <span className="autofill-banner-title">⚡ 1-Click Complete Auto-Fill</span>
+              <span className="autofill-banner-title">Safe field fill</span>
               <span className="autofill-banner-sub">
                 Answers custom questions with AI, matches your verified profile, and fills all safe inputs sequentially. Strictly halts before submit.
               </span>
@@ -238,7 +238,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
               disabled={isAutoFilling || activeForm.fields.length === 0}
               onClick={handleOneClickAutoFill}
             >
-              {isAutoFilling ? '⚡ Filling All Fields...' : '⚡ 1-Click Auto-Fill'}
+              {isAutoFilling ? 'Filling safe fields...' : 'Fill safe fields'}
             </button>
           </div>
 
@@ -359,7 +359,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
                 disabled={isAutoFilling || activeForm.fields.length === 0}
                 onClick={handleOneClickAutoFill}
               >
-                {isAutoFilling ? '⚡ Auto-Filling All Fields...' : '⚡ 1-Click Auto-Fill (All Safe Fields)'}
+                {isAutoFilling ? 'Filling safe fields...' : 'Fill safe fields'}
               </button>
               <button
                 type="button"
@@ -371,7 +371,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
               </button>
             </div>
             <p className="plan-trigger-hint">
-              1-Click Auto-Fill fills all safe fields in human-paced sequence and halts strictly before submit (Anti-Autonomous Submit Gate).
+              Safe fields are filled in sequence and the process stops before submission for your review.
             </p>
           </div>
 

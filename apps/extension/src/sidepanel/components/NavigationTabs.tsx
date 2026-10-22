@@ -1,5 +1,5 @@
 /**
- * @fileoverview Streamlined 4-stage pipeline navigation component for ApplyKit Side Panel.
+ * @fileoverview Streamlined 5-stage pipeline navigation component for ApplyKit Side Panel.
  *
  * Implements candidate-centric workflow navigation:
  * 1. Find Jobs (current-page extraction and sourced opportunities)
@@ -101,7 +101,7 @@ const PIPELINE_STEPS: readonly PipelineStep[] = [
 ];
 
 /**
- * Renders the streamlined 4-step pipeline navigation and contextual subtabs.
+ * Renders the streamlined 5-step pipeline navigation and contextual subtabs.
  */
 export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTabChange }) => {
   const currentStep = PIPELINE_STEPS.find((step) => step.memberTabs.includes(activeTab));
@@ -151,7 +151,7 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTab
       {!currentStep && (activeTab === 'profile' || activeTab === 'settings') && (
         <div className="utility-active-banner">
           <span className="utility-title">
-            {activeTab === 'profile' ? '👤 Verified Candidate Profile' : '⚙️ API & Extension Settings'}
+            {activeTab === 'profile' ? 'Candidate profile' : 'Extension settings'}
           </span>
           <button
             type="button"

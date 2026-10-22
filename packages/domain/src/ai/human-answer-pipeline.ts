@@ -337,6 +337,17 @@ export async function generateHumanAnswer(
 export function sanitizeHumanText(text: string): string {
   let cleaned = text;
 
+  // Natural verb normalization: replace corporate jargon with plain direct engineering verbs
+  cleaned = cleaned
+    .replace(/\butilizing\b/gi, 'using')
+    .replace(/\butilized\b/gi, 'used')
+    .replace(/\butilize\b/gi, 'use')
+    .replace(/\butilizes\b/gi, 'uses')
+    .replace(/\bleveraging\b/gi, 'applying')
+    .replace(/\bleveraged\b/gi, 'applied')
+    .replace(/\bleverage\b/gi, 'apply')
+    .replace(/\bleverages\b/gi, 'applies');
+
   // Remove forbidden patterns
   for (const pattern of FORBIDDEN_PATTERNS) {
     cleaned = cleaned.replace(pattern, '');

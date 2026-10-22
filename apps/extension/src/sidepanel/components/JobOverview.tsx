@@ -208,8 +208,8 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
                     }}
                   >
                     {eligibility.verdict === 'OPEN' && '✓ Eligibility: OPEN'}
-                    {eligibility.verdict === 'CONDITIONAL' && '⚠️ Eligibility: CONDITIONAL'}
-                    {eligibility.verdict === 'BLOCKED' && '🛑 Eligibility: BLOCKED'}
+                    {eligibility.verdict === 'CONDITIONAL' && 'Eligibility: CONDITIONAL'}
+                    {eligibility.verdict === 'BLOCKED' && 'Eligibility: BLOCKED'}
                   </span>
                   <span style={{ fontSize: '12px', color: '#374151', fontWeight: 500 }}>
                     {eligibility.verdict === 'OPEN' && 'Passes 5-gate screening: Geography, Auth, Entity, Timezone, Requirements.'}
@@ -266,7 +266,7 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
                         color: check.status === 'passed' ? '#065f46' : check.status === 'conditional' ? '#92400e' : '#991b1b',
                       }}
                     >
-                      <span>{check.status === 'passed' ? '✓' : check.status === 'conditional' ? '⚠️' : '✗'}</span>
+                      <span>{check.status === 'passed' ? 'Pass' : check.status === 'conditional' ? 'Review' : 'Fail'}</span>
                       <div>
                         <strong style={{ textTransform: 'capitalize' }}>{check.gate}:</strong>{' '}
                         <span>{check.reason}</span>
@@ -342,15 +342,15 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
             </div>
           </div>
 
-          {/* Direct ATS Job Sourcing Engine (Phase 1) */}
+          {/* Job sourcing remains available as a secondary view from Find Jobs. */}
           <AtsSourcingEngine profile={profile} initialExpanded={false} />
 
           {/* Pipeline Forward Progression Card */}
           <div className="pipeline-next-step-card">
             <div className="next-step-info">
-              <span className="next-step-title">Ready to Prepare Your Application?</span>
+              <span className="next-step-title">Prepare your application</span>
               <span className="next-step-desc">
-                Generate your evidence-grounded resume, tailored cover letter, and align with all requirements.
+                Review the resume and cover letter before opening the application form.
               </span>
             </div>
             <button
@@ -364,7 +364,7 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
                 }
               }}
             >
-              Next Step: Tailor Resume &amp; Materials &rarr;
+              Continue to resume
             </button>
           </div>
         </div>

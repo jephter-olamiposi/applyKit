@@ -111,7 +111,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     });
 
     // Check title and platforms
-    expect(container.textContent).toContain('Direct ATS Job Sourcing Engine (Phase 1)');
+    expect(container.textContent).toContain('Search job boards');
     expect(container.textContent).toContain('Ashby');
     expect(container.textContent).toContain('Greenhouse');
     expect(container.textContent).toContain('Lever');
@@ -215,7 +215,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     });
 
     const probesToggle = Array.from(container.querySelectorAll('span')).find(
-      (s) => s.textContent?.includes('Unauthenticated ATS Board API Probes')
+      (s) => s.textContent?.includes('ATS board probes')
     );
     expect(probesToggle).toBeDefined();
 

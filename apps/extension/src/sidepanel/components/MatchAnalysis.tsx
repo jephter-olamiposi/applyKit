@@ -291,8 +291,8 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
                     }}
                   >
                     {eligibility.verdict === 'OPEN' && '✓ Eligibility: OPEN'}
-                    {eligibility.verdict === 'CONDITIONAL' && '⚠️ Eligibility: CONDITIONAL'}
-                    {eligibility.verdict === 'BLOCKED' && '🛑 Eligibility: BLOCKED'}
+                    {eligibility.verdict === 'CONDITIONAL' && 'Eligibility: CONDITIONAL'}
+                    {eligibility.verdict === 'BLOCKED' && 'Eligibility: BLOCKED'}
                   </span>
                   <span style={{ fontSize: '12px', color: '#374151', fontWeight: 500 }}>
                     {eligibility.verdict === 'OPEN' && 'Passes 5-gate screening: Geography, Auth, Entity, Timezone, Requirements.'}
@@ -330,7 +330,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
                     color: '#991b1b',
                   }}
                 >
-                  <strong>🛑 Gate Disqualification (Verification Precedes Effort):</strong>
+                  <strong>Gate disqualification (verification precedes effort):</strong>
                   {eligibility.verbatimEvidence && (
                     <div style={{ fontStyle: 'italic', marginTop: '4px', color: '#7f1d1d' }}>
                       Employer verbatim: &ldquo;{eligibility.verbatimEvidence}&rdquo;
@@ -473,7 +473,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
             <section
               className="ai-intelligence-card"
               style={{
-                background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(147, 51, 234, 0.12) 100%)',
+                backgroundColor: 'rgba(79, 70, 229, 0.15)',
                 border: '1px solid rgba(129, 140, 248, 0.35)',
                 borderRadius: '10px',
                 padding: '14px 16px',
@@ -482,9 +482,8 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '16px' }}>✨</span>
                   <h3 style={{ fontSize: '13px', fontWeight: 600, color: '#e0e7ff', margin: 0 }}>
-                    Gemini AI Semantic Evaluation
+                    Semantic evaluation
                   </h3>
                 </div>
                 <span
@@ -757,7 +756,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
               className="btn-primary btn-next-step"
               onClick={() => onNavigateToTab('tailor_resume')}
             >
-              Next Step: Tailor Resume &amp; Materials &rarr;
+              Continue to resume
             </button>
           </div>
         </>

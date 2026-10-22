@@ -58,6 +58,26 @@ function normalizeOptionText(text: string): string {
 }
 
 /**
+ * Computes whether two tokens are a close typo match (Levenshtein distance <= 2).
+ */
+function isFuzzyTypoMatch(wordA: string, wordB: string): boolean {
+  if (wordA === wordB) return true;
+  if (Math.abs(wordA.length - wordB.length) > 2) return false;
+
+  let prevRow = Array.from({ length: wordB.length + 1 }, (_, i) => i);
+  for (let i = 0; i < wordA.length; i++) {
+    const curRow = [i + 1];
+    for (let j = 0; j < wordB.length; j++) {
+      const cost = wordA[i] === wordB[j] ? 0 : 1;
+      curRow.push(Math.min(curRow[j]! + 1, prevRow[j + 1]! + 1, prevRow[j]! + cost));
+    }
+    prevRow = curRow;
+  }
+  const dist = prevRow[wordB.length]!;
+  return dist <= (Math.max(wordA.length, wordB.length) >= 7 ? 2 : 1);
+}
+
+/**
  * Resolves a candidate target value against a list of available select/radio options.
  *
  * Grounding Invariant: The resolver will never make wild guesses. If no option matches with
@@ -199,17 +219,37 @@ export function matchFieldOption(
     }
   }
 
-  // Token subset and substring inclusion
+  // Compound token splitting, substring inclusion, and typo-tolerant matching
   if (normTarget.length >= 3) {
+    const targetTokens = normTarget.split(/\s+/).filter(Boolean);
+
     for (const opt of candidates) {
       const normLbl = normalizeOptionText(opt.label);
+      const normVal = normalizeOptionText(opt.value);
+      const optTokens = [...normLbl.split(/\s+/), ...normVal.split(/\s+/)].filter(Boolean);
+
+      // Substring alignment for compound labels (e.g. "Advanced" in "Advanced / Expert")
       if (normLbl.includes(normTarget) || normTarget.includes(normLbl)) {
         return {
           matchedOption: opt,
-          confidence: 0.78,
+          confidence: 0.88,
           strategy: 'fuzzy',
-          rationale: `Substring token alignment between '${normTarget}' and option label '${opt.label}'`,
+          rationale: `Compound token alignment between '${normTarget}' and option label '${opt.label}'`,
         };
+      }
+
+      // Typo-tolerant distance matching for common ATS misspellings (e.g. "Begineer" for "Beginner")
+      for (const tToken of targetTokens) {
+        for (const oToken of optTokens) {
+          if (tToken.length >= 4 && oToken.length >= 4 && isFuzzyTypoMatch(tToken, oToken)) {
+            return {
+              matchedOption: opt,
+              confidence: 0.82,
+              strategy: 'fuzzy',
+              rationale: `Typo-tolerant alignment between candidate term '${tToken}' and option token '${oToken}'`,
+            };
+          }
+        }
       }
     }
   }

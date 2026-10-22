@@ -333,7 +333,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
     if (!plan) return;
     try {
       setIsExecuting(true);
-      setFeedbackNotice('⚡ Batch-approving all actions and executing in sequence...');
+      setFeedbackNotice('Approved actions are being executed in sequence...');
 
       const approveRes = await sendToBackground<
         BatchApprovePlanActionsRequest,
@@ -361,7 +361,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       if (execRes.success && execRes.report) {
         setExecutionReport(execRes.report);
         setFeedbackNotice(
-          `⚡ 1-Click execution complete! ${execRes.report.executedCount} action(s) executed safely. Halting strictly at Anti-Autonomous Submit Gate.`
+          `Execution complete: ${execRes.report.executedCount} action(s) executed safely. The process stopped before submission.`
         );
       } else {
         setFeedbackNotice(`Execution failed: ${execRes.error || 'Unknown execution error.'}`);
@@ -436,7 +436,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       {/* 1-Click Fill Hero Banner */}
       <div className="one-click-autofill-banner">
         <div className="autofill-banner-text">
-          <span className="autofill-banner-title">⚡ 1-Click Auto-Fill (All Fields)</span>
+          <span className="autofill-banner-title">Fill approved fields</span>
           <span className="autofill-banner-sub">
             Batch-approves all safe actions and fills them sequentially into the webpage. Halts strictly at submission gate.
           </span>
@@ -447,7 +447,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
           disabled={isExecuting || plan.actions.length === 0}
           onClick={handleAutoApproveAndExecuteAll}
         >
-          {isExecuting ? '⚡ Filling All Fields...' : '⚡ 1-Click Auto-Fill'}
+          {isExecuting ? 'Filling approved fields...' : 'Fill approved fields'}
         </button>
       </div>
 
@@ -888,7 +888,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
             onClick={handleAutoApproveAndExecuteAll}
             title="Batch-approve all fields and fill them sequentially in one single click"
           >
-            {isExecuting ? '⚡ Filling All Fields...' : '⚡ 1-Click Auto-Fill (All Fields)'}
+            {isExecuting ? 'Filling approved fields...' : 'Fill approved fields'}
           </button>
           <button
             type="button"

@@ -29,11 +29,11 @@ interface InstantQuestionSolverProps {
 }
 
 const TONE_OPTIONS: readonly { id: QuestionTone; label: string; desc: string }[] = [
-  { id: 'ats_aggressive', label: '🚀 ATS Maximizer', desc: 'Affirmative, confident, keyword-rich to pass every filter' },
-  { id: 'concise', label: '🎯 Concise', desc: 'Direct, factual, outcome-oriented' },
-  { id: 'star', label: '⭐ STAR Method', desc: 'Situation, Task, Action, Result' },
-  { id: 'motivational', label: '🔥 Motivational', desc: 'Enthusiastic and team-focused' },
-  { id: 'bullets', label: '📋 Bullets', desc: 'Impact-focused bullet points' },
+  { id: 'ats_aggressive', label: 'Keyword-focused', desc: 'Uses relevant terms without adding unsupported claims' },
+  { id: 'concise', label: 'Concise', desc: 'Direct and factual' },
+  { id: 'star', label: 'STAR method', desc: 'Situation, Task, Action, Result' },
+  { id: 'motivational', label: 'Warm', desc: 'Positive and professional' },
+  { id: 'bullets', label: 'Bullets', desc: 'Short, outcome-focused points' },
 ];
 
 const LENGTH_PRESETS: readonly { length: number | null; label: string }[] = [
@@ -171,7 +171,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
       });
 
       if (res.success) {
-        setFeedback('💾 Answer saved to profile! Future applications will resolve this question automatically in 0ms.');
+        setFeedback('Answer saved to profile. Future applications can reuse it automatically.');
         setTimeout(() => setFeedback(null), 5000);
       } else {
         setError(res.error || 'Failed to save answer to profile.');
@@ -196,7 +196,6 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
           aria-expanded={isOpen}
         >
           <div className="solver-title-group">
-            <span className="solver-icon">⚡</span>
             <span className="solver-title">Instant Q&A Copilot</span>
             <span className="solver-tag">Paste & Solve</span>
           </div>
@@ -209,7 +208,6 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
           {isDedicatedTab && (
             <div className="solver-dedicated-header">
               <div className="solver-dedicated-title-row">
-                <span className="solver-dedicated-icon">⚡</span>
                 <div>
                   <h3 className="solver-dedicated-title">Instant Q&A Copilot</h3>
                   <p className="solver-dedicated-subtitle">
@@ -218,8 +216,8 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
                 </div>
               </div>
               <div className="solver-feature-pills">
-                <span className="feature-pill">⚡ 0ms Offline Fast-Path for Profile Data</span>
-                <span className="feature-pill">🛡️ Zero Hallucination Evidence Grounding</span>
+                <span className="feature-pill">Offline profile lookup</span>
+                <span className="feature-pill">Evidence-backed answers</span>
               </div>
             </div>
           )}
@@ -308,14 +306,14 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
               disabled={isGenerating || !question.trim()}
               onClick={handleGenerateAnswer}
             >
-              {isGenerating ? '⚡ Generating Answer...' : '⚡ Generate Grounded Answer'}
+              {isGenerating ? 'Generating answer...' : 'Generate answer'}
             </button>
           </div>
 
           {/* Error & Feedback Messages */}
           {error && (
             <div className="solver-alert-error" role="alert">
-              ⚠️ {error}
+              {error}
             </div>
           )}
 
@@ -345,7 +343,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
 
               {answerNotes && (
                 <div className="solver-result-note">
-                  ℹ️ {answerNotes}
+                  {answerNotes}
                 </div>
               )}
 
@@ -364,7 +362,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
                   onClick={handleCopy}
                   title="Copy answer to clipboard"
                 >
-                  📋 Copy Answer
+                  Copy answer
                 </button>
                 <button
                   type="button"
@@ -373,7 +371,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
                   onClick={handleSaveToProfile}
                   title="Save this answer to your verified profile for automatic future reuse"
                 >
-                  {isSaving ? 'Saving...' : '💾 Save to Profile'}
+                  {isSaving ? 'Saving...' : 'Save to profile'}
                 </button>
                 <button
                   type="button"
@@ -382,7 +380,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
                   onClick={handleInsert}
                   title="Insert this text directly into the focused field on the application webpage"
                 >
-                  {isInserting ? 'Inserting...' : '⚡ Insert into Focused Field'}
+                  {isInserting ? 'Inserting...' : 'Insert into focused field'}
                 </button>
               </div>
             </div>

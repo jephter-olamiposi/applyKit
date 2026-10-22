@@ -149,7 +149,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
         );
       }
     } else {
-      setEmailScanResult('ℹ️ No clear interview scheduling invitations detected in the provided text.');
+      setEmailScanResult('No clear interview scheduling invitations were detected in the provided text.');
     }
   };
 
@@ -496,7 +496,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
             className={`tracker-view-tab ${viewMode === 'kanban' ? 'tracker-view-tab-active' : ''}`}
             onClick={() => setViewMode('kanban')}
           >
-            📋 Kanban Pipeline
+            Application pipeline
           </button>
           <button
             type="button"
@@ -548,7 +548,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               disabled={!emailInputText.trim()}
               className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold transition-colors"
             >
-              ⚡ Detect & Link Invite
+              Detect and link invite
             </button>
             {emailScanResult && (
               <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -676,7 +676,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                           )}
                           {app.recruiterName && (
                             <span className="kanban-chip chip-recruiter" title={`Recruiter: ${app.recruiterName}`}>
-                              👤 {app.recruiterName}
+                              {app.recruiterName}
                             </span>
                           )}
                           {app.expectedSalary && (
@@ -686,7 +686,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                           )}
                           {app.interviewStage && (
                             <span className="kanban-chip chip-stage">
-                              🎯 {app.interviewStage}
+                              {app.interviewStage}
                             </span>
                           )}
                         </div>
@@ -703,7 +703,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                               onClick={() => setPrepModalApp(app)}
                               title="Open Role Interview Prep Kit & STAR Stories"
                             >
-                              🎯 Prep
+                              Prep
                             </button>
                             {col.id === 'saved' && (
                               <button
@@ -877,7 +877,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                   className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
                   onClick={() => setPrepModalApp(selectedApp)}
                 >
-                  🎯 Open Role Interview Prep Kit & STAR Stories
+                  Open role interview prep and STAR stories
                 </button>
               </div>
 

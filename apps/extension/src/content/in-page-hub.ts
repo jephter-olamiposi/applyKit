@@ -92,7 +92,7 @@ const HUB_STYLES = `
     justify-content: center;
     width: 24px;
     height: 24px;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
+    background: #2563eb;
     border-radius: 50%;
     color: #ffffff;
     font-size: 13px;
@@ -554,7 +554,7 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
   fieldPillContainer.classList.remove('filled');
 
   if (info.type === 'standard' && info.suggestedValue) {
-    setFieldPillContent(fieldPillContainer, '⚡ Fill ', info.label, info.suggestedValue);
+    setFieldPillContent(fieldPillContainer, 'Fill ', info.label, info.suggestedValue);
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -566,14 +566,14 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
       }, 1500);
     };
   } else if (info.type === 'essay') {
-    setFieldPillContent(fieldPillContainer, '💡 Draft Answer with ApplyKit');
+    setFieldPillContent(fieldPillContainer, 'Draft answer with ApplyKit');
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
       openEssayAssistantPopover(target, info.label, doc);
     };
   } else if (info.type === 'file_resume') {
-    setFieldPillContent(fieldPillContainer, '📄 Attach Tailored Resume PDF');
+    setFieldPillContent(fieldPillContainer, 'Attach tailored resume PDF');
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -583,7 +583,7 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
       }
 
       fieldPillContainer!.classList.add('filled');
-      setFieldPillContent(fieldPillContainer!, '⚡ Opened Tailoring Studio');
+      setFieldPillContent(fieldPillContainer!, 'Opened tailoring studio');
       setTimeout(() => {
         if (fieldPillContainer) fieldPillContainer.style.display = 'none';
         target.style.outline = '';
@@ -632,7 +632,7 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
 
   essayPopoverContainer.innerHTML = `
     <div class="essay-header">
-      <span class="essay-title">💡 ApplyKit Essay Copilot</span>
+      <span class="essay-title">ApplyKit essay helper</span>
       <button type="button" class="hub-close-btn" id="btn-popover-close">✕</button>
     </div>
     <div class="essay-question-text">"${escapeXmlEntities(questionLabel)}"</div>
@@ -647,9 +647,9 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
         <option value="star">STAR Method</option>
         <option value="bullets">Bullet Points</option>
       </select>
-      <button type="button" class="btn-generate" id="btn-popover-generate">⚡ Generate with AI</button>
+      <button type="button" class="btn-generate" id="btn-popover-generate">Generate answer</button>
     </div>
-    <div class="essay-status" id="essay-status-msg">${existingValue ? '✓ Current field value loaded. Edit directly or click "Generate with AI" to re-draft.' : ''}</div>
+    <div class="essay-status" id="essay-status-msg">${existingValue ? 'Current field value loaded. Edit directly or click "Generate answer" to re-draft.' : ''}</div>
     <textarea class="essay-textarea" id="essay-draft-box" placeholder="Grounded answer will appear here...">${escapeXmlEntities(existingValue)}</textarea>
     <div class="essay-actions">
       <span class="essay-char-count" id="essay-char-count">${existingValue.length} characters</span>
@@ -699,7 +699,7 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
     generateBtn.textContent = '⏳ Generating...';
     if (statusMsg) {
       statusMsg.className = 'essay-status';
-      statusMsg.textContent = '⚡ Synthesizing grounded answer from your resume & evidence...';
+      statusMsg.textContent = 'Preparing an evidence-backed answer...';
     }
 
     const notes = userNotesInput?.value.trim() || undefined;
@@ -708,7 +708,7 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
     const safetyTimeout = setTimeout(() => {
       if (generateBtn.disabled) {
         generateBtn.disabled = false;
-        generateBtn.textContent = '⚡ Generate with AI';
+        generateBtn.textContent = 'Generate answer';
         if (statusMsg) {
           statusMsg.className = 'essay-status error';
           statusMsg.textContent = 'Request timed out. Please verify your connection or AI provider in Settings.';
@@ -727,7 +727,7 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
         (res: AnswerAdHocQuestionResponse) => {
           clearTimeout(safetyTimeout);
           generateBtn.disabled = false;
-          generateBtn.textContent = '⚡ Generate with AI';
+          generateBtn.textContent = 'Generate answer';
 
           if (chrome.runtime.lastError) {
             if (statusMsg) {
@@ -755,7 +755,7 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
     } else {
       clearTimeout(safetyTimeout);
       generateBtn.disabled = false;
-      generateBtn.textContent = '⚡ Generate with AI';
+      generateBtn.textContent = 'Generate answer';
     }
   };
 
@@ -803,9 +803,9 @@ export function initInPageHub(doc: Document = document): void {
   floatingHubContainer = doc.createElement('div');
   floatingHubContainer.className = 'applykit-floating-hub';
   floatingHubContainer.innerHTML = `
-    <span class="hub-badge-icon">⚡</span>
+    <span class="hub-badge-icon">ApplyKit</span>
     <span class="hub-label">ApplyKit Ready</span>
-    <button type="button" class="hub-action-btn" id="btn-hub-autofill">1-Click Auto-Fill</button>
+    <button type="button" class="hub-action-btn" id="btn-hub-autofill">Fill safe fields</button>
     <button type="button" class="hub-close-btn" id="btn-hub-dismiss" title="Dismiss">✕</button>
   `;
   shadowRoot.appendChild(floatingHubContainer);
@@ -822,7 +822,7 @@ export function initInPageHub(doc: Document = document): void {
       autofillBtn.textContent = text;
       setTimeout(() => {
         autofillBtn.disabled = false;
-        autofillBtn.textContent = '1-Click Auto-Fill';
+        autofillBtn.textContent = 'Fill safe fields';
       }, 3000);
     };
 

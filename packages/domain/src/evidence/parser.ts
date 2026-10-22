@@ -527,11 +527,11 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       let location: string | undefined;
 
       // Extract trailing or parenthesized date range e.g. (2019 - 2023)
-      const parenDateMatch = cleanLine.match(/\(([^)]*(?:19\d\d|20\d\d)[^)]*)\)$/);
+      const parenDateMatch = cleanLine.match(/\(([^)]*(?:19\d\d|20\d\d)[^)]*)\)/);
       let lineText = cleanLine;
       if (parenDateMatch && parenDateMatch[1]) {
         dateText = parenDateMatch[1].trim();
-        lineText = cleanLine.replace(/\s*\([^)]+\)$/, '').trim();
+        lineText = cleanLine.replace(parenDateMatch[0], '').trim();
       }
 
       if (lineText.includes('|')) {
@@ -549,7 +549,11 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
 
           const firstSeg = segments[0] ?? '';
           const atMatchInFirst = firstSeg.match(/^(.*?)\s+(?:at|@)\s+(.*?)$/i);
-          if (atMatchInFirst && atMatchInFirst[1] && atMatchInFirst[2]) {
+          const dashSegments = firstSeg.split(/\s+[—–-]\s+/);
+          if (dashSegments.length >= 2 && dashSegments[0] && dashSegments[1] && ROLE_KEYWORD_REGEX.test(dashSegments[0])) {
+            title = dashSegments[0].trim();
+            company = dashSegments[1].trim();
+          } else if (atMatchInFirst && atMatchInFirst[1] && atMatchInFirst[2]) {
             // e.g. "Senior Software Engineer @ Rocksteady Technologies | July 2025 - Present"
             title = atMatchInFirst[1].trim();
             company = atMatchInFirst[2].trim();

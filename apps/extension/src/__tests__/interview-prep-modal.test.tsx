@@ -116,7 +116,7 @@ describe('InterviewPrepModal Component Test Suite', () => {
       );
     });
 
-    expect(container.textContent).toContain('STAR Behavioral Stories');
+    expect(container.textContent).toContain('STAR behavioral stories');
     expect(container.textContent).toContain('CloudStream');
     expect(container.textContent).toContain('Engineered low-latency Raft consensus');
     expect(container.textContent).toContain('Copy STAR');

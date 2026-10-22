@@ -21,6 +21,11 @@ export async function sendToBackground<
 >(request: TReq, timeoutMs = 20000): Promise<TRes> {
   return new Promise((resolve, reject) => {
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+      const fallback = handleWebPreviewFallback(request);
+      if (fallback !== undefined) {
+        resolve(fallback as TRes);
+        return;
+      }
       reject(new Error('Chrome runtime messaging API is unavailable in this execution context'));
       return;
     }
@@ -165,3 +170,62 @@ export function registerMessageRouter(handlers: MessageHandlerMap): () => void {
     chrome.runtime.onMessage.removeListener(listener);
   };
 }
+
+/**
+ * Emulates background RPC handler responses when running in standalone web preview mode.
+ */
+function handleWebPreviewFallback(request: ExtensionRequest): ExtensionResponse | undefined {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+    return undefined;
+  }
+  const storage = window.localStorage;
+
+  switch (request.type) {
+    case 'GET_CANDIDATE_PROFILE': {
+      const raw = storage.getItem('applykit_preview_profile');
+      return { profile: raw ? JSON.parse(raw) : null } as ExtensionResponse;
+    }
+    case 'SAVE_CANDIDATE_PROFILE': {
+      const profile = (request as unknown as { profile: unknown }).profile;
+      storage.setItem('applykit_preview_profile', JSON.stringify(profile));
+      return { success: true, profile } as unknown as ExtensionResponse;
+    }
+    case 'SET_API_KEY': {
+      const req = request as unknown as { provider: string; apiKey: string };
+      storage.setItem(`applykit_key_${req.provider}`, req.apiKey);
+      return { success: true } as unknown as ExtensionResponse;
+    }
+    case 'GET_CURRENT_EXTRACTION': {
+      return {
+        type: 'CURRENT_EXTRACTION_RESULT',
+        data: null,
+        jobPosting: {
+          id: 'preview_job_1' as unknown,
+          url: 'https://careers.tether.io/o/senior-nodejs-software-engineer',
+          title: 'Senior Node.js Software Engineer',
+          companyName: 'Tether / Holepunch',
+          location: 'Remote - Worldwide',
+          workplaceType: 'remote',
+          employmentType: 'full_time',
+          requirements: [
+            { id: 'req_1' as unknown, rawText: '7+ years production Node.js and distributed systems', category: 'hard_skill', importance: 'must_have' },
+            { id: 'req_2' as unknown, rawText: 'Experience building modular npm modules', category: 'hard_skill', importance: 'must_have' },
+          ],
+          extractedAt: new Date().toISOString(),
+          description: 'Join Tether and build P2P decentralized systems.',
+        },
+      } as unknown as ExtensionResponse;
+    }
+    case 'EXPORT_BACKUP': {
+      const raw = storage.getItem('applykit_preview_profile');
+      return { jsonContent: JSON.stringify({ profile: raw ? JSON.parse(raw) : null, exportedAt: new Date().toISOString() }) } as unknown as ExtensionResponse;
+    }
+    case 'PURGE_ALL_DATA': {
+      storage.removeItem('applykit_preview_profile');
+      return { success: true, purgedCount: 1 } as unknown as ExtensionResponse;
+    }
+    default:
+      return undefined;
+  }
+}
+

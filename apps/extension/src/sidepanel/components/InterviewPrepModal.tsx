@@ -73,7 +73,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                🎯 Role Interview Prep Kit
+                Role interview prep
               </span>
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
                 ✓ 100% Evidence Grounded
@@ -116,7 +116,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400'
             }`}
           >
-            ⭐ STAR Behavioral Stories ({prepKit.behavioralQuestions.length})
+            STAR behavioral stories ({prepKit.behavioralQuestions.length})
           </button>
           <button
             onClick={() => setActiveTab('technical')}
@@ -168,7 +168,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
                           onClick={() => handleCopyText(q.id, fullStoryText)}
                           className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition-colors"
                         >
-                          {copiedIndex === q.id ? '✓ Copied' : '📋 Copy STAR'}
+                          {copiedIndex === q.id ? '✓ Copied' : 'Copy STAR'}
                         </button>
                       )}
                     </div>
@@ -254,7 +254,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
                       onClick={() => handleCopyText(`rev_${idx}`, q)}
                       className="shrink-0 px-2 py-0.5 text-xs rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors"
                     >
-                      {copiedIndex === `rev_${idx}` ? '✓ Copied' : '📋 Copy'}
+                      {copiedIndex === `rev_${idx}` ? '✓ Copied' : 'Copy'}
                     </button>
                   </div>
                 ))}

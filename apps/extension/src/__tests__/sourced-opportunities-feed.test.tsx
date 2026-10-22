@@ -83,7 +83,7 @@ describe('SourcedOpportunitiesFeed', () => {
     expect(container.textContent).toContain('Senior Distributed Systems Engineer');
     expect(container.textContent).toContain('Stripe');
     expect(container.textContent).toContain('5-Gate Pass (Eligible)');
-    expect(container.textContent).toContain('🛑 Blocked: geography');
+    expect(container.textContent).toContain('Blocked: geography');
     expect(container.textContent).toContain('Candidates must be physically located');
   });
 
@@ -106,7 +106,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     const scanBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Scan Curated Watchlist')
+      b.textContent?.includes('Scan watchlist')
     );
     expect(scanBtn).toBeDefined();
 
@@ -186,7 +186,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     const harvestBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Harvest Active Tab')
+      b.textContent?.includes('Harvest active tab')
     );
     expect(harvestBtn).toBeDefined();
 
@@ -214,7 +214,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     const stageBtns = Array.from(container.querySelectorAll('button')).filter((b) =>
-      b.textContent?.includes('Open & Stage')
+      b.textContent?.includes('Open and stage')
     );
     expect(stageBtns.length).toBeGreaterThan(0);
 
