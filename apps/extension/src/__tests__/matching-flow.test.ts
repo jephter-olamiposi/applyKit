@@ -12,6 +12,7 @@ import {
   type Requirement,
 } from '@applykit/domain';
 import { deleteDatabase } from '../storage/index.js';
+import { EXTENSION_PAGE_SENDER, TEST_EXTENSION_ID } from './helpers/message-sender.js';
 import type {
   IngestResumeRequest,
   IngestResumeResponse,
@@ -57,6 +58,7 @@ describe('Requirement Matching & Gap Analysis Flow', () => {
 
     const mockChrome = {
       runtime: {
+        id: TEST_EXTENSION_ID,
         onMessage: {
           addListener: vi.fn((listener) => {
             messageListener = listener;
@@ -105,7 +107,7 @@ describe('Requirement Matching & Gap Analysis Flow', () => {
     };
 
     const matchRes = await new Promise<MatchJobRequirementsResponse>((resolve) => {
-      messageListener!(matchReq, {}, (res) => resolve(res as MatchJobRequirementsResponse));
+      messageListener!(matchReq, EXTENSION_PAGE_SENDER, (res) => resolve(res as MatchJobRequirementsResponse));
     });
 
     expect(matchRes.success).toBe(false);
@@ -119,7 +121,7 @@ describe('Requirement Matching & Gap Analysis Flow', () => {
     };
 
     await new Promise<IngestResumeResponse>((resolve) => {
-      messageListener!(ingestReq, {}, (res) => resolve(res as IngestResumeResponse));
+      messageListener!(ingestReq, EXTENSION_PAGE_SENDER, (res) => resolve(res as IngestResumeResponse));
     });
 
     const matchReq: MatchJobRequirementsRequest = {
@@ -128,7 +130,7 @@ describe('Requirement Matching & Gap Analysis Flow', () => {
     };
 
     const matchRes = await new Promise<MatchJobRequirementsResponse>((resolve) => {
-      messageListener!(matchReq, {}, (res) => resolve(res as MatchJobRequirementsResponse));
+      messageListener!(matchReq, EXTENSION_PAGE_SENDER, (res) => resolve(res as MatchJobRequirementsResponse));
     });
 
     expect(matchRes.success).toBe(false);
@@ -193,7 +195,7 @@ describe('Requirement Matching & Gap Analysis Flow', () => {
     };
 
     const matchRes = await new Promise<MatchJobRequirementsResponse>((resolve) => {
-      messageListener!(matchReq, {}, (res) => resolve(res as MatchJobRequirementsResponse));
+      messageListener!(matchReq, EXTENSION_PAGE_SENDER, (res) => resolve(res as MatchJobRequirementsResponse));
     });
 
     expect(matchRes.success).toBe(true);

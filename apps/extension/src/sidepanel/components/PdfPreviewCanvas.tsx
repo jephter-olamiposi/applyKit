@@ -93,7 +93,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
                   onClick={() => onTemplateChange(tId)}
                   disabled={isGenerating}
                 >
-                  {tId === 'modern' && '✨ Modern'}
+                  {tId === 'modern' && 'Modern'}
                   {tId === 'classic' && 'Classic'}
                   {tId === 'minimalist' && 'Minimalist'}
                   {tId === 'compact' && 'Compact'}
@@ -187,7 +187,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
           <div className="canvas-meta-actions">
             {onePageFit ? (
               <span className="budget-status-pill budget-status-active" title="792pt budget enforced">
-                ✓ 1-Page Budget
+                One-page budget
               </span>
             ) : (
               <span className="budget-status-pill budget-status-multi" title="Comprehensive multi-page resume">
@@ -200,9 +200,9 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
               className="btn-canvas-popout"
               onClick={handleOpenInNewTab}
               disabled={!blobUrl}
-              title="Open full vector PDF in browser tab"
+              title="Open the PDF in a browser tab"
             >
-              ↗ Popout
+              Open in tab
             </button>
 
             {onDownloadDocx && (
@@ -211,14 +211,9 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
                 className="btn-canvas-download btn-canvas-download-docx"
                 onClick={onDownloadDocx}
                 disabled={isGenerating || isGeneratingDocx}
-                title={`Download ${docxFilename ?? 'Word document'} (Recommended: 100% ATS parse fidelity)`}
-                style={{
-                  backgroundColor: '#1d4ed8',
-                  color: '#ffffff',
-                  fontWeight: 600,
-                }}
+                title={`Download ${docxFilename ?? 'Word document'}`}
               >
-                {isGeneratingDocx ? 'Generating Word...' : '⬇ Word (.docx) [ATS Best]'}
+                {isGeneratingDocx ? 'Generating Word...' : 'Download Word (.docx)'}
               </button>
             )}
 
@@ -229,7 +224,7 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
               disabled={isGenerating || !blobUrl}
               title={`Download ${filename}`}
             >
-              ⬇ PDF
+              Download PDF
             </button>
           </div>
         </div>
@@ -277,3 +272,21 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
     </div>
   );
 };
+
+};
+;
+
+};
+;
+ssName="pdf-canvas-footer-tip">
+        <span>If content spills onto page 2, toggle <strong>1-Page Fit</strong> or select <strong>Tight</strong> density.</span>
+      </div>
+    </div>
+  );
+};
+
+};
+;
+
+};
+;

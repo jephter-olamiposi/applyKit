@@ -443,8 +443,9 @@ Federal University of Technology Akure — B.S. in Computer Science | 2021
     expect(tailored.skills.domainCategories!.length).toBeGreaterThan(0);
     const langCat = tailored.skills.domainCategories!.find((c) => c.category === 'Languages');
     expect(langCat?.skills).toContain('Rust');
-    expect(tailored.tailoredSummary).toContain('CloudScale Inc');
+    expect(tailored.tailoredSummary).toContain('8 years of experience');
     expect(tailored.tailoredSummary).toContain('85%');
+    expect(tailored.tailoredSummary).not.toContain('CloudScale Inc');
 
     const pdfBlob = await generateResumePdfBlob(tailored, bootstrapped.profile);
     expect(pdfBlob.size).toBeGreaterThan(1000);
@@ -582,7 +583,7 @@ Ladoke Akintola University of Technology — BSc, Information Systems
     expect(tailored.skills.domainCategories).toBeDefined();
     const langCat = tailored.skills.domainCategories!.find((c) => c.category === 'Languages');
     expect(langCat?.skills[0]).toBe('Rust'); // Required skill ranked first
-    expect(tailored.tailoredSummary).toContain('HyperScale Corp');
+    expect(tailored.tailoredSummary).not.toContain('HyperScale Corp');
 
     const pdfBlob = await generateResumePdfBlob(tailored, bootstrapped.profile);
     expect(pdfBlob.size).toBeGreaterThan(1000);

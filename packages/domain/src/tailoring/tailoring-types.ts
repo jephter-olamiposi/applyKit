@@ -189,7 +189,7 @@ export type ResumeAuditCheckId =
   | 'template_selected'
   | 'one_page_fit'
   | 'job_keywords'
-  | 'company_name'
+  | 'summary_targeting'
   | 'first_item_aligned'
   | 'title_demonstrates_value'
   | 'online_links'

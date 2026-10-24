@@ -28,6 +28,7 @@ import type {
 } from './tailoring-types.js';
 import {
   auditResumeQuality,
+  calculateVerifiedExperienceYears,
   QUANTIFIED_METRIC_REGEX,
   STRONG_ACTION_VERBS,
   normalizeTechOrthography,
@@ -94,22 +95,19 @@ function resolveBulletEvidenceId(
 }
 
 /**
- * Calculates the total tenure in years from candidate work experiences.
+ * Converts a raw profile bullet into a sentence suitable for a summary.
+ *
+ * Duty-style openings ("Responsible for ...") are dropped because they read as a job
+ * description rather than an accomplishment; such bullets are better placed in the
+ * experience section where their context is visible.
  */
-function calculateVerifiedExperienceYears(experiences: readonly WorkExperience[]): number {
-  let totalMonths = 0;
-
-  for (const exp of experiences) {
-    const start = new Date(exp.startDate);
-    const end = exp.endDate ? new Date(exp.endDate) : new Date();
-
-    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end >= start) {
-      const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
-      totalMonths += Math.max(1, months);
-    }
+function toSummaryAchievement(text: string): string | undefined {
+  const trimmed = text.trim().replace(/\.$/, '');
+  if (trimmed.length === 0) return undefined;
+  if (/^(responsible for|was responsible for|helped|worked on|assisted|participated|tasked with)\b/i.test(trimmed)) {
+    return undefined;
   }
-
-  return Math.max(1, Math.round(totalMonths / 12));
+  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}.`;
 }
 
 /**
@@ -373,9 +371,13 @@ export function tailorCandidateResume(
   tailoredProjects.sort((a, b) => b.relevanceScore - a.relevanceScore);
   const finalProjects = tailoredProjects.slice(0, maxProjects);
 
-  // Synthesize evidence-grounded professional summary
+  // Synthesize an evidence-grounded professional summary.
+  // Written as plain resume prose: role, honest tenure, one real result, core stack.
+  // No self-praise, no company flattery, and no internal terms such as "verified".
   const candidateTitle = profile.professional.currentTitle || profile.professional.headline || job.title;
-  const verifiedYears = calculateVerifiedExperienceYears(profile.experiences);
+  const computedYears = calculateVerifiedExperienceYears(profile.experiences);
+  const declaredYears = profile.professional.totalYearsOfExperience ?? 0;
+  const verifiedYears = Math.max(computedYears, declaredYears);
   const topSkills = tailoredSkills.matchedRequired.length > 0
     ? tailoredSkills.matchedRequired.slice(0, 4).join(', ')
     : profile.skills.slice(0, 4).map((s) => s.name).join(', ');
@@ -396,20 +398,19 @@ export function tailorCandidateResume(
     topAccomplishment = finalExperiences[0].rankedHighlights[0].text.replace(/\.$/, '');
   }
 
-  const openingStatement =
-    verifiedYears >= 3
-      ? `${candidateTitle} with ${verifiedYears}+ years of verified engineering experience architecting scalable systems and cloud infrastructure, specializing in ${topSkills}.`
-      : `${candidateTitle} specializing in ${topSkills}.`;
+  const yearsPhrase = verifiedYears >= 3
+    ? ` with ${verifiedYears} years of experience`
+    : '';
+  const summaryParts: string[] = [`${candidateTitle}${yearsPhrase}.`];
 
-  const summaryParts: string[] = [openingStatement];
-
-  if (topAccomplishment) {
-    summaryParts.push(`Proven track record includes: ${topAccomplishment}.`);
+  const achievementSentence = toSummaryAchievement(topAccomplishment);
+  if (achievementSentence) {
+    summaryParts.push(achievementSentence);
   }
 
-  summaryParts.push(
-    `Committed to delivering robust, maintainable solutions aligned with ${job.companyName}'s technical requirements.`
-  );
+  if (topSkills.length > 0) {
+    summaryParts.push(`Core stack: ${topSkills}.`);
+  }
 
   let tailoredSummary = summaryParts.join(' ');
   tailoredSummary = normalizeTechOrthography(tailoredSummary);

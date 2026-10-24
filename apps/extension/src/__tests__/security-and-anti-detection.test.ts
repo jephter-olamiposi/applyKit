@@ -63,6 +63,7 @@ describe('Security, Compliance & Anti-Detection Suite', () => {
   beforeEach(async () => {
     document.body.innerHTML = '';
     localStorageMock = {};
+    (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = indexedDB;
 
     // Mock chrome.storage.local for isolated testing
     (globalThis as unknown as { chrome: unknown }).chrome = {

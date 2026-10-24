@@ -100,7 +100,7 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
                 }
               }}
             >
-              🔄 Refresh Active Tab
+              Refresh page
             </button>
           )}
         </div>
@@ -117,23 +117,10 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
             {onNavigateToTab && (
               <button
                 type="button"
+                className="btn-next-step"
                 onClick={() => onNavigateToTab('sourced_feed')}
-                style={{
-                  marginTop: '10px',
-                  padding: '6px 12px',
-                  backgroundColor: '#2563eb',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
               >
-                📡 Open Live Opportunities Feed
+                Open job search
               </button>
             )}
           </div>
@@ -390,3 +377,24 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
     </div>
   );
 };
+"job-card-title">
+              {jobData.h1[0] || jobData.title || 'Untitled Posting'}
+            </h2>
+          </header>
+
+          <div className="job-section">
+            <h3 className="section-title">Extracted Text Preview</h3>
+            <div className="body-preview">
+              {jobData.cleanBodyText.slice(0, 600)}
+              {jobData.cleanBodyText.length > 600 ? '...' : ''}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+v>
+  );
+};
+

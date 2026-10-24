@@ -25,8 +25,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Structural type guard for LLM field-answer completions.
  *
- * Rejects answers the model itself flagged as ungrounded or empty, enforcing the
- * zero-hallucination invariant before a proposal is staged for user review.
+ * Rejects empty answers and answers the model did not explicitly mark as grounded,
+ * enforcing the zero-hallucination invariant before a proposal is staged for review.
  */
 export function isAiFieldAnswerResult(value: unknown): value is AiFieldAnswerResult {
   if (!isRecord(value)) return false;
@@ -40,7 +40,7 @@ export function isAiFieldAnswerResult(value: unknown): value is AiFieldAnswerRes
     confidence <= 1 &&
     Array.isArray(claimIds) &&
     claimIds.every((id) => typeof id === 'string') &&
-    typeof value['isGrounded'] === 'boolean' &&
+    value['isGrounded'] === true &&
     (value['notes'] === undefined || typeof value['notes'] === 'string')
   );
 }

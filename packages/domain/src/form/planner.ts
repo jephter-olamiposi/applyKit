@@ -138,20 +138,29 @@ export function resolveEvidenceSourceTitle(field: ApplicationField): string {
  * @param candidateValue The resolved candidate profile value.
  * @returns Classified risk level: 'low' | 'medium' | 'high'.
  */
+function isSensitiveFieldMapping(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized.includes('demographics') ||
+    normalized.startsWith('eeo_') ||
+    normalized.includes('.eeo.') ||
+    normalized.includes('workauthorization') ||
+    normalized.includes('work_authorization') ||
+    normalized.includes('sponsorship');
+}
+
+/**
+ * Classifies the review risk of a planned action.
+ *
+ * Sensitive legal/compliance fields are always high risk, regardless of mapping
+ * confidence, so they can never be auto-approved.
+ */
 export function calculateActionRisk(
   field: ApplicationField,
   candidateValue: string | undefined
 ): RiskLevel {
   const key = (field.inferredMappingKey || '').toLowerCase();
 
-  // Rule 1: High risk for legal compliance, visa authorization, demographics, and file uploads
-  if (
-    key.includes('demographics') ||
-    key.startsWith('eeo_') ||
-    key.includes('workauthorization') ||
-    key.includes('sponsorship') ||
-    field.fieldType === 'file_upload'
-  ) {
+  if (isSensitiveFieldMapping(key) || field.fieldType === 'file_upload') {
     return 'high';
   }
 
@@ -193,416 +202,170 @@ export function resolveCustomFieldDeterministicValue(
   profile: CandidateProfile,
   field: ApplicationField
 ): string | undefined {
-  const normLabel = (field.label || '').toLowerCase();
+  const label = (field.label || '').toLowerCase();
+  const options = field.options ?? [];
 
-  // Skill rating heuristics (e.g. "How do you rate your own skills with Node.js?")
-  if (field.fieldType === 'radio' || field.fieldType === 'select') {
-    // 1. Boolean screening qualification checks (e.g. "Do you have experience with X?", "Have you worked with Y?", "Are you familiar with Z?")
-    const hasBooleanOptions =
-      field.options &&
-      field.options.length > 0 &&
-      field.options.some((o) => /^(yes|no|true|false)\b/i.test(o.label) || /^(yes|no|true|false)\b/i.test(o.value));
-
-    if (
-      hasBooleanOptions ||
-      normLabel.startsWith('do you have') ||
-      normLabel.startsWith('have you') ||
-      normLabel.startsWith('are you') ||
-      normLabel.includes('do you possess')
-    ) {
-      if (
-        normLabel.includes('experience') ||
-        normLabel.includes('worked with') ||
-        normLabel.includes('familiar with') ||
-        normLabel.includes('comfortable with') ||
-        normLabel.includes('proficiency') ||
-        normLabel.includes('knowledge') ||
-        normLabel.includes('skills') ||
-        normLabel.includes('18 years') ||
-        normLabel.includes('age of 18') ||
-        normLabel.includes('background check') ||
-        normLabel.includes('drug test') ||
-        normLabel.includes('reference check')
-      ) {
-        if (field.options && field.options.length > 0) {
-          const affirmativeOpt = field.options.find(
-            (o) =>
-              /^(yes|true|authorized|experienced|proficient|expert|advanced|agree|consent|1)\b/i.test(o.label) ||
-              /^(yes|true|1)\b/i.test(o.value)
-          );
-          if (affirmativeOpt) return affirmativeOpt.value || affirmativeOpt.label;
-        }
-        return 'Yes';
-      }
-    }
-
-    // 2. Skill rating heuristics (e.g. "How do you rate your own skills with Node.js?")
-    const rateMatch = normLabel.match(
-      /(?:rate\s+(?:your\s+)?(?:own\s+)?skills?\s+with|experience\s+with|knowledge\s+of)\s+([a-z0-9.#+ -]+)/i
+  const findOption = (candidate: string): string | undefined => {
+    const normalized = candidate.trim().toLowerCase();
+    if (normalized.length === 0) return undefined;
+    const match = options.find(
+      (option) =>
+        option.value.trim().toLowerCase() === normalized ||
+        option.label.trim().toLowerCase() === normalized
     );
-    if (rateMatch && rateMatch[1]) {
-      const searchedSkill = rateMatch[1].trim().toLowerCase();
-      const matchedSkill = profile.skills.find(
-        (s) =>
-          searchedSkill.includes(s.normalizedName) ||
-          s.normalizedName.includes(searchedSkill) ||
-          searchedSkill.includes(s.name.toLowerCase()) ||
-          s.name.toLowerCase().includes(searchedSkill)
+    return match ? match.value || match.label : undefined;
+  };
+
+  const findAffirmativeOption = (): string | undefined => {
+    const match = options.find(
+      (option) =>
+        /^(yes|true|authorized|1)\b/i.test(option.label.trim()) ||
+        /^(yes|true|1)\b/i.test(option.value.trim())
+    );
+    return match ? match.value || match.label : undefined;
+  };
+
+  const findMentionedSkill = (): CandidateProfile['skills'][number] | undefined =>
+    profile.skills.find((skill) => {
+      const name = skill.name.toLowerCase();
+      const normalized = skill.normalizedName.toLowerCase();
+      return (name.length >= 2 && label.includes(name)) ||
+        (normalized.length >= 2 && label.includes(normalized));
+    });
+
+  const selectSkillRating = (proficiency: CandidateProfile['skills'][number]['proficiency']): string | undefined => {
+    const preference: Record<typeof proficiency, readonly string[]> = {
+      expert: ['expert', 'advanced'],
+      advanced: ['advanced', 'expert'],
+      intermediate: ['intermediate', 'proficient'],
+      beginner: ['beginner', 'novice', 'entry'],
+    };
+    for (const candidate of preference[proficiency]) {
+      const option = options.find(
+        (choice) =>
+          choice.label.toLowerCase().includes(candidate) ||
+          choice.value.toLowerCase().includes(candidate)
       );
-
-      if (matchedSkill) {
-        if (
-          matchedSkill.proficiency === 'expert' ||
-          matchedSkill.proficiency === 'advanced' ||
-          (matchedSkill.yearsOfExperience ?? 0) >= 3
-        ) {
-          return 'Advanced';
-        }
-        if (
-          matchedSkill.proficiency === 'intermediate' ||
-          (matchedSkill.yearsOfExperience ?? 0) >= 1
-        ) {
-          return 'Intermediate';
-        }
-        return 'Advanced';
-      }
-      // If skill is not explicitly listed, still qualify candidate with proficient rating to prevent ATS knockout
-      return 'Advanced';
+      if (option) return option.value || option.label;
     }
+    return undefined;
+  };
 
-    // Affirmative qualification & screening checks (e.g. "Do you have experience with X?", "Have you worked with Y?", "Are you familiar with Z?")
-    if (
-      normLabel.includes('experience with') ||
-      normLabel.includes('experience in') ||
-      normLabel.includes('have you worked with') ||
-      normLabel.includes('do you have experience') ||
-      normLabel.includes('are you familiar with') ||
-      normLabel.includes('are you comfortable with') ||
-      normLabel.includes('proficiency in') ||
-      normLabel.includes('do you possess')
-    ) {
-      if (field.options && field.options.length > 0) {
-        const affirmativeOpt = field.options.find(
-          (o) =>
-            /^(yes|true|authorized|experienced|proficient|expert|advanced|1)\b/i.test(o.label) ||
-            /^(yes|true|1)\b/i.test(o.value)
-        );
-        if (affirmativeOpt) return affirmativeOpt.value || affirmativeOpt.label;
-      }
-      return 'Yes';
-    }
+  // Legal, consent, and self-identification answers are candidate decisions. Never infer them.
+  if (
+    /\b(authori[sz]ed to work|work authori[sz]ation|sponsorship|visa status|background check|drug (?:test|screen)|reference check|age of 18|18 years|legal age|privacy|terms|consent|acknowledge|agree|how did you hear|referral source|gender|race|ethnicity|veteran|disabilit|nationality|citizen)\b/i.test(label)
+  ) {
+    return undefined;
+  }
 
-    // Age verification screening (e.g. "Are you 18 or older?")
-    if (
-      normLabel.includes('18 years') ||
-      normLabel.includes('age of 18') ||
-      normLabel.includes('legal age') ||
-      normLabel.includes('at least 18')
-    ) {
-      if (field.options && field.options.length > 0) {
-        const yesOpt = field.options.find(
-          (o) => /^(yes|true|1)\b/i.test(o.label) || /^(yes|true|1)\b/i.test(o.value)
-        );
-        if (yesOpt) return yesOpt.value || yesOpt.label;
-      }
-      return 'Yes';
-    }
+  const mentionedSkill = findMentionedSkill();
 
-    // Background checks, drug screens, reference checks consent
-    if (
-      normLabel.includes('background check') ||
-      normLabel.includes('drug test') ||
-      normLabel.includes('drug screen') ||
-      normLabel.includes('reference check') ||
-      normLabel.includes('background investigation')
-    ) {
-      if (field.options && field.options.length > 0) {
-        const yesOpt = field.options.find(
-          (o) => /^(yes|true|agree|consent|1)\b/i.test(o.label) || /^(yes|true|1)\b/i.test(o.value)
-        );
-        if (yesOpt) return yesOpt.value || yesOpt.label;
-      }
-      return 'Yes';
-    }
+  // Screening questions are only answerable when the named competency exists in the profile.
+  // Rating questions ("How do you rate...") are handled separately below.
+  const hasBooleanOptions = options.some(
+    (option) => /^(yes|no|true|false)\b/i.test(option.label.trim()) || /^(yes|no|true|false)\b/i.test(option.value.trim())
+  );
+  const isBooleanQuestion =
+    hasBooleanOptions ||
+    /^(do|does|have|has|are|is|can|will|would|did)\b/i.test(label.trim()) ||
+    label.includes('do you possess');
 
-    // Referral source (e.g. "How did you hear about this opportunity?")
-    if (
-      normLabel.includes('how did you hear') ||
-      normLabel.includes('where did you hear') ||
-      normLabel.includes('referral source') ||
-      normLabel.includes('source of application')
-    ) {
-      if (field.options && field.options.length > 0) {
-        const preferredSource =
-          field.options.find(
-            (o) =>
-              o.label.toLowerCase().includes('linkedin') ||
-              o.label.toLowerCase().includes('company website') ||
-              o.label.toLowerCase().includes('careers') ||
-              o.label.toLowerCase().includes('job board')
-          ) || field.options[0];
-        if (preferredSource) return preferredSource.value || preferredSource.label;
-      }
-      return 'LinkedIn';
+  if (
+    mentionedSkill &&
+    isBooleanQuestion &&
+    (field.fieldType === 'radio' || field.fieldType === 'select' || field.fieldType === 'checkbox') &&
+    /\b(experience|worked|familiar|comfortable|proficien|knowledge|skills?|possess)\b/i.test(label)
+  ) {
+    if (field.fieldType === 'checkbox') return findAffirmativeOption() ?? 'true';
+    const requiredYears = label.match(/(\d+)\s*\+?\s*years?/);
+    if (requiredYears && (mentionedSkill.yearsOfExperience ?? 0) < Number(requiredYears[1])) {
+      return undefined;
     }
+    return findAffirmativeOption();
+  }
 
-    // Remote work preference
-    if (normLabel.includes('remote') && (normLabel.includes('experience') || normLabel.includes('work'))) {
-      if (
-        profile.professional.workplacePreference === 'remote' ||
-        profile.professional.workplacePreference === 'hybrid'
-      ) {
-        return 'Yes';
-      }
-    }
-
-    // Agreement to terms / privacy notice / own words / travel commitments
-    if (
-      normLabel.includes('privacy') ||
-      normLabel.includes('policy') ||
-      normLabel.includes('terms') ||
-      normLabel.includes('agree') ||
-      normLabel.includes('consent') ||
-      normLabel.includes('acknowledge') ||
-      normLabel.includes('own words') ||
-      normLabel.includes('willing and able') ||
-      normLabel.includes('able and willing') ||
-      normLabel.includes('travel') ||
-      normLabel.includes('commit to this')
-    ) {
-      if (field.fieldType === 'select' && field.options && field.options.length > 0) {
-        const ackOpt = field.options.find(
-          (o) =>
-            o.label.toLowerCase().includes('acknowledge') ||
-            o.label.toLowerCase().includes('confirm') ||
-            o.label.toLowerCase().includes('yes') ||
-            o.label.toLowerCase().includes('agree')
-        );
-        if (ackOpt) return ackOpt.value || ackOpt.label;
-      }
-      return 'Yes';
-    }
+  if (mentionedSkill && (field.fieldType === 'radio' || field.fieldType === 'select')) {
+    const rating = selectSkillRating(mentionedSkill.proficiency);
+    if (rating) return rating;
   }
 
   if (field.fieldType === 'checkbox') {
-    if (
-      normLabel.includes('privacy') ||
-      normLabel.includes('policy') ||
-      normLabel.includes('terms') ||
-      normLabel.includes('agree') ||
-      normLabel.includes('consent') ||
-      normLabel.includes('acknowledge') ||
-      normLabel.includes('own words')
-    ) {
-      return 'true';
-    }
+    return undefined;
   }
 
-  // Earliest start date or notice period
   if (
-    normLabel.includes('start') &&
-    (normLabel.includes('when') || normLabel.includes('date') || normLabel.includes('soon'))
+    (label.includes('start') && (label.includes('when') || label.includes('date') || label.includes('soon'))) ||
+    label.includes('notice period')
   ) {
-    return (
-      profile.professional.earliestStartDate ||
-      (profile.professional.noticePeriodDays != null
-        ? `${profile.professional.noticePeriodDays} days notice`
-        : undefined)
-    );
+    if (profile.professional.earliestStartDate) return profile.professional.earliestStartDate;
+    if (profile.professional.noticePeriodDays != null) {
+      return `${profile.professional.noticePeriodDays} days notice`;
+    }
+    return undefined;
   }
 
-  // Work location country / current country
   if (
-    normLabel.includes('country') &&
-    (normLabel.includes('work') || normLabel.includes('working') || normLabel.includes('located') || normLabel.includes('from') || normLabel.includes('live'))
+    label.includes('country') &&
+    (label.includes('work') || label.includes('working') || label.includes('located') || label.includes('from') || label.includes('live'))
   ) {
     return profile.identity.location?.country || undefined;
   }
 
-  // Nationality
-  if (normLabel.includes('nationality') || normLabel.includes('citizen')) {
-    return profile.identity.location?.country || undefined;
+  if (label.includes('companies') && (label.includes('how many') || label.includes('worked for'))) {
+    return profile.experiences.length > 0 ? String(profile.experiences.length) : undefined;
   }
 
-  // Number of companies worked for
-  if (normLabel.includes('companies') && (normLabel.includes('how many') || normLabel.includes('worked for'))) {
-    return String(Math.max(1, profile.experiences.length));
-  }
-
-  // Years of full-time employment since degree / past ten years
   if (
-    normLabel.includes('ten years') ||
-    (normLabel.includes('how many years') &&
-      (normLabel.includes('employment') ||
-        normLabel.includes('full-time') ||
-        normLabel.includes('experience') ||
-        normLabel.includes('undergraduate')))
+    label.includes('how many years') ||
+    (label.includes('years') && (label.includes('experience') || label.includes('employment') || label.includes('full-time')))
   ) {
-    const totalExp =
-      profile.professional?.totalYearsOfExperience ||
-      (profile.experiences && profile.experiences.length > 0
-        ? profile.experiences.length * 2
-        : 5);
-    const yrs = Math.min(10, Math.max(1, totalExp));
-    if (field.fieldType === 'select' && field.options && field.options.length > 0) {
-      const match = field.options.find(
-        (o) =>
-          o.label.trim() === String(yrs) ||
-          (yrs >= 10 && o.label.includes('10+'))
-      );
-      if (match) return match.value || match.label;
-    }
-    return yrs >= 10 ? '10+' : String(yrs);
-  }
-
-  // Gender self-disclosure
-  if (normLabel.includes('gender') || normLabel.includes('which gender')) {
-    if (profile.identity.demographics?.gender) {
-      return profile.identity.demographics.gender;
-    }
-    if (field.options && field.options.length > 0) {
-      const declineOpt = field.options.find(
-        (o) =>
-          o.label.toLowerCase().includes('prefer not') ||
-          o.label.toLowerCase().includes('decline')
-      );
-      if (declineOpt) return declineOpt.value || declineOpt.label;
-    }
-    return 'Prefer not to say';
-  }
-
-  // Race / Ethnicity self-disclosure
-  if (normLabel.includes('race') || normLabel.includes('ethnicity')) {
-    if (profile.identity.demographics?.raceEthnicity) {
-      return profile.identity.demographics.raceEthnicity;
-    }
-    if (field.options && field.options.length > 0) {
-      const declineOpt = field.options.find(
-        (o) =>
-          o.label.toLowerCase().includes('prefer not') ||
-          o.label.toLowerCase().includes('decline')
-      );
-      if (declineOpt) return declineOpt.value || declineOpt.label;
-    }
-    return 'Prefer not to say';
-  }
-
-  // Website / Portfolio
-  if (
-    normLabel === 'website' ||
-    normLabel === 'personal website' ||
-    normLabel.includes('portfolio') ||
-    normLabel.includes('web site')
-  ) {
-    return (
-      profile.links.portfolio ||
-      profile.links.personalBlog ||
-      profile.links.github ||
-      undefined
-    );
-  }
-
-  // High school mathematics performance
-  if (
-    normLabel.includes('high school') &&
-    (normLabel.includes('mathematics') || normLabel.includes('math')) &&
-    (field.fieldType === 'select' || field.fieldType === 'radio')
-  ) {
-    if (field.options && field.options.length > 0) {
-      const topOpt =
-        field.options.find((o) => o.label.toLowerCase().includes('top 5%')) ||
-        field.options.find((o) => o.label.toLowerCase().includes('top 10%')) ||
-        field.options.find((o) => o.label.toLowerCase().includes('top 20%'));
-      if (topOpt) return topOpt.value || topOpt.label;
-    }
-    return 'Top 5% at school';
-  }
-
-  // High school native language performance
-  if (
-    normLabel.includes('high school') &&
-    (normLabel.includes('native language') || normLabel.includes('language')) &&
-    (field.fieldType === 'select' || field.fieldType === 'radio')
-  ) {
-    if (field.options && field.options.length > 0) {
-      const topOpt =
-        field.options.find((o) => o.label.toLowerCase().includes('top 10%')) ||
-        field.options.find((o) => o.label.toLowerCase().includes('top 5%')) ||
-        field.options.find((o) => o.label.toLowerCase().includes('top 20%'));
-      if (topOpt) return topOpt.value || topOpt.label;
-    }
-    return 'Top 10% at school';
-  }
-
-  // High school performance rationale / evidence justification
-  if (
-    normLabel.includes('high school') &&
-    (normLabel.includes('rationale') ||
-      normLabel.includes('evidence') ||
-      normLabel.includes('justif') ||
-      normLabel.includes('scoring systems') ||
-      normLabel.includes('sat') ||
-      normLabel.includes('act') ||
-      normLabel.includes('matriculation') ||
-      normLabel.includes('jamb')) &&
-    (field.fieldType === 'text' || field.fieldType === 'textarea')
-  ) {
-    const edu = profile.education?.[0];
-    const eduName = edu ? `${edu.degree} in ${edu.fieldOfStudy} from ${edu.institution}` : 'Engineering degree';
-    return `Consistently achieved top-tier academic results across high school mathematics and language curricula, graduating with distinction and scoring in the top percentile in competitive university entrance examinations, which paved the way for completing ${eduName}.`;
-  }
-
-  // Bachelor degree or university result
-  if (
-    (normLabel.includes('degree') ||
-      normLabel.includes('bachelor') ||
-      normLabel.includes('university result') ||
-      normLabel.includes('expected result') ||
-      normLabel.includes('gpa')) &&
-    (field.fieldType === 'text' || field.fieldType === 'textarea')
-  ) {
-    const edu = profile.education?.[0];
-    if (edu) {
-      if (edu.gpa) {
-        return `GPA score of ${edu.gpa}/4.0 in ${edu.degree} (${edu.fieldOfStudy || 'Computer Science'}).`;
+    const totalYears = profile.professional.totalYearsOfExperience;
+    if (totalYears == null || totalYears <= 0) return undefined;
+    const rounded = Math.max(0, Math.round(totalYears));
+    if (field.fieldType === 'select' || field.fieldType === 'radio') {
+      const numeric = options.find((option) => option.label.trim() === String(rounded) || option.value.trim() === String(rounded));
+      if (numeric) return numeric.value || numeric.label;
+      if (rounded >= 10) {
+        const tenPlus = options.find((option) => /10\s*\+/.test(option.label));
+        if (tenPlus) return tenPlus.value || tenPlus.label;
       }
-      const honors = edu.honors && edu.honors.length > 0 ? ` with ${edu.honors.join(', ')}` : '';
-      return `First Class / Upper Second Class honours equivalent${honors} in ${edu.degree} (Grading system: First Class, 2:1, 2:2, Third Class).`;
+      return undefined;
     }
-    return 'First Class honours equivalent in Computer Science / Engineering.';
+    return String(rounded);
   }
 
-  // Compensation and salary expectations
-  if (
-    normLabel.includes('salary') &&
-    (normLabel.includes('expected') || normLabel.includes('annual') || normLabel.includes('usd'))
-  ) {
-    return profile.professional.compensationExpectation?.targetSalaryMin != null
-      ? String(profile.professional.compensationExpectation.targetSalaryMin)
-      : undefined;
-  }
-
-  // Distributed systems design questions (Senior Architecture reasoning)
-  if (
-    normLabel.includes('distributed system') &&
-    (normLabel.includes('instinctively ask') || normLabel.includes('one question'))
-  ) {
-    return 'What happens when a network partition occurs while state is being mutated concurrently? In distributed systems, failure is an inevitability, not an edge case. If our consistency boundaries, idempotency keys, and reconciliation pipelines cannot guarantee zero data loss through a partition or crash, the entire system will eventually drop data or duplicate state under heavy load.';
+  if (label.includes('salary') && (label.includes('expected') || label.includes('annual') || label.includes('usd'))) {
+    const target = profile.professional.compensationExpectation?.targetSalaryMin;
+    return target != null ? String(target) : undefined;
   }
 
   if (
-    normLabel.includes('centralizing') &&
-    normLabel.includes('distributing') &&
-    normLabel.includes('data')
+    label === 'website' ||
+    label === 'personal website' ||
+    label.includes('portfolio') ||
+    label.includes('web site')
   ) {
-    return 'I balance transactional consistency boundaries and regulatory blast radius of the data against the operational overhead of distributed consensus. If a domain requires strict ACID semantics without cross-region contention, centralizing reduces synchronization complexity. If latency, multi-region fault tolerance, or high-throughput write scalability dictates distribution, I isolate failure domains with event-driven eventual consistency.';
+    return profile.links.portfolio || profile.links.personalBlog || profile.links.github || undefined;
   }
 
   if (
-    normLabel.includes('platforms that scale') ||
-    (normLabel.includes('critical elements') && normLabel.includes('scale'))
+    (label.includes('degree') || label.includes('bachelor') || label.includes('university result') || label.includes('gpa')) &&
+    (field.fieldType === 'text' || field.fieldType === 'textarea')
   ) {
-    return 'Scalable platforms boil down to two critical elements: strict idempotency across asynchronous services and state isolation under high concurrency. When handling high-throughput operations, eliminating shared mutable state, establishing deterministic backpressure, and maintaining end-to-end observability ensure graceful degradation under peak load.';
+    const education = profile.education?.[0];
+    if (!education) return undefined;
+    const degree = education.degree || '';
+    const studyAlreadyNamed = Boolean(
+      education.fieldOfStudy &&
+      degree.toLowerCase().includes(education.fieldOfStudy.toLowerCase())
+    );
+    const fieldOfStudy = education.fieldOfStudy && !studyAlreadyNamed ? ` in ${education.fieldOfStudy}` : '';
+    const result = education.honors && education.honors.length > 0
+      ? ` (${education.honors.join(', ')})`
+      : education.gpa
+        ? ` (GPA ${education.gpa})`
+        : '';
+    return `${degree}${fieldOfStudy} from ${education.institution}${result}.`;
   }
 
   return undefined;
@@ -845,12 +608,7 @@ export function isAiAnswerableCustomField(
   }
 
   const key = (field.inferredMappingKey || '').toLowerCase();
-  if (
-    key.includes('demographics') ||
-    key.startsWith('eeo_') ||
-    key.includes('workauthorization') ||
-    key.includes('sponsorship')
-  ) {
+  if (isSensitiveFieldMapping(key)) {
     return false;
   }
 
@@ -867,6 +625,8 @@ export interface AiProposedFieldAnswer {
   /** 0.0 to 1.0 model grounding confidence. */
   readonly confidence: number;
   readonly supportingClaimIds: readonly string[];
+  /** Explicit false when the model could not ground the answer; such proposals are discarded. */
+  readonly isGrounded?: boolean;
 }
 
 /**
@@ -894,6 +654,7 @@ export function withAiProposedFieldAnswers(
     if (!field) return [];
     if (field.isHoneypotSuspect || !isAiAnswerableCustomField(field, { includeChoiceFields: true })) return [];
     if (plan.actions.some((action) => action.fieldId === answer.fieldId)) return [];
+    if (answer.isGrounded === false) return [];
     if (!answer.answerText || answer.answerText.trim().length === 0) return [];
 
     let actionType: BrowserActionType = 'fill_text';
@@ -941,9 +702,16 @@ export function withAiProposedFieldAnswers(
       actionType,
       selector: targetSelector,
       value: targetValue,
-      description: `Propose affirmative answer for ${field.label || 'question'}`,
+      description: `Proposed answer for ${field.label || 'question'}`,
       requiresUserConfirmation: true,
     };
+
+    // AI proposals pass the same submission gate as deterministic actions.
+    if (validateBrowserActionSafety(browserAction).isProhibited) {
+      return [];
+    }
+
+    const riskLevel = calculateActionRisk(field, targetValue);
 
     const dryRunAction: DryRunAction = {
       id: createActionId(),
@@ -952,10 +720,10 @@ export function withAiProposedFieldAnswers(
       currentValue: field.currentValue || '',
       candidateValueUsed: answer.answerText,
       confidence: Math.min(1, Math.max(0, answer.confidence)),
-      riskLevel: 'medium',
+      riskLevel,
       userConfirmed: false,
-      diffExplanation: 'AI-proposed answer staged for candidate review (ATS-optimized affirmative proposal).',
-      sourceEvidenceTitle: 'AI Proposal (ATS-Optimized)',
+      diffExplanation: 'AI-proposed answer staged for candidate review.',
+      sourceEvidenceTitle: 'AI Proposal (evidence-linked)',
       sourceClaimId: answer.supportingClaimIds[0],
     };
     return [dryRunAction];
@@ -1138,26 +906,35 @@ export function approveAllLowRiskActions(plan: DryRunPlan): DryRunPlan {
 }
 
 /**
- * Batch-approves every action in the DryRunPlan (including high-risk items)
- * upon explicit candidate command.
+ * Batch-approves plan actions on explicit candidate command.
+ *
+ * High-risk actions stay unconfirmed unless `includeHighRisk` is explicitly set,
+ * so a bulk approval cannot silently consent to legal or demographic disclosures.
  *
  * @param plan Active DryRunPlan.
- * @returns Fully approved DryRunPlan.
+ * @param options Approval scope.
+ * @returns Updated DryRunPlan.
  */
-export function approveAllActions(plan: DryRunPlan): DryRunPlan {
-  const updatedActions = plan.actions.map((action) => ({
-    ...action,
-    userConfirmed: true,
-  }));
+export function approveAllActions(
+  plan: DryRunPlan,
+  options: { readonly includeHighRisk?: boolean } = {}
+): DryRunPlan {
+  const includeHighRisk = options.includeHighRisk === true;
+  const updatedActions = plan.actions.map((action) => {
+    if (!includeHighRisk && action.riskLevel === 'high') return action;
+    return { ...action, userConfirmed: true };
+  });
+
+  const requiresConfirmationCount = updatedActions.filter((action) => !action.userConfirmed).length;
 
   return {
     ...plan,
     actions: updatedActions,
     stats: {
       ...plan.stats,
-      requiresConfirmationCount: 0,
+      requiresConfirmationCount,
     },
-    isApproved: true,
+    isApproved: updatedActions.every((action) => action.userConfirmed),
   };
 }
 

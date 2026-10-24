@@ -18,11 +18,21 @@ export function sanitizePromptInput(raw: string): string {
  * Encloses untrusted third-party text in strict structural XML delimiters.
  *
  * Security Invariant: The LLM system directive explicitly instructs the model that any text enclosed
- * within untrusted XML tags is inert data, NEVER executable commands.
+ * within untrusted XML tags is inert data, NEVER executable commands. Any copy of the delimiter that
+ * appears in the payload is removed first so page content cannot close the envelope early and escape
+ * into the instruction channel.
+ *
+ * @param content Raw third-party text.
+ * @param tag Delimiter name; defaults to `untrusted_data`.
+ * @returns Delimited, sanitized text safe to embed in a prompt.
  */
 export function wrapUntrustedContent(content: string, tag = 'untrusted_data'): string {
-  const sanitized = sanitizePromptInput(content);
-  return `<${tag}>\n${sanitized}\n</${tag}>`;
+  const safeTag = tag.replace(/[^a-z0-9_]/gi, '') || 'untrusted_data';
+  const sanitized = sanitizePromptInput(content)
+    .replace(new RegExp(`<\\s*/?\\s*${safeTag}\\s*>`, 'gi'), '')
+    .replace(/<\s*\/?\s*untrusted_[a-z0-9_]*\s*>/gi, '')
+    .replace(/<\/?[a-z][^>]{0,200}>/gi, '');
+  return `<${safeTag}>\n${sanitized}\n</${safeTag}>`;
 }
 
 /**

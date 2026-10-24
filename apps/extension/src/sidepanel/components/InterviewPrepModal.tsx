@@ -1,8 +1,9 @@
 /**
- * @fileoverview Evidence-Grounded Role Interview Preparation Modal (Phase 25).
+ * @fileoverview Evidence-grounded role interview preparation modal.
  *
- * Displays tailored technical deep-dive questions, verified STAR behavioral narratives,
- * and company-specific reverse interview questions backed 100% by candidate evidence (ADR-0004).
+ * Displays tailored technical questions, STAR behavioural narratives, and reverse
+ * interview questions. Every item is generated from stored candidate evidence, so the
+ * modal never claims experience the candidate has not recorded.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -24,16 +25,17 @@ export interface InterviewPrepModalProps {
   readonly onClose: () => void;
 }
 
+type PrepTab = 'behavioral' | 'technical' | 'reverse';
+
 export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
   application,
   candidateProfile,
   evidenceGraph,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'technical' | 'behavioral' | 'reverse'>('behavioral');
+  const [activeTab, setActiveTab] = useState<PrepTab>('behavioral');
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
 
-  // Synthesize prep kit from application and profile data
   const prepKit: InterviewPrepKit = useMemo(() => {
     const profile = candidateProfile || createEmptyProfile(createProfileId('prof_default'));
     const graph = evidenceGraph || buildEvidenceGraph([], []);
@@ -60,92 +62,78 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
   }, [application, candidateProfile, evidenceGraph]);
 
   const handleCopyText = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedIndex(id);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* Header */}
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
+    <div
+      className="prep-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Interview preparation for ${application.jobTitle}`}
+    >
+      <div className="prep-modal">
+        <header className="prep-modal-header">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                Role interview prep
-              </span>
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
-                ✓ 100% Evidence Grounded
-              </span>
+            <div className="prep-badges">
+              <span className="prep-badge">Role interview prep</span>
+              <span className="prep-badge prep-badge-grounded">Evidence grounded</span>
             </div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white mt-1">
-              {application.jobTitle} @ {application.companyName}
+            <h2 className="prep-title">
+              {application.jobTitle} at {application.companyName}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-bold p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            ✕
+          <button type="button" className="prep-close" onClick={onClose} aria-label="Close interview prep">
+            &times;
           </button>
-        </div>
+        </header>
 
-        {/* Culture Themes Bar */}
         {prepKit.culturalThemes.length > 0 && (
-          <div className="px-5 py-2.5 bg-indigo-50/60 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 flex items-center gap-2 overflow-x-auto text-xs">
-            <span className="font-semibold text-indigo-900 dark:text-indigo-200 shrink-0">Company Focus:</span>
+          <div className="prep-theme-bar">
+            <span className="prep-theme-label">Company focus</span>
             {prepKit.culturalThemes.slice(0, 3).map((theme, i) => (
-              <span
-                key={i}
-                className="bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md whitespace-nowrap"
-              >
+              <span className="prep-theme-chip" key={`${theme}-${i}`}>
                 {theme}
               </span>
             ))}
           </div>
         )}
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 px-5 pt-2 gap-4 text-xs font-semibold">
+        <div className="prep-tabs">
           <button
+            type="button"
+            className={`prep-tab ${activeTab === 'behavioral' ? 'prep-tab-active' : ''}`}
+            aria-pressed={activeTab === 'behavioral'}
             onClick={() => setActiveTab('behavioral')}
-            className={`pb-2.5 border-b-2 transition-colors ${
-              activeTab === 'behavioral'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400'
-            }`}
           >
-            STAR behavioral stories ({prepKit.behavioralQuestions.length})
+            Behavioural stories ({prepKit.behavioralQuestions.length})
           </button>
           <button
+            type="button"
+            className={`prep-tab ${activeTab === 'technical' ? 'prep-tab-active' : ''}`}
+            aria-pressed={activeTab === 'technical'}
             onClick={() => setActiveTab('technical')}
-            className={`pb-2.5 border-b-2 transition-colors ${
-              activeTab === 'technical'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400'
-            }`}
           >
-            💻 Technical Deep-Dives ({prepKit.technicalQuestions.length})
+            Technical questions ({prepKit.technicalQuestions.length})
           </button>
           <button
+            type="button"
+            className={`prep-tab ${activeTab === 'reverse' ? 'prep-tab-active' : ''}`}
+            aria-pressed={activeTab === 'reverse'}
             onClick={() => setActiveTab('reverse')}
-            className={`pb-2.5 border-b-2 transition-colors ${
-              activeTab === 'reverse'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400'
-            }`}
           >
-            ❓ Questions to Ask ({prepKit.questionsToAskInterviewer.length})
+            Questions to ask ({prepKit.questionsToAskInterviewer.length})
           </button>
         </div>
 
-        {/* Tab Content */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="prep-body">
           {activeTab === 'behavioral' && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                These questions use the proven <strong>STAR</strong> method (Situation, Task, Action, Result) constructed strictly from your verified experience highlights.
+            <div className="prep-list">
+              <p className="prep-intro">
+                Answers use the situation, task, action, result structure, built from experience
+                highlights you have already recorded.
               </p>
 
               {prepKit.behavioralQuestions.map((q) => {
@@ -155,106 +143,81 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
                   : '';
 
                 return (
-                  <div
-                    key={q.id}
-                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 shadow-xs"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        "{q.question}"
-                      </h4>
+                  <article className="prep-card" key={q.id}>
+                    <div className="prep-card-head">
+                      <h3 className="prep-question">{q.question}</h3>
                       {star && (
                         <button
+                          type="button"
+                          className="prep-copy-btn"
                           onClick={() => handleCopyText(q.id, fullStoryText)}
-                          className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition-colors"
                         >
-                          {copiedIndex === q.id ? '✓ Copied' : 'Copy STAR'}
+                          {copiedIndex === q.id ? 'Copied' : 'Copy answer'}
                         </button>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
-                      Why they ask: {q.relevanceRationale}
-                    </p>
+                    <p className="prep-rationale">{q.relevanceRationale}</p>
 
                     {star && (
-                      <div className="mt-3 grid grid-cols-1 gap-2 text-xs bg-slate-50 dark:bg-slate-900/60 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
-                        <div>
-                          <strong className="text-indigo-600 dark:text-indigo-400">Situation:</strong>{' '}
-                          <span className="text-slate-700 dark:text-slate-300">{star.situation}</span>
-                        </div>
-                        <div>
-                          <strong className="text-indigo-600 dark:text-indigo-400">Task:</strong>{' '}
-                          <span className="text-slate-700 dark:text-slate-300">{star.task}</span>
-                        </div>
-                        <div>
-                          <strong className="text-indigo-600 dark:text-indigo-400">Action:</strong>{' '}
-                          <span className="text-slate-800 dark:text-slate-200 font-medium">{star.action}</span>
-                        </div>
-                        <div>
-                          <strong className="text-emerald-600 dark:text-emerald-400">Result:</strong>{' '}
-                          <span className="text-slate-700 dark:text-slate-300">{star.result}</span>
-                        </div>
-                      </div>
+                      <dl className="prep-star">
+                        <dt>Situation</dt>
+                        <dd>{star.situation}</dd>
+                        <dt>Task</dt>
+                        <dd>{star.task}</dd>
+                        <dt>Action</dt>
+                        <dd>{star.action}</dd>
+                        <dt>Result</dt>
+                        <dd>{star.result}</dd>
+                      </dl>
                     )}
-                  </div>
+                  </article>
                 );
               })}
             </div>
           )}
 
           {activeTab === 'technical' && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Technical questions tailored to the core engineering requirements of this role, paired with talking points from your verified background.
+            <div className="prep-list">
+              <p className="prep-intro">
+                Questions based on the core requirements of this role, with talking points from
+                your recorded background.
               </p>
 
               {prepKit.technicalQuestions.map((q) => (
-                <div
-                  key={q.id}
-                  className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 shadow-xs"
-                >
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    {q.question}
-                  </h4>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
-                    {q.relevanceRationale}
-                  </p>
+                <article className="prep-card" key={q.id}>
+                  <h3 className="prep-question">{q.question}</h3>
+                  <p className="prep-rationale">{q.relevanceRationale}</p>
 
-                  <div className="mt-3">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Recommended Talking Points:
-                    </span>
-                    <ul className="mt-1 space-y-1 text-xs text-slate-600 dark:text-slate-300 list-disc list-inside">
+                  <div className="prep-points">
+                    <span className="prep-points-label">Talking points</span>
+                    <ul className="prep-points-list">
                       {q.talkingPoints.map((tp, i) => (
-                        <li key={i}>{tp}</li>
+                        <li key={`${q.id}-point-${i}`}>{tp}</li>
                       ))}
                     </ul>
                   </div>
-                </div>
+                </article>
               ))}
             </div>
           )}
 
           {activeTab === 'reverse' && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Stand out as a thoughtful engineering candidate by asking high-signal questions about architecture, autonomy, and team culture.
+            <div className="prep-list">
+              <p className="prep-intro">
+                Questions about architecture, autonomy, and team culture that are worth asking in
+                the interview.
               </p>
 
-              <div className="space-y-2">
+              <div className="prep-reverse-list">
                 {prepKit.questionsToAskInterviewer.map((q, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-850 flex items-start justify-between gap-3 text-xs"
-                  >
-                    <span className="text-slate-800 dark:text-slate-200 font-medium">
-                      "{q}"
-                    </span>
+                  <div className="prep-reverse-item" key={`reverse-${idx}`}>
+                    <span className="prep-reverse-text">{q}</span>
                     <button
+                      type="button"
+                      className="prep-copy-btn"
                       onClick={() => handleCopyText(`rev_${idx}`, q)}
-                      className="shrink-0 px-2 py-0.5 text-xs rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors"
                     >
-                      {copiedIndex === `rev_${idx}` ? '✓ Copied' : 'Copy'}
+                      {copiedIndex === `rev_${idx}` ? 'Copied' : 'Copy'}
                     </button>
                   </div>
                 ))}
@@ -263,18 +226,14 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            ApplyKit Evidence Grounding Guarantee • No hallucinated metrics
+        <footer className="prep-footer">
+          <span className="prep-footer-note">
+            Built only from your saved profile and recorded evidence.
           </span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
-          >
-            Close Prep Kit
+          <button type="button" className="prep-footer-btn" onClick={onClose}>
+            Close
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   );

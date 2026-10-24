@@ -18,8 +18,7 @@ import { IndexedDbProfileRepository } from './profile-repository.js';
 import { IndexedDbJobRepository } from './job-repository.js';
 import { IndexedDbApplicationRepository } from './application-repository.js';
 import { IndexedDbEvidenceRepository } from './evidence-repository.js';
-import { deleteDatabase } from './indexeddb.js';
-import { clearAllApiKeys } from './credential-store.js';
+import { purgeAllCandidateData } from './purge-engine.js';
 
 export interface ApplyKitBackupPayload {
   readonly schemaVersion: 1;
@@ -174,18 +173,11 @@ export async function importCandidateBackup(
 }
 
 /**
- * Executes a full local data wipe ("Right to be Forgotten"):
- * 1. Drops the IndexedDB database (`applykit_db`).
- * 2. Clears `chrome.storage.local` credentials and cached sessions.
+ * Executes a full local data wipe ("Right to be Forgotten").
+ *
+ * Delegates to {@link purgeAllCandidateData} so export/import and UI purge paths share
+ * identical store coverage and failure reporting.
  */
 export async function purgeAllLocalData(customFactory?: IDBFactory): Promise<void> {
-  // Clear IndexedDB
-  await deleteDatabase(customFactory);
-
-  // Clear chrome.storage.local
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    await chrome.storage.local.clear();
-  } else {
-    await clearAllApiKeys();
-  }
+  await purgeAllCandidateData(customFactory);
 }

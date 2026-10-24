@@ -479,7 +479,8 @@ describe('Yes/No, checkbox, and option-extra fields (synthetic form)', () => {
       },
     };
     const plan = generateDryRunPlan(form, profile, { includeRedundantFills: true });
-    const approved = approveAllActions(plan);
+    // The test exercises execution mechanics for legal fields the candidate explicitly approved.
+    const approved = approveAllActions(plan, { includeHighRisk: true });
 
     await executeBrowserPlan(approved, document, {
       highlightElements: false,

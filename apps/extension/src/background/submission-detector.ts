@@ -13,7 +13,7 @@
  */
 
 import type { ApplicationRecord, ApplicationState } from '@applykit/domain';
-import { transitionApplicationRecord } from '@applykit/domain';
+import { isValidStateTransition, transitionApplicationRecord } from '@applykit/domain';
 import { getApplicationRepository } from '../storage/application-repository.js';
 
 /**
@@ -152,18 +152,26 @@ export async function processSubmissionDetection(
 
   const currentHost = extractHostname(url);
 
-  // Find most recent application matching the domain or currently awaiting user review / in progress
-  const candidateApp = applications.find((app) => {
-    const appHost = extractHostname(app.jobPostingUrl);
-    const hostMatches = currentHost && appHost && (currentHost.includes(appHost) || appHost.includes(currentHost));
-    const isPending =
-      app.currentStatus === 'awaiting_user_review' ||
-      app.currentStatus === 'ready_to_fill' ||
-      app.currentStatus === 'dry_run_review' ||
-      app.currentStatus === 'executing_actions';
+  const isPending = (app: ApplicationRecord): boolean =>
+    app.currentStatus === 'awaiting_user_review' ||
+    app.currentStatus === 'ready_to_fill' ||
+    app.currentStatus === 'dry_run_review' ||
+    app.currentStatus === 'executing_actions';
 
-    return (hostMatches && isPending) || (hostMatches && app.currentStatus !== 'archived' && app.currentStatus !== 'rejected');
-  }) || applications.find((app) => app.currentStatus === 'awaiting_user_review');
+  const hostMatches = (app: ApplicationRecord): boolean => {
+    const appHost = extractHostname(app.jobPostingUrl);
+    return Boolean(currentHost && appHost && (currentHost.includes(appHost) || appHost.includes(currentHost)));
+  };
+
+  const pendingOnHost = applications.find((app) => hostMatches(app) && isPending(app));
+  const allPending = applications.filter(isPending);
+  // An application already marked submitted is still a valid correlation target so repeated
+  // confirmation observations stay idempotent instead of failing.
+  const submittedOnHost = applications.find(
+    (app) => hostMatches(app) && app.currentStatus === 'submitted'
+  );
+  // Text-only confirmation is ambiguous; only accept it when exactly one application is pending.
+  const candidateApp = pendingOnHost ?? (allPending.length === 1 ? allPending[0] : undefined) ?? submittedOnHost;
 
   if (!candidateApp) {
     return {
@@ -187,10 +195,29 @@ export async function processSubmissionDetection(
   const now = new Date().toISOString();
 
   try {
-    const updated = transitionApplicationRecord(
-      candidateApp,
+    let updated = candidateApp;
+    // executing_actions cannot jump straight to submitted; pass through the review state first.
+    if (!isValidStateTransition(updated.currentStatus, 'submitted')) {
+      if (isValidStateTransition(updated.currentStatus, 'awaiting_user_review')) {
+        updated = transitionApplicationRecord(
+          updated,
+          'awaiting_user_review',
+          `Confirmation observed at ${url}; awaiting user review record`
+        );
+      } else {
+        return {
+          success: false,
+          applicationId: candidateApp.id,
+          previousStatus,
+          error: `Application in state "${previousStatus}" cannot transition to submitted.`,
+        };
+      }
+    }
+
+    updated = transitionApplicationRecord(
+      updated,
       'submitted',
-      `Automated ${atsType} post-submission confirmation detected at ${url}`,
+      `Post-submission confirmation observed at ${url}`,
       { appliedAt: candidateApp.appliedAt || now }
     );
 

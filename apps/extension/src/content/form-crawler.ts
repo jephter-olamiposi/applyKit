@@ -23,6 +23,7 @@ import {
   isElementRequired,
   extractNativeSelectOptions,
   isSubmitElement,
+  hasSubmissionControl,
   cleanLabelText,
 } from './adapters/form-crawler-helpers.js';
 import {
@@ -37,6 +38,7 @@ export {
   isElementRequired,
   extractNativeSelectOptions,
   isSubmitElement,
+  hasSubmissionControl,
   cleanLabelText,
 };
 

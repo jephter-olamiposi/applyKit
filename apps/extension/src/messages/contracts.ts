@@ -1211,8 +1211,10 @@ export function isValidExtensionRequest(value: unknown): value is ExtensionReque
 
   switch (message.type) {
     case 'SET_API_KEY':
+      // An empty key is a revocation request, not malformed input.
       return ['openai', 'anthropic', 'gemini', 'openrouter'].includes(String(message.provider)) &&
-        nonEmptyText(message.apiKey, 4096);
+        typeof message.apiKey === 'string' &&
+        message.apiKey.length <= 4096;
     case 'SAVE_CANDIDATE_PROFILE':
       return objectValue(message.profile);
     case 'IMPORT_BACKUP':
@@ -1229,11 +1231,53 @@ export function isValidExtensionRequest(value: unknown): value is ExtensionReque
       return message.planId === undefined || id(message.planId);
     case 'EXECUTE_CONTENT_PLAN': {
       if (!objectValue(message.plan) || !Array.isArray(message.plan.actions)) return false;
-      return message.plan.actions.every((action) => {
-        if (!objectValue(action) || !id(action.id) || !nonEmptyText(action.actionType, 64)) return false;
-        if ('selector' in action && action.selector !== undefined && !nonEmptyText(action.selector, 4096)) return false;
-        return true;
+      if (message.plan.actions.length > 500) return false;
+      return message.plan.actions.every((item) => {
+        if (!objectValue(item) || !id(item.id) || !objectValue(item.action)) return false;
+        const action = item.action;
+        return nonEmptyText(action.actionType, 64) &&
+          nonEmptyText(action.selector, 4096) &&
+          (action.value === undefined || (typeof action.value === 'string' && action.value.length <= 500_000)) &&
+          typeof action.requiresUserConfirmation === 'boolean' &&
+          typeof item.userConfirmed === 'boolean';
       });
+    }
+    case 'GENERATE_DRY_RUN_PLAN':
+      return objectValue(message.form) && Array.isArray(message.form.fields) && message.form.fields.length <= 500;
+    case 'ANSWER_CUSTOM_FIELDS':
+      return objectValue(message.form) &&
+        Array.isArray(message.form.fields) &&
+        message.form.fields.length <= 500 &&
+        objectValue(message.plan) &&
+        Array.isArray(message.plan.actions);
+    case 'SUBMISSION_DETECTED':
+      return nonEmptyText(message.url, 4096) &&
+        typeof message.title === 'string' &&
+        message.title.length <= 1024 &&
+        (message.atsType === undefined || (typeof message.atsType === 'string' && message.atsType.length <= 128));
+    case 'HIGHLIGHT_FORM_FIELD':
+      return nonEmptyText(message.selector, 4096) &&
+        (message.label === undefined || (typeof message.label === 'string' && message.label.length <= 4096));
+    case 'TOGGLE_IN_PAGE_REVIEW_BADGES':
+      return typeof message.enabled === 'boolean';
+    case 'FETCH_ATS_JOBS': {
+      const platforms = ['greenhouse', 'lever', 'ashby'];
+      const slugs = message.slugs;
+      const validSlugs = slugs === undefined || (
+        Array.isArray(slugs) &&
+        slugs.length <= 100 &&
+        slugs.every((entry) =>
+          objectValue(entry) &&
+          platforms.includes(String(entry.platform)) &&
+          nonEmptyText(entry.slug, 256) &&
+          typeof entry.name === 'string' &&
+          entry.name.length <= 256
+        )
+      );
+      return validSlugs &&
+        (message.keyword === undefined || (typeof message.keyword === 'string' && message.keyword.length <= 256)) &&
+        (message.workplacePreference === undefined || ['remote', 'hybrid', 'onsite', 'any'].includes(String(message.workplacePreference))) &&
+        (message.employmentPreference === undefined || ['full_time', 'part_time', 'contract', 'internship', 'any'].includes(String(message.employmentPreference)));
     }
     case 'ANSWER_AD_HOC_QUESTION':
       return nonEmptyText(message.question, 20_000) &&

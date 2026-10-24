@@ -588,9 +588,14 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       const plan = generateDryRunPlan(form, mockProfile);
       expect(plan.isApproved).toBe(false);
 
-      const allApproved = approveAllActions(plan);
-      expect(allApproved.isApproved).toBe(true);
-      expect(allApproved.stats.requiresConfirmationCount).toBe(0);
+      // High-risk legal disclosures are never swept up by a bulk approval.
+      const bulkApproved = approveAllActions(plan);
+      expect(bulkApproved.isApproved).toBe(false);
+      expect(bulkApproved.stats.requiresConfirmationCount).toBe(1);
+
+      const explicitlyApproved = approveAllActions(plan, { includeHighRisk: true });
+      expect(explicitlyApproved.isApproved).toBe(true);
+      expect(explicitlyApproved.stats.requiresConfirmationCount).toBe(0);
     });
 
     it('resetAllApprovals resets high-risk actions to unconfirmed', () => {
@@ -618,7 +623,7 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
       };
 
       const plan = generateDryRunPlan(form, mockProfile);
-      const approved = approveAllActions(plan);
+      const approved = approveAllActions(plan, { includeHighRisk: true });
       expect(approved.isApproved).toBe(true);
 
       const resetPlan = resetAllApprovals(approved);
@@ -1035,7 +1040,7 @@ const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
       expect(dateAction?.candidateValueUsed).toBe('Immediately / 2 weeks');
     });
 
-    it('deterministically resolves unmapped experience screening questions affirmatively to pass ATS knockout', () => {
+    it('refuses to invent answers for unmapped screening questions', () => {
       const form: ApplicationForm = {
         id: 'form_screening',
         url: 'https://careers.example.com/apply',
@@ -1093,22 +1098,12 @@ const updated = withAiProposedFieldAnswers(basePlan, mockForm, answers);
 
       const plan = generateDryRunPlan(form, mockProfile);
 
-      const k8sAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_k8s'));
-      expect(k8sAction).toBeDefined();
-      expect(k8sAction?.candidateValueUsed).toBe('yes');
-      expect(k8sAction?.action.actionType).toBe('click');
-
-      const ageAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_age'));
-      expect(ageAction).toBeDefined();
-      expect(ageAction?.candidateValueUsed).toBe('yes');
-
-      const bgAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_bg'));
-      expect(bgAction).toBeDefined();
-      expect(bgAction?.action.actionType).toBe('check');
-
-      const skillAction = plan.actions.find((a) => a.fieldId === createFieldId('fld_unlisted_skill'));
-      expect(skillAction).toBeDefined();
-      expect(skillAction?.candidateValueUsed).toBe('Advanced');
+      // The profile lists no skills, no age, and no background-check consent, so every one
+      // of these fields must be left for the candidate instead of guessed.
+      expect(plan.actions.find((a) => a.fieldId === createFieldId('fld_k8s'))).toBeUndefined();
+      expect(plan.actions.find((a) => a.fieldId === createFieldId('fld_age'))).toBeUndefined();
+      expect(plan.actions.find((a) => a.fieldId === createFieldId('fld_bg'))).toBeUndefined();
+      expect(plan.actions.find((a) => a.fieldId === createFieldId('fld_unlisted_skill'))).toBeUndefined();
     });
 
     it('isAiAnswerableCustomField supports choice fields when includeChoiceFields is enabled', () => {

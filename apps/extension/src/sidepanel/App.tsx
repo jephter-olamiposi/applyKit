@@ -274,7 +274,7 @@ export const App: React.FC = () => {
             {activeTab === 'prepare_application' && (
               <div className="focused-page">
                 <div className="focused-page-header">
-                  <p className="focused-page-kicker">Step 5</p>
+                  <p className="focused-page-kicker">Step 4</p>
                   <h2>Prepare Application</h2>
                   <p>Review fields, answers, and browser actions before you submit manually.</p>
                 </div>
@@ -287,11 +287,11 @@ export const App: React.FC = () => {
             {activeTab === 'track' && (
               <div className="focused-page">
                 <div className="focused-page-header">
-                  <p className="focused-page-kicker">Step 6</p>
+                  <p className="focused-page-kicker">Step 5</p>
                   <h2>Track</h2>
                   <p>Keep every application, status, and next action in one place.</p>
                 </div>
-                <ApplicationTracker onNavigateToTab={setActiveTab} />
+                <ApplicationTracker />
               </div>
             )}
 

@@ -179,7 +179,7 @@ describe('14-Point Resume Golden Standard Audit Engine', () => {
     expect(audit.checks.template_selected.status).toBe('passed');
     expect(audit.checks.one_page_fit.status).toBe('passed');
     expect(audit.checks.job_keywords.status).toBe('passed');
-    expect(audit.checks.company_name.status).toBe('passed');
+    expect(audit.checks.summary_targeting.status).toBe('passed');
     expect(audit.checks.first_item_aligned.status).toBe('passed');
     expect(audit.checks.title_demonstrates_value.status).toBe('passed');
     expect(audit.checks.online_links.status).toBe('passed');
@@ -286,8 +286,8 @@ describe('14-Point Resume Golden Standard Audit Engine', () => {
     // Tech casing normalized
     expect(polished.tailoredSummary).toContain('TypeScript');
     expect(polished.tailoredSummary).toContain('PostgreSQL');
-    // Weak opening replaced with strong action verb
-    expect(polished.experiences[0]?.rankedHighlights[0]?.text).toMatch(/^Spearheaded building microservices using Node\.js and AWS\./);
+    // Weak opening replaced with a plain past-tense verb
+    expect(polished.experiences[0]?.rankedHighlights[0]?.text).toMatch(/^Built microservices using Node\.js and AWS\./);
     // Audit regenerated and high score
     expect(polished.qualityAudit).toBeDefined();
     expect(polished.qualityAudit?.overallScore).toBeGreaterThanOrEqual(85);

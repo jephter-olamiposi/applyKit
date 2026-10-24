@@ -325,6 +325,7 @@ describe('Browser Action Interpreter & Event Simulator', () => {
           <input id="full_name" type="text" />
           <input id="email_address" type="email" />
           <input id="phone_num" type="tel" />
+          <button id="apply_btn" type="submit">Submit Application</button>
         </form>
       `;
 

@@ -343,12 +343,34 @@ export function isSubmitElement(element: HTMLElement): boolean {
   const tag = element.tagName.toLowerCase();
   const type = (element.getAttribute('type') || '').toLowerCase();
 
-  if (type === 'submit') {
+  if (tag === 'input' && (type === 'submit' || type === 'image')) {
     return true;
   }
 
-  if (tag === 'button' || tag === 'input' || tag === 'a') {
-    const text = element.textContent || (element as HTMLInputElement).value || '';
+  if (tag === 'button') {
+    // Per HTML semantics, a button without an explicit type submits its owning form.
+    if (type === 'submit' || (!element.hasAttribute('type') && element.closest('form') !== null)) {
+      return true;
+    }
+  }
+
+  if (tag === 'label') {
+    const targetId = element.getAttribute('for');
+    const control = targetId
+      ? element.ownerDocument.getElementById(targetId)
+      : element.querySelector('button, input');
+    if (control) {
+      return isSubmitElement(control as HTMLElement);
+    }
+  }
+
+  if (tag === 'button' || tag === 'input' || tag === 'a' || element.getAttribute('role') === 'button') {
+    const text = [
+      element.textContent || '',
+      (element as HTMLInputElement).value || '',
+      element.getAttribute('aria-label') || '',
+      element.getAttribute('title') || '',
+    ].join(' ');
     const selector = generateElementSelector(element, element.ownerDocument);
     if (isSubmissionIntent(selector, text)) {
       return true;
@@ -356,4 +378,16 @@ export function isSubmitElement(element: HTMLElement): boolean {
   }
 
   return false;
+}
+
+/**
+ * Detects whether the document currently exposes a control that could submit the application.
+ *
+ * Used to report the real submission boundary rather than asserting a halt unconditionally.
+ */
+export function hasSubmissionControl(doc: Document): boolean {
+  const candidates = doc.querySelectorAll<HTMLElement>(
+    'button, input[type="submit"], input[type="image"], a, [role="button"]'
+  );
+  return Array.from(candidates).some(isSubmitElement);
 }

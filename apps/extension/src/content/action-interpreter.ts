@@ -18,7 +18,7 @@ import {
   type ActionId,
   type FailedActionDetail,
 } from '@applykit/domain';
-import { isSubmitElement } from './form-crawler.js';
+import { isSubmitElement, hasSubmissionControl } from './form-crawler.js';
 import {
   calculateElementClickCoordinates,
   dispatchRealisticPointerSequence,
@@ -466,7 +466,7 @@ export async function executeBrowserPlan(
     totalPlanned: approvedActions.length,
     executedCount: executedActionIds.length,
     failedCount: failedActions.length,
-    haltedAtSubmissionGate: true, // Guarantees execution paused before final submission
+    haltedAtSubmissionGate: hasSubmissionControl(doc),
     executedActionIds,
     failedActions,
     durationMs,

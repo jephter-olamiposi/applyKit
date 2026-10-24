@@ -491,7 +491,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
       });
       if (res && res.success) {
         setActionStatus(
-          `✓ Master Resume re-indexed! Decomposed ${res.evidenceCount ?? 0} evidence items & ${res.claimsCount ?? 0} verified claims.`
+          `Master resume re-indexed: ${res.evidenceCount ?? 0} evidence items and ${res.claimsCount ?? 0} verified claims.`
         );
         setShowResumeModal(false);
         setNewResumeText('');
@@ -609,7 +609,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
           {/* Section: Location */}
           <div className="form-section-card">
-            <h4 className="form-section-title">📍 Location & Residency</h4>
+            <h4 className="form-section-title">Location and residency</h4>
             <div className="form-row-2col">
               <div className="form-group">
                 <label className="form-label">Country</label>
@@ -707,7 +707,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
           {/* Section: Compensation & Availability */}
           <div className="form-section-card">
-            <h4 className="form-section-title">💰 Compensation & Availability</h4>
+            <h4 className="form-section-title">Compensation and availability</h4>
             <div className="form-row-2col">
               <div className="form-group">
                 <label className="form-label">Workplace Preference</label>
@@ -798,7 +798,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
           {/* Section: Links */}
           <div className="form-section-card">
-            <h4 className="form-section-title">🔗 Professional Web Links</h4>
+            <h4 className="form-section-title">Professional links</h4>
             <div className="form-group">
               <label className="form-label">LinkedIn URL</label>
               <input
@@ -979,11 +979,11 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
               <p className="profile-headline">{profile?.headline || 'No headline set'}</p>
               {profile?.email && <p className="profile-email">{profile.email}</p>}
               {fullProfile?.identity?.phone && (
-                <p className="profile-email">📞 {fullProfile.identity.phone}</p>
+                <p className="profile-email">{fullProfile.identity.phone}</p>
               )}
               {fullProfile?.identity?.location && (
                 <p className="profile-email">
-                  📍 {[
+                  {[
                     fullProfile.identity.location.city,
                     fullProfile.identity.location.stateOrProvince,
                     fullProfile.identity.location.country,
@@ -1063,7 +1063,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                     onClick={() => setShowResumeModal(!showResumeModal)}
                     style={{ fontSize: '11px' }}
                   >
-                    {showResumeModal ? 'Close' : (masterDoc ? '🔄 Replace Resume' : '➕ Upload Resume')}
+                    {showResumeModal ? 'Close' : (masterDoc ? 'Replace resume' : 'Upload resume')}
                   </button>
                 </div>
 
@@ -1185,17 +1185,17 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
             <div className="profile-links-row">
               {fullProfile.links.linkedin && (
                 <a href={fullProfile.links.linkedin} target="_blank" rel="noreferrer" className="profile-link-badge">
-                  🔗 LinkedIn
+                  LinkedIn
                 </a>
               )}
               {fullProfile.links.github && (
                 <a href={fullProfile.links.github} target="_blank" rel="noreferrer" className="profile-link-badge">
-                  💻 GitHub
+                  GitHub
                 </a>
               )}
               {fullProfile.links.portfolio && (
                 <a href={fullProfile.links.portfolio} target="_blank" rel="noreferrer" className="profile-link-badge">
-                  🌐 Portfolio
+                  Portfolio
                 </a>
               )}
             </div>
@@ -1280,7 +1280,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                   onClick={handleExportYaml}
                   title="Export profile into job-application-pipeline compatible YAML format"
                 >
-                  📤 Export profile.yaml
+                  Export profile
                 </button>
                 <label className="btn btn-small btn-secondary file-upload-label" style={{ cursor: 'pointer' }}>
                   Import profile.yaml
@@ -1298,4 +1298,30 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
       )}
     </div>
   );
+};
+div>
+  );
+};
+;
+};
+;
+};
+
+};
+;
+};
+;
+};
+;
+};
+;
+};
+};
+};
+};
+};
+};
+
+};
+};
 };

@@ -136,7 +136,9 @@ describe('AI Context Builders & Schema Validation Suite', () => {
       expect(request.prompt).toContain('</untrusted_field_label>');
       expect(request.prompt).toContain('work_auth:us_citizen');
       expect(request.prompt).toContain('Yes, I am a US citizen');
-      expect(request.prompt).toContain('Available Dropdown Options');
+      expect(request.prompt).toContain('Available dropdown options');
+      expect(request.prompt).toContain('<untrusted_field_options>');
+      expect(request.prompt).toContain('</untrusted_field_options>');
     });
 
     it('enforces evidence grounding and natural non-AI answers', () => {
@@ -151,7 +153,7 @@ describe('AI Context Builders & Schema Validation Suite', () => {
 
       expect(request.systemPrompt).toContain('Use only the supplied candidate evidence');
       expect(request.systemPrompt).toContain('return an empty answerText');
-      expect(request.systemPrompt).toContain('without mentioning the AI');
+      expect(request.systemPrompt).toContain('Do not mention the AI');
       expect(request.prompt).not.toContain('advise the user to fill manually');
     });
   });
@@ -204,8 +206,13 @@ describe('AI Context Builders & Schema Validation Suite', () => {
       const request = buildResumeTailoringPrompt(context);
 
       expect(request.contextType).toBe('resume_tailoring');
-      expect(request.prompt).toContain('Role: Staff Infrastructure Engineer');
-      expect(request.prompt).toContain('Company: Stripe');
+      expect(request.prompt).toContain('<target_role>');
+      expect(request.prompt).toContain('Staff Infrastructure Engineer');
+      expect(request.prompt).toContain('</target_role>');
+      expect(request.prompt).toContain('<company_name>');
+      expect(request.prompt).toContain('Stripe');
+      expect(request.prompt).toContain('</company_name>');
+      expect(request.prompt).toContain('<untrusted_job_requirements>');
       expect(request.prompt).toContain('Expertise in Kubernetes and multi-region deployment');
       expect(request.prompt).toContain('Fintech Co');
       expect(request.prompt).toContain('KubeDeploy');
@@ -248,7 +255,7 @@ describe('AI Context Builders & Schema Validation Suite', () => {
       const request = buildCoverLetterPrompt(context);
 
       expect(request.contextType).toBe('cover_letter');
-      expect(request.systemPrompt).toContain('expert executive cover letter writer');
+      expect(request.systemPrompt).toContain('cover letter in their own voice');
       expect(request.prompt).toContain('<target_role>');
       expect(request.prompt).toContain('Staff Backend Architect');
       expect(request.prompt).toContain('</target_role>');

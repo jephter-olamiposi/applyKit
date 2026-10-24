@@ -48,7 +48,9 @@ describe('Extension Messaging Bridge & Contracts', () => {
   });
 
   it('rejects malformed sensitive runtime payloads before handler access', () => {
-    expect(isValidExtensionRequest({ type: 'SET_API_KEY', provider: 'gemini', apiKey: '' })).toBe(false);
+    // An empty key is a valid revocation request, but a non-string is not.
+    expect(isValidExtensionRequest({ type: 'SET_API_KEY', provider: 'gemini', apiKey: '' })).toBe(true);
+    expect(isValidExtensionRequest({ type: 'SET_API_KEY', provider: 'gemini', apiKey: 42 })).toBe(false);
     expect(isValidExtensionRequest({ type: 'EXECUTE_CONTENT_PLAN', plan: { actions: [{ id: 'a' }] } })).toBe(false);
     expect(isValidExtensionRequest({ type: 'ANSWER_AD_HOC_QUESTION', question: 'x'.repeat(20_001) })).toBe(false);
   });
@@ -56,7 +58,21 @@ describe('Extension Messaging Bridge & Contracts', () => {
   it('accepts bounded execution and answer payloads', () => {
     expect(isValidExtensionRequest({
       type: 'EXECUTE_CONTENT_PLAN',
-      plan: { id: 'plan-1', actions: [{ id: 'action-1', actionType: 'fill_text', selector: '#email' }] },
+      plan: {
+        id: 'plan-1',
+        actions: [
+          {
+            id: 'action-1',
+            action: {
+              actionType: 'fill_text',
+              selector: '#email',
+              value: 'candidate@example.com',
+              requiresUserConfirmation: false,
+            },
+            userConfirmed: true,
+          },
+        ],
+      },
     })).toBe(true);
     expect(isValidExtensionRequest({
       type: 'ANSWER_AD_HOC_QUESTION',

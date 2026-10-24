@@ -642,7 +642,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
           {ingestStats && (
             <div className="ingest-stats-pill">
-              ✓ Extracted {ingestStats.evidenceCount} atomic evidence items & {ingestStats.claimsCount} verified claims!
+              Extracted {ingestStats.evidenceCount} evidence items and {ingestStats.claimsCount} verified claims.
             </div>
           )}
 
@@ -655,7 +655,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={handleSkipToManual}
               disabled={isParsing}
             >
-              Manual Profile Entry ➔
+              Manual profile entry
             </button>
             <button
               type="button"
@@ -686,7 +686,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
           {ingestStats && (
             <div className="ingest-stats-pill" style={{ margin: '0 0 4px 0' }}>
-              ✓ Resume decomposed into {ingestStats.evidenceCount} atomic evidence items & {ingestStats.claimsCount} verified claims.
+              Resume decomposed into {ingestStats.evidenceCount} evidence items and {ingestStats.claimsCount} verified claims.
             </div>
           )}
           {reviewWarnings.length > 0 && (
@@ -972,7 +972,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 ← Back to Resume
               </button>
               <button type="submit" className="btn-primary">
-                Continue to AI Setup ➔
+                Continue to AI setup
               </button>
             </div>
           </form>
@@ -992,9 +992,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           {/* Gemini setup callout */}
           <div className="free-gemini-box">
             <div className="free-gemini-header">
-              <span className="free-gemini-icon">🌟</span>
+              <span className="free-gemini-icon" aria-hidden="true"></span>
               <div>
-                <h4 className="free-gemini-title">Recommended: Google Gemini (100% Free)</h4>
+                <h4 className="free-gemini-title">Recommended: Google Gemini (free tier)</h4>
                 <p className="free-gemini-desc">
                   Google AI Studio offers a free tier (15 requests/minute) with zero credit card required.
                 </p>
@@ -1074,7 +1074,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               className="btn-primary"
               onClick={handleStep3Next}
             >
-              Review & Complete ➔
+              Review and complete
             </button>
           </div>
         </div>
@@ -1167,3 +1167,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     </div>
   );
 };
+
+  );
+};
+
+  );
+};
+
+};
+
+};
+;

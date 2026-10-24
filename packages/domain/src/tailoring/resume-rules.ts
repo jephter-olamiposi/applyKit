@@ -5,7 +5,7 @@
  * 1. Pre-designed professional template selection (Modern, Classic, ATS, Compact).
  * 2. Strict 1-page vertical layout budgeter (Letter size 792pt).
  * 3. Targeted job keyword and competency alignment.
- * 4. Target company name inclusion in summary.
+ * 4. Summary states the candidate's role, relevant skills, and one concrete result.
  * 5. First-item alignment with primary job requirement.
  * 6. Value-demonstrating experience titles.
  * 7. Candidate online profile links (LinkedIn, GitHub, Portfolio).
@@ -21,6 +21,7 @@
  */
 
 import type { CandidateProfile } from '../candidate/profile.js';
+import type { WorkExperience } from '../candidate/experience.js';
 import type { JobPosting } from '../job/job-posting.js';
 import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
 import type {
@@ -85,6 +86,7 @@ export const STRONG_ACTION_VERBS: ReadonlySet<string> = new Set([
   'consolidated',
   'constructed',
   'containerized',
+  'contributed',
   'converted',
   'coordinated',
   'created',
@@ -392,6 +394,45 @@ export function normalizeTechOrthography(text: string): string {
 }
 
 /**
+ * Calculates tenure in years from the merged span of all work experiences.
+ *
+ * Overlapping or concurrent roles are counted once; summing per-role durations
+ * would overstate tenure for candidates who held two jobs at the same time.
+ *
+ * @param experiences Candidate work history.
+ * @returns Whole years of continuous experience, or 0 when no dates are usable.
+ */
+export function calculateVerifiedExperienceYears(experiences: readonly WorkExperience[]): number {
+  const intervals: Array<[number, number]> = [];
+
+  for (const exp of experiences) {
+    const start = Date.parse(exp.startDate);
+    const end = exp.endDate ? Date.parse(exp.endDate) : Date.now();
+    if (Number.isNaN(start) || Number.isNaN(end) || end < start) continue;
+    intervals.push([start, end]);
+  }
+
+  if (intervals.length === 0) return 0;
+
+  intervals.sort((a, b) => a[0] - b[0]);
+  let totalMs = 0;
+  let [currentStart, currentEnd] = intervals[0] as [number, number];
+
+  for (const [start, end] of intervals.slice(1)) {
+    if (start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, end);
+    } else {
+      totalMs += currentEnd - currentStart;
+      currentStart = start;
+      currentEnd = end;
+    }
+  }
+  totalMs += currentEnd - currentStart;
+
+  return Math.max(0, Math.floor(totalMs / (365.25 * 24 * 60 * 60 * 1000)));
+}
+
+/**
  * Audits a tailored resume against all 14 criteria of the Resume Golden Standard.
  *
  * @param resume Tailored resume aggregate.
@@ -451,17 +492,22 @@ export function auditResumeQuality(
     autoFixable: false,
   };
 
-  // Company name included
-  const companyInSummary = resume.tailoredSummary.toLowerCase().includes(job.companyName.toLowerCase());
-  checks.company_name = {
-    id: 'company_name',
-    name: 'Target Company Mention',
-    status: companyInSummary ? 'passed' : 'warning',
-    score: companyInSummary ? 100 : 50,
-    description: companyInSummary
-      ? `Target company "${job.companyName}" is explicitly incorporated in the summary.`
-      : `Company "${job.companyName}" was not found in the summary text.`,
-    recommendations: companyInSummary ? [] : [`Add a tailored mention of ${job.companyName} to your executive summary.`],
+  // Summary targets this posting's requirements
+  const summaryLower = resume.tailoredSummary.toLowerCase();
+  const summarySkill = [...matchedReqSkills, ...matchedPrefSkills].find(
+    (skill) => skill.length > 1 && summaryLower.includes(skill.toLowerCase())
+  );
+  checks.summary_targeting = {
+    id: 'summary_targeting',
+    name: 'Targeted Summary',
+    status: summarySkill ? 'passed' : 'warning',
+    score: summarySkill ? 100 : 50,
+    description: summarySkill
+      ? `Summary leads with "${summarySkill}", a competency this posting asks for.`
+      : 'Summary does not name a competency from this posting.',
+    recommendations: summarySkill
+      ? []
+      : ['Name one or two skills from the posting that the candidate genuinely has.'],
     autoFixable: true,
   };
 
@@ -575,7 +621,7 @@ export function auditResumeQuality(
     score: Math.round(actionVerbRatio * 100),
     description: `${actionVerbCount}/${allBullets.length} bullets begin with strong action verbs.`,
     recommendations: !isActionWordsPassed
-      ? ['Begin every bullet with an active verb (e.g. "Architected", "Engineered", "Optimized"). Avoid "Responsible for".']
+      ? ['Begin every bullet with a plain past-tense verb (e.g. "Built", "Led", "Reduced"). Avoid "Responsible for".']
       : [],
     autoFixable: true,
   };
@@ -602,8 +648,8 @@ export function auditResumeQuality(
   };
 
   // Skills & impressive years
-  const verifiedYears = profile.professional.totalYearsOfExperience ?? 0;
-  const mentionsYearsInSummary = /\b\d+\+\s*years\b/i.test(resume.tailoredSummary);
+  const verifiedYears = calculateVerifiedExperienceYears(profile.experiences);
+  const mentionsYearsInSummary = /\b\d+\+?\s*years\b/i.test(resume.tailoredSummary);
   const yearsImpressiveOrOmitted = !mentionsYearsInSummary || verifiedYears >= 3;
   checks.skills_and_impressive_years = {
     id: 'skills_and_impressive_years',
@@ -676,16 +722,90 @@ export function auditResumeQuality(
 }
 
 /**
+ * Past-tense forms for common "responsible for <verb>ing" duty phrasing.
+ *
+ * The rewrite only changes grammar: the claim itself already belongs to the
+ * candidate's verified profile, so no new scope or impact is introduced.
+ */
+const DUTY_GERUND_TO_PAST: Readonly<Record<string, string>> = {
+  analyzing: 'Analyzed',
+  architecting: 'Architected',
+  automating: 'Automated',
+  building: 'Built',
+  configuring: 'Configured',
+  coordinating: 'Coordinated',
+  creating: 'Created',
+  delivering: 'Delivered',
+  deploying: 'Deployed',
+  designing: 'Designed',
+  developing: 'Developed',
+  documenting: 'Documented',
+  fixing: 'Fixed',
+  implementing: 'Implemented',
+  improving: 'Improved',
+  integrating: 'Integrated',
+  investigating: 'Investigated',
+  leading: 'Led',
+  maintaining: 'Maintained',
+  managing: 'Managed',
+  mentoring: 'Mentored',
+  migrating: 'Migrated',
+  monitoring: 'Monitored',
+  operating: 'Operated',
+  optimizing: 'Optimized',
+  owning: 'Owned',
+  refactoring: 'Refactored',
+  running: 'Ran',
+  scaling: 'Scaled',
+  shipping: 'Shipped',
+  supporting: 'Supported',
+  testing: 'Tested',
+  troubleshooting: 'Troubleshot',
+  writing: 'Wrote',
+};
+
+/**
+ * Rewrites duty-style openings into plain past-tense statements.
+ *
+ * Returns the input unchanged when no faithful rewrite exists, because inventing
+ * scope or ownership would violate the no-fabrication invariant.
+ */
+function rewriteDutyOpening(text: string): string {
+  const match = text.match(
+    /^(?:was\s+)?(responsible\s+for|helped(?:\s+(?:with|to))?|worked\s+(?:on|with)|assisted(?:\s+(?:in|with))?|participated\s+in|tasked\s+with|involved\s+in)\s+(.+)$/i
+  );
+  if (!match) return text;
+
+  const phrase = (match[1] ?? '').toLowerCase();
+  const rest = (match[2] ?? '').trim();
+  if (rest.length === 0) return text;
+
+  if (phrase.startsWith('responsible') || phrase.startsWith('tasked')) {
+    const gerund = rest.match(/^([a-z]+ing)\b(.*)$/i);
+    const past = gerund ? DUTY_GERUND_TO_PAST[(gerund[1] ?? '').toLowerCase()] : undefined;
+    if (gerund && past) {
+      return `${past}${gerund[2] ?? ''}`.trim();
+    }
+    return `Owned ${rest}`;
+  }
+
+  if (phrase.startsWith('worked') || phrase.startsWith('participated')) {
+    return `Contributed to ${rest}`;
+  }
+
+  return `Supported ${rest}`;
+}
+
+/**
  * Deterministically fixes auto-fixable issues in a tailored resume without inventing any credentials.
  *
  * Operations:
  * 1. Strips first-person pronouns ("I", "me", "my", "we").
  * 2. Replaces empty buzzwords with factual phrasing.
  * 3. Normalizes technology orthography (e.g. typescript -> TypeScript).
- * 4. Replaces weak openings ("Responsible for") with strong active verbs.
- * 5. Cleans years of experience if < 3 years.
- * 6. Ensures target company is included in summary.
- * 7. Enforces 1-page bullet limits.
+ * 4. Rewrites duty-style openings with plain past-tense verbs.
+ * 5. Replaces an unusable summary with one built from profile facts.
+ * 6. Enforces 1-page bullet limits.
  *
  * @param resume Tailored resume aggregate.
  * @param profile Candidate profile source.
@@ -719,15 +839,15 @@ export function autoFixResumeQualityIssues(
     .replace(/^[,\s.-]+/, '')
     .trim();
 
-  // If candidate title doesn't lead, ensure strong opening
+  // If the summary is unusable, rebuild it from profile facts only.
   if (!summary || summary.length < 20) {
     const title = profile.professional.currentTitle || profile.professional.headline || job.title;
-    summary = `${title} specializing in ${resume.skills.matchedRequired.slice(0, 4).join(', ')}. Committed to delivering robust, maintainable solutions for ${job.companyName}.`;
-  }
-
-  // Ensure company name is present
-  if (!summary.toLowerCase().includes(job.companyName.toLowerCase())) {
-    summary += ` Focused on driving measurable outcomes aligned with ${job.companyName}'s engineering goals.`;
+    const coreSkills = resume.skills.matchedRequired.slice(0, 4).join(', ');
+    const years = calculateVerifiedExperienceYears(profile.experiences);
+    summary = [
+      `${title}${years >= 3 ? ` with ${years} years of experience` : ''}.`,
+      coreSkills ? `Core stack: ${coreSkills}.` : '',
+    ].filter(Boolean).join(' ');
   }
 
   // Clean highlights for experiences
@@ -735,13 +855,8 @@ export function autoFixResumeQualityIssues(
     const cleanedHighlights = exp.rankedHighlights.map((h) => {
       let text = h.text;
 
-      // Clean weak duty openings
-      text = text.replace(/^(responsible for|was responsible for)\s+/i, 'Spearheaded ');
-      text = text.replace(/^(helped with|helped to|helped)\s+/i, 'Contributed to ');
-      text = text.replace(/^(worked on|worked with)\s+/i, 'Engineered ');
-      text = text.replace(/^(assisted in|assisted with|assisted)\s+/i, 'Facilitated ');
-      text = text.replace(/^(tasked with|was tasked with)\s+/i, 'Executed ');
-      text = text.replace(/^(participated in)\s+/i, 'Collaborated on ');
+      // Rewrite duty-style openings into plain past-tense statements
+      text = rewriteDutyOpening(text);
 
       // Strip first-person pronouns
       text = text.replace(/\b(I|me|my|we|our|myself)\b/gi, '');
@@ -780,7 +895,7 @@ export function autoFixResumeQualityIssues(
   const projects: TailoredProject[] = resume.projects.map((proj) => {
     const cleanedHighlights = proj.rankedHighlights.map((h) => {
       let text = normalizeTechOrthography(h.text);
-      text = text.replace(/^(responsible for|helped with|worked on)\s+/i, 'Built ');
+      text = rewriteDutyOpening(text);
       text = text.replace(/\s{2,}/g, ' ').trim();
       if (text.length > 0) {
         text = text.charAt(0).toUpperCase() + text.slice(1);

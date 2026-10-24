@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import type { CandidateProfile } from '@applykit/domain';
+import { EXTENSION_PAGE_SENDER, TEST_EXTENSION_ID } from './helpers/message-sender.js';
 
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,6 +26,7 @@ beforeEach(() => {
 function installChromeMock() {
   (globalThis as unknown as { chrome: unknown }).chrome = {
     runtime: {
+      id: TEST_EXTENSION_ID,
       lastError: null,
       onMessage: {
         addListener: vi.fn(),
@@ -90,7 +92,7 @@ describe('W1.1 Background profile summary handler resolves on failure', () => {
     // Execute the message handler without an active await on the response.
     const keepsAlive = listener!(
       { type: 'GET_CANDIDATE_PROFILE_SUMMARY' },
-      null,
+      EXTENSION_PAGE_SENDER,
       sendResponse
     );
 

@@ -197,9 +197,12 @@ describe('Dynamic Resume Section & Bullet Selector Suite', () => {
     const tailored = tailorCandidateResume(sampleJob, sampleProfile, graph);
 
     expect(tailored.tailoredSummary).toContain('Senior Frontend Engineer');
-    expect(tailored.tailoredSummary).toContain('Acme SaaS');
+    expect(tailored.tailoredSummary).toContain('7 years of experience');
     expect(tailored.tailoredSummary).toContain('React');
     expect(tailored.tailoredSummary).toContain('reducing LCP by 45%');
+    // Human-sounding summary: no company flattery or self-praise boilerplate.
+    expect(tailored.tailoredSummary).not.toContain('Acme SaaS');
+    expect(tailored.tailoredSummary).not.toMatch(/Proven track record|Committed to delivering|verified engineering experience/i);
   });
 
   it('honors configuration options for max bullets and projects', () => {

@@ -21,10 +21,6 @@ import type {
   ExportAuditLogResponse,
 } from '../../messages/contracts.js';
 
-interface ApplicationTrackerProps {
-  onNavigateToTab?: (tabId: any) => void;
-}
-
 const INTERVIEW_STAGES = [
   'Recruiter Screen',
   'Hiring Manager Screen',
@@ -98,7 +94,7 @@ function formatTimestamp(isoString?: string): string {
   }
 }
 
-export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
+export const ApplicationTracker: React.FC = () => {
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -141,11 +137,11 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
           }
         );
         setEmailScanResult(
-          `✓ Detected ${result.interviewType} interview invite for ${result.companyName || 'tracked application'}! Advanced to Interviewing.`
+          `Detected a ${result.interviewType} interview invite for ${result.companyName || 'tracked application'}. Status moved to Interviewing.`
         );
       } else {
         setEmailScanResult(
-          `✓ Detected ${result.interviewType} interview invite with scheduling link: ${result.schedulingUrl || 'detected'}. Link manually to an application.`
+          `Detected a ${result.interviewType} interview invite with a scheduling link: ${result.schedulingUrl || 'detected'}. Link it to an application manually.`
         );
       }
     } else {
@@ -394,7 +390,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
             aria-label="Dismiss error"
             onClick={() => setErrorMessage(null)}
           >
-            ✕
+            &times;
           </button>
         </div>
       )}
@@ -407,7 +403,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               Local audit history and post-submission pipeline (ADR-0001, ADR-0006)
             </p>
           </div>
-          <div className="tracker-export-group" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <div className="tracker-export-group">
             <button
               type="button"
               className="export-btn export-btn-csv"
@@ -415,7 +411,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               disabled={exporting !== null || applications.length === 0}
               title="Export canonical 8-column pipeline tracker CSV (employer, role, status, date, url, source, note, key)"
             >
-              {exporting === 'tracker-csv' ? 'Exporting...' : '📊 Tracker CSV'}
+              {exporting === 'tracker-csv' ? 'Exporting...' : 'Tracker CSV'}
             </button>
             <button
               type="button"
@@ -423,18 +419,8 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               onClick={() => handleExport('tracker-md')}
               disabled={exporting !== null || applications.length === 0}
               title="Export pipeline tracker to Markdown table"
-              style={{
-                backgroundColor: '#f3f4f6',
-                border: '1px solid #d1d5db',
-                color: '#374151',
-                padding: '4px 8px',
-                fontSize: '11px',
-                borderRadius: '4px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
             >
-              {exporting === 'tracker-md' ? 'Exporting...' : '📝 Summary MD'}
+              {exporting === 'tracker-md' ? 'Exporting...' : 'Summary MD'}
             </button>
             <button
               type="button"
@@ -505,7 +491,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
             className={`tracker-view-tab ${viewMode === 'table' ? 'tracker-view-tab-active' : ''}`}
             onClick={() => setViewMode('table')}
           >
-            📑 Audit Table
+            Audit Table
           </button>
           <button
             type="button"
@@ -513,48 +499,47 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
             onClick={() => setShowEmailScanner((prev) => !prev)}
             title="Scan recruiter email or interview invitation"
           >
-            📧 Scan Invite
+            Scan Invite
           </button>
         </div>
       </div>
 
       {/* Recruiter Email & Interview Invitation Scanner (Phase 24) */}
       {showEmailScanner && (
-        <div className="p-4 mb-4 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs animate-in fade-in duration-150">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
-              <span>📧</span> Recruiter Email & Interview Invite Auto-Detector
-            </h4>
+        <div className="email-scanner-panel">
+          <div className="email-scanner-head">
+            <h4 className="email-scanner-title">Recruiter email and interview invite detector</h4>
             <button
+              type="button"
+              className="tracker-error-dismiss"
+              aria-label="Close invite scanner"
               onClick={() => setShowEmailScanner(false)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
             >
-              ✕
+              &times;
             </button>
           </div>
-          <p className="text-slate-600 dark:text-slate-400 mb-2">
-            Paste recruiter email body or interview invitation text to automatically extract scheduling links and advance application status to <strong>Interviewing</strong>.
+          <p className="email-scanner-desc">
+            Paste a recruiter email or invitation. ApplyKit looks for a scheduling link and moves
+            the matching application to Interviewing.
           </p>
           <textarea
-            className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs focus:ring-1 focus:ring-indigo-500 font-mono"
+            className="email-scanner-input"
             rows={3}
-            placeholder="Paste email text here (e.g. 'We would like to invite you to an interview... https://calendly.com/...')"
+            aria-label="Recruiter email text"
+            placeholder="Paste the email text here, including any scheduling link."
             value={emailInputText}
             onChange={(e) => setEmailInputText(e.target.value)}
           />
-          <div className="mt-2 flex items-center justify-between">
+          <div className="email-scanner-actions">
             <button
+              type="button"
+              className="email-scanner-btn"
               onClick={handleScanEmail}
               disabled={!emailInputText.trim()}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold transition-colors"
             >
-              Detect and link invite
+              Detect invite
             </button>
-            {emailScanResult && (
-              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                {emailScanResult}
-              </span>
-            )}
+            {emailScanResult && <span className="email-scanner-result">{emailScanResult}</span>}
           </div>
         </div>
       )}
@@ -681,7 +666,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                           )}
                           {app.expectedSalary && (
                             <span className="kanban-chip chip-salary" title={`Salary: ${app.expectedSalary}`}>
-                              💰 {app.expectedSalary}
+                              {app.expectedSalary}
                             </span>
                           )}
                           {app.interviewStage && (
@@ -732,7 +717,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                                 onClick={() => handleTransitionStatus(app.id, 'offered', 'Offer received from employer')}
                                 title="Advance to Offer"
                               >
-                                ★ Offer
+                                Offer
                               </button>
                             )}
                             {col.id === 'offered' && (
@@ -786,7 +771,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                   </span>
                   {app.nextFollowUpDate && (
                     <span className="meta-item follow-up-alert">
-                      &#128197; Follow-up: {app.nextFollowUpDate}
+                      Follow-up: {app.nextFollowUpDate}
                     </span>
                   )}
                   {app.filledFieldsCount > 0 && (
@@ -847,8 +832,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               {selectedApp.currentStatus === 'awaiting_user_review' && (
                 <div className="audit-review-callout">
                   <div className="callout-header">
-                    <span className="callout-icon">&#9888;</span>
-                    <strong>Awaiting Manual Submission (ADR-0006 Hard Gate)</strong>
+                    <strong>Awaiting manual submission (ADR-0006 hard gate)</strong>
                   </div>
                   <p className="callout-text">
                     ApplyKit has safely filled your verified information into the form and paused before the submission button. After reviewing the active page in your browser and clicking submit, confirm below to update your tracking status.
@@ -865,7 +849,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                       )
                     }
                   >
-                    {statusUpdating ? 'Updating...' : '&#10003; Confirm Manual Submission'}
+                    {statusUpdating ? 'Updating...' : 'Confirm manual submission'}
                   </button>
                 </div>
               )}
@@ -874,10 +858,10 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
               <div className="drawer-section">
                 <button
                   type="button"
-                  className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  className="drawer-prep-btn"
                   onClick={() => setPrepModalApp(selectedApp)}
                 >
-                  Open role interview prep and STAR stories
+                  Open interview prep
                 </button>
               </div>
 
@@ -989,7 +973,7 @@ export const ApplicationTracker: React.FC<ApplicationTrackerProps> = () => {
                   </div>
                 </div>
 
-                <div className="form-group" style={{ marginTop: '8px' }}>
+                <div className="form-group">
                   <label className="form-label">Target / Negotiated Compensation</label>
                   <input
                     type="text"

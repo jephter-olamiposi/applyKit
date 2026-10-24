@@ -70,6 +70,7 @@ describe('Release Readiness, Packaging & End-to-End Suite', () => {
   beforeEach(async () => {
     document.body.innerHTML = '';
     localStorageMock = {};
+    (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = indexedDB;
 
     (globalThis as unknown as { chrome: unknown }).chrome = {
       storage: {

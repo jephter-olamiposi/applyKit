@@ -39,13 +39,14 @@ export interface BrowserAction {
  */
 const SUBMIT_PATTERNS = [
   /submit/i,
-  /apply\s*now/i,
+  /\bapply\b/i,
   /\bsend\b/i,
   /send\s*application/i,
   /finish\s*application/i,
   /complete\s*application/i,
   /button\[type=["']?submit["']?\]/i,
-  /input\[type=["']?submit["']?\]/i,
+  /input\[type=["']?(submit|image)["']?\]/i,
+  /\.submit\s*\(/i,
 ];
 
 /**

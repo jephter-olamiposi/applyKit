@@ -526,7 +526,7 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
             <button
               type="button"
               className="btn-primary btn-next-step"
-              onClick={() => onNavigateToTab?.('history')}
+              onClick={() => onNavigateToTab?.('track')}
             >
               Next Step: Application Tracker &rarr;
             </button>

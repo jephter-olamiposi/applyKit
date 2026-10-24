@@ -23,13 +23,6 @@ export type TabId =
   | 'evidence'
   | 'prepare_application'
   | 'track'
-  | 'requirements'
-  | 'match'
-  | 'tailor'
-  | 'form'
-  | 'dry_run'
-  | 'instant_qa'
-  | 'history'
   | 'profile'
   | 'settings';
 
@@ -64,7 +57,7 @@ const PIPELINE_STEPS: readonly PipelineStep[] = [
     stepNumber: 2,
     label: 'Review Matches',
     defaultTab: 'review_matches',
-    memberTabs: ['review_matches', 'match', 'requirements'],
+    memberTabs: ['review_matches'],
     subTabs: [
       { id: 'review_matches', label: 'Fit & Eligibility' },
     ],
@@ -74,10 +67,11 @@ const PIPELINE_STEPS: readonly PipelineStep[] = [
     stepNumber: 3,
     label: 'Tailor Resume',
     defaultTab: 'tailor_resume',
-    memberTabs: ['tailor_resume', 'cover_letter', 'tailor', 'evidence'],
+    memberTabs: ['tailor_resume', 'cover_letter', 'evidence'],
     subTabs: [
       { id: 'tailor_resume', label: 'Resume' },
       { id: 'cover_letter', label: 'Cover Letter' },
+      { id: 'evidence', label: 'Evidence' },
     ],
   },
   {
@@ -85,7 +79,7 @@ const PIPELINE_STEPS: readonly PipelineStep[] = [
     stepNumber: 4,
     label: 'Prepare Application',
     defaultTab: 'prepare_application',
-    memberTabs: ['prepare_application', 'form', 'dry_run', 'instant_qa'],
+    memberTabs: ['prepare_application'],
     subTabs: [
       { id: 'prepare_application', label: 'Application Form' },
     ],
@@ -95,7 +89,7 @@ const PIPELINE_STEPS: readonly PipelineStep[] = [
     stepNumber: 5,
     label: 'Track',
     defaultTab: 'track',
-    memberTabs: ['track', 'history'],
+    memberTabs: ['track'],
     subTabs: [],
   },
 ];

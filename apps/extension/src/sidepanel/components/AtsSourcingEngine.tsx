@@ -1,10 +1,10 @@
 /**
- * @fileoverview ATS Search Engine Dorks & Direct Endpoint Sourcing Component.
+ * @fileoverview ATS search dork generator and direct endpoint sourcing panel.
  *
- * Implements Phase 1 (Sourcing) of the autonomous job application pipeline (ADR-0043, SKILL.md):
- * - Direct ATS queries bypass noisy third-party scrapers, expired reposts, and sponsored middleman boards.
- * - Dynamic generation of targeted Google search dorks from candidate profile (roles, skills, freshness).
- * - Direct unauthenticated ATS board endpoints registry for zero-overhead company probes.
+ * Implements Phase 1 (sourcing) of the application pipeline (ADR-0043):
+ * - Direct ATS queries bypass noisy scrapers, expired reposts, and sponsored boards.
+ * - Search dorks are generated from the candidate profile (roles, skills, freshness).
+ * - A registry of unauthenticated ATS board endpoints supports zero-overhead probes.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -14,7 +14,7 @@ import { generateAtsSearchDorks, DIRECT_ATS_REGISTRY, buildDirectAtsApiUrl } fro
 interface AtsSourcingEngineProps {
   /** Verified candidate profile aggregate used to seed roles and skills. */
   profile: CandidateProfile | null;
-  /** Whether the component is embedded in a compact card or expanded. */
+  /** Whether the panel starts expanded. */
   initialExpanded?: boolean;
 }
 
@@ -35,11 +35,12 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
   const [selectedPlatform, setSelectedPlatform] = useState<AtsPlatformId>('greenhouse');
 
   const dorks: readonly SearchDork[] = useMemo(() => {
-    const roleFamilies = customRole.trim()
-      ? [customRole.trim()]
-      : undefined;
+    const roleFamilies = customRole.trim() ? [customRole.trim()] : undefined;
     const techStack = customTech.trim()
-      ? customTech.split(',').map((s) => s.trim()).filter(Boolean)
+      ? customTech
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
       : undefined;
 
     return generateAtsSearchDorks(profile, {
@@ -73,23 +74,9 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
   }, [selectedPlatform, testSlug]);
 
   return (
-    <div
-      className="sourcing-engine-card"
-      style={{
-        borderRadius: '8px',
-        border: '1px solid #e2e8f0',
-        backgroundColor: '#f8fafc',
-        padding: '12px 14px',
-        margin: '12px 0',
-      }}
-    >
+    <section className="ats-card">
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-        }}
+        className="ats-card-head"
         onClick={() => setIsExpanded(!isExpanded)}
         role="button"
         tabIndex={0}
@@ -100,187 +87,91 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
           }
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
-              Search job boards
-            </h3>
-            <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
-              Target unindexed &amp; worldwide remote roles directly on Ashby, Greenhouse, Lever
-            </p>
-          </div>
+        <div>
+          <h3 className="ats-card-title">Search job boards</h3>
+          <p className="ats-card-sub">
+            Target unindexed and worldwide remote roles on Ashby, Greenhouse, and Lever.
+          </p>
         </div>
-        <button
-          type="button"
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#2563eb',
-            fontSize: '12px',
-            fontWeight: 500,
-            cursor: 'pointer',
-          }}
-        >
-          {isExpanded ? 'Collapse ▲' : 'Open Sourcing Tools ▼'}
+        <button type="button" className="ats-toggle-link">
+          {isExpanded ? 'Collapse' : 'Open tools'}
         </button>
       </div>
 
       {isExpanded && (
-        <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '10px' }}>
-          {/* Controls: Freshness & Query overrides */}
-          <div
-            style={{
-              display: 'flex',
-              gap: '10px',
-              flexWrap: 'wrap',
-              marginBottom: '10px',
-              alignItems: 'center',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <label htmlFor="sourcing-freshness" style={{ fontSize: '11px', fontWeight: 500, color: '#334155' }}>
-                Posting Freshness:
+        <div className="ats-body">
+          <div className="ats-controls">
+            <div className="ats-field">
+              <label className="ats-label" htmlFor="sourcing-freshness">
+                Posting freshness
               </label>
               <select
                 id="sourcing-freshness"
+                className="ats-select"
                 value={freshnessDays}
                 onChange={(e) => setFreshnessDays(Number(e.target.value))}
-                style={{
-                  fontSize: '11px',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#ffffff',
-                }}
               >
                 <option value={7}>Last 7 days</option>
-                <option value={14}>Last 14 days (Recommended)</option>
+                <option value={14}>Last 14 days</option>
                 <option value={30}>Last 30 days</option>
               </select>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1, minWidth: '160px' }}>
+            <div className="ats-field ats-field-grow">
               <input
                 type="text"
-                placeholder={profile?.professional?.headline || 'Override Role (e.g. Staff Backend)'}
+                className="ats-input"
+                aria-label="Override role"
+                placeholder={profile?.professional?.headline || 'Override role, e.g. Staff Backend'}
                 value={customRole}
                 onChange={(e) => setCustomRole(e.target.value)}
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 8px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  flex: 1,
-                }}
               />
               <input
                 type="text"
-                placeholder="Tech (e.g. Go, Rust)"
+                className="ats-input ats-input-narrow"
+                aria-label="Technology filter"
+                placeholder="Tech, e.g. Go, Rust"
                 value={customTech}
                 onChange={(e) => setCustomTech(e.target.value)}
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 8px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  width: '110px',
-                }}
               />
             </div>
           </div>
 
-          {/* Dorks List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="ats-dork-list">
             {dorks.map((dork, index) => (
-              <div
-                key={dork.title}
-                style={{
-                  padding: '8px 10px',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span
-                      style={{
-                        fontSize: '10px',
-                        textTransform: 'uppercase',
-                        fontWeight: 700,
-                        padding: '1px 5px',
-                        borderRadius: '3px',
-                        backgroundColor: '#e0e7ff',
-                        color: '#4338ca',
-                      }}
-                    >
-                      {dork.category}
-                    </span>
-                    <strong style={{ fontSize: '12px', color: '#1e293b' }}>{dork.title}</strong>
+              <div className="ats-dork" key={dork.title}>
+                <div className="ats-dork-head">
+                  <div className="ats-dork-title-group">
+                    <span className="ats-dork-category">{dork.category}</span>
+                    <strong className="ats-dork-title">{dork.title}</strong>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div className="ats-dork-actions">
                     <button
                       type="button"
+                      className="btn-ghost btn-ghost-sm"
                       onClick={() => handleCopyQuery(dork.query, index)}
-                      style={{
-                        padding: '2px 6px',
-                        fontSize: '10px',
-                        borderRadius: '3px',
-                        border: '1px solid #cbd5e1',
-                        backgroundColor: '#f8fafc',
-                        cursor: 'pointer',
-                        color: '#334155',
-                      }}
-                      title="Copy search query string"
+                      title="Copy search query"
                     >
-                      {copiedIndex === index ? '✓ Copied' : 'Copy'}
+                      {copiedIndex === index ? 'Copied' : 'Copy'}
                     </button>
                     <button
                       type="button"
+                      className="btn-primary-sm"
                       onClick={() => handleOpenSearch(dork.searchUrl)}
-                      style={{
-                        padding: '2px 8px',
-                        fontSize: '10px',
-                        borderRadius: '3px',
-                        border: '1px solid #2563eb',
-                        backgroundColor: '#2563eb',
-                        color: '#ffffff',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                      title="Search directly on Google in a new tab"
+                      title="Open this search in a new tab"
                     >
-                      Search ↗
+                      Search
                     </button>
                   </div>
                 </div>
-                <div
-                  style={{
-                    fontSize: '10px',
-                    fontFamily: 'monospace',
-                    color: '#475569',
-                    backgroundColor: '#f1f5f9',
-                    padding: '4px 6px',
-                    borderRadius: '4px',
-                    overflowX: 'auto',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {dork.query}
-                </div>
+                <div className="ats-dork-query">{dork.query}</div>
               </div>
             ))}
           </div>
 
-          {/* Direct ATS Endpoints Drawer */}
-          <div style={{ marginTop: '12px', borderTop: '1px dashed #cbd5e1', paddingTop: '8px' }}>
+          <div className="ats-endpoints">
             <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                cursor: 'pointer',
-              }}
+              className="ats-endpoints-head"
               onClick={() => setShowDirectEndpoints(!showDirectEndpoints)}
               role="button"
               tabIndex={0}
@@ -291,32 +182,22 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
                 }
               }}
             >
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#334155' }}>
-                ATS board probes ({DIRECT_ATS_REGISTRY.length} platforms)
+              <span className="ats-endpoints-title">
+                ATS board endpoints ({DIRECT_ATS_REGISTRY.length} platforms)
               </span>
-              <span style={{ fontSize: '10px', color: '#2563eb' }}>
-                {showDirectEndpoints ? 'Hide Endpoints ▲' : 'Show Endpoints ▼'}
+              <span className="ats-endpoints-toggle">
+                {showDirectEndpoints ? 'Hide' : 'Show'}
               </span>
             </div>
 
             {showDirectEndpoints && (
-              <div style={{ marginTop: '8px' }}>
-                {/* Quick Probe Tester */}
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '6px',
-                    alignItems: 'center',
-                    marginBottom: '8px',
-                    padding: '6px 8px',
-                    backgroundColor: '#e2e8f0',
-                    borderRadius: '4px',
-                  }}
-                >
+              <div className="ats-probe-wrap">
+                <div className="ats-probe">
                   <select
+                    className="ats-select"
+                    aria-label="ATS platform"
                     value={selectedPlatform}
                     onChange={(e) => setSelectedPlatform(e.target.value as AtsPlatformId)}
-                    style={{ fontSize: '11px', padding: '2px 4px', borderRadius: '3px' }}
                   >
                     {DIRECT_ATS_REGISTRY.map((reg) => (
                       <option key={reg.platform} value={reg.platform}>
@@ -326,30 +207,51 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
                   </select>
                   <input
                     type="text"
-                    placeholder="Company slug (e.g. stripe)"
+                    className="ats-input"
+                    aria-label="Company slug"
+                    placeholder="Company slug, e.g. stripe"
                     value={testSlug}
                     onChange={(e) => setTestSlug(e.target.value)}
-                    style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '3px', border: '1px solid #cbd5e1', flex: 1 }}
                   />
                   {directApiUrl && (
                     <button
                       type="button"
+                      className="btn-primary-sm"
                       onClick={() => handleOpenSearch(directApiUrl)}
-                      style={{
-                        padding: '2px 6px',
-                        fontSize: '10px',
-                        borderRadius: '3px',
-                        backgroundColor: '#0f172a',
-                        color: '#ffffff',
-                        cursor: 'pointer',
-                      }}
                     >
-                      Probe API ↗
+                      Probe API
                     </button>
                   )}
                 </div>
 
-                <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className="ats-probe-list">
+                  {DIRECT_ATS_REGISTRY.map((item) => (
+                    <div className="ats-probe-item" key={item.platform}>
+                      <div className="ats-probe-item-head">
+                        <strong>{item.platformName}</strong>
+                        <span className="ats-probe-notes">{item.notes}</span>
+                      </div>
+                      <code className="ats-probe-code">{item.endpointTemplate}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+
+
+
+
+
+
+
+               <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {DIRECT_ATS_REGISTRY.map((item) => (
                     <div
                       key={item.platform}
@@ -363,7 +265,239 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <strong>{item.platformName}</strong>
-                        <span style={{ color: '#64748b' }}>{item.notes}</span>
+               )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+   ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+{item.notes}</span>
+                      </div>
+                      <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
+                        {item.endpointTemplate}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+   ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+      )}
+    </div>
+  );
+};
+   ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+{item.notes}</span>
+                      </div>
+                      <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
+                        {item.endpointTemplate}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+   ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+       </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+                     <span style={{ color: '#64748b' }}>{item.notes}</span>
+                      </div>
+                      <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
+                        {item.endpointTemplate}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+{item.notes}</span>
+                      </div>
+                      <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
+                        {item.endpointTemplate}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+                     <span style={{ color: '#64748b' }}>{item.notes}</span>
+                      </div>
+                      <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
+                        {item.endpointTemplate}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+   ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+                     <span style={{ color: '#64748b' }}>{item.notes}</span>
+                      </div>
+                      <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
+                        {item.endpointTemplate}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+                     <span style={{ color: '#64748b' }}>{item.notes}</span>
                       </div>
                       <code style={{ fontSize: '9px', color: '#0369a1', wordBreak: 'break-all' }}>
                         {item.endpointTemplate}

@@ -18,6 +18,7 @@ import {
   IndexedDbProfileRepository,
   deleteDatabase,
 } from '../storage/index.js';
+import { EXTENSION_PAGE_SENDER, TEST_EXTENSION_ID } from './helpers/message-sender.js';
 import type {
   IngestResumeRequest,
   IngestResumeResponse,
@@ -160,6 +161,7 @@ describe('Evidence Ingestion & Grounding Integration Suite', () => {
 
       const mockChrome = {
         runtime: {
+          id: TEST_EXTENSION_ID,
           onMessage: {
             addListener: vi.fn((fn) => {
               messageListener = fn;
@@ -197,7 +199,7 @@ describe('Evidence Ingestion & Grounding Integration Suite', () => {
       };
 
       const ingestResponse = await new Promise<IngestResumeResponse>((resolve) => {
-        messageListener!(ingestReq, {}, (res) => {
+        messageListener!(ingestReq, EXTENSION_PAGE_SENDER, (res) => {
           resolve(res as IngestResumeResponse);
         });
       });
@@ -217,7 +219,7 @@ describe('Evidence Ingestion & Grounding Integration Suite', () => {
       };
 
       const graphResponse = await new Promise<GetEvidenceGraphResponse>((resolve) => {
-        messageListener!(getGraphReq, {}, (res) => {
+        messageListener!(getGraphReq, EXTENSION_PAGE_SENDER, (res) => {
           resolve(res as GetEvidenceGraphResponse);
         });
       });
@@ -233,7 +235,7 @@ describe('Evidence Ingestion & Grounding Integration Suite', () => {
       };
 
       const auditResponse = await new Promise<AuditGroundingResponse>((resolve) => {
-        messageListener!(auditReq, {}, (res) => {
+        messageListener!(auditReq, EXTENSION_PAGE_SENDER, (res) => {
           resolve(res as AuditGroundingResponse);
         });
       });

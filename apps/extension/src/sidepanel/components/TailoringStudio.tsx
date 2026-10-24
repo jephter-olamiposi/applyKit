@@ -300,7 +300,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     navigator.clipboard
       .writeText(text)
       .then(() => {
-        setCopyFeedback(`✓ ${label} copied to clipboard!`);
+        setCopyFeedback(`${label} copied to clipboard.`);
         setTimeout(() => setCopyFeedback(null), 3000);
       })
       .catch(() => {
@@ -509,7 +509,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                   {resumeFactCheck && (
                     <div className="fact-check-status-row">
                       <span className={`grounding-score-pill ${resumeFactCheck.isPristine ? 'score-pristine' : 'score-good'}`}>
-                        {resumeFactCheck.isPristine ? '✓ 100% Grounded (Pristine)' : `${resumeFactCheck.groundingScore}% Grounded`}
+                        {resumeFactCheck.isPristine ? 'Fully grounded' : `${resumeFactCheck.groundingScore}% grounded`}
                       </span>
                       <span className="statements-checked-count">
                         {resumeFactCheck.totalStatementsChecked} statements audited against EvidenceGraph
@@ -546,7 +546,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                   className={`resume-subtab-btn ${resumeSubView === 'editor' ? 'resume-subtab-active' : ''}`}
                   onClick={() => setResumeSubView('editor')}
                 >
-                  📝 Structured Content & Golden Standard
+                  Content and quality checks
                 </button>
               </div>
 
@@ -606,7 +606,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                         className={`template-pill ${selectedTemplate === tId ? 'template-pill-active' : ''}`}
                         onClick={() => setSelectedTemplate(tId)}
                       >
-                        {tId === 'modern' && '✨ Modern'}
+                        {tId === 'modern' && 'Modern'}
                         {tId === 'classic' && 'Classic'}
                         {tId === 'minimalist' && 'Minimalist ATS'}
                         {tId === 'compact' && 'Compact'}
@@ -655,8 +655,8 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                               }`}
                             >
                               {isGoldenStandard
-                                ? '🏆 Golden Standard Met (14/14)'
-                                : `${passedCount}/14 Passed • ${warningCount + failedCount} to Polish`}
+                                ? 'All checks passed'
+                                : `${passedCount}/14 passed, ${warningCount + failedCount} need review`}
                             </span>
                             {pageBudgetCheck && (
                               <span className={`budget-pill ${pageBudgetCheck.status === 'passed' ? 'budget-fit' : 'budget-over'}`}>
@@ -735,7 +735,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                       <div className="skill-tags-row">
                         {tailoredResume.skills.matchedRequired.map((skill) => (
                           <span key={skill} className="skill-tag skill-tag-required">
-                            ✓ {skill}
+                            {skill}
                           </span>
                         ))}
                       </div>
@@ -789,7 +789,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                             <span className="bullet-content">{h.text}</span>
                             <div className="bullet-grounding-tags">
                               {h.sourceEvidenceId && (
-                                <span className="evidence-badge">🔗 Grounding Verified</span>
+                                <span className="evidence-badge">Grounding verified</span>
                               )}
                               {h.matchedRequirements.map((req) => (
                                 <span key={req} className="req-match-pill">{req}</span>
@@ -826,7 +826,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                             <li key={i} className="ranked-highlight-bullet">
                               <span className="bullet-content">{h.text}</span>
                               {h.sourceEvidenceId && (
-                                <span className="evidence-badge">🔗 Grounding Verified</span>
+                                <span className="evidence-badge">Grounding verified</span>
                               )}
                             </li>
                           ))}
@@ -984,7 +984,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                     <div>
                       <h4 className="fact-check-title">
                         {letterFactCheck.isPristine
-                          ? '✓ 100% Evidence-Grounded'
+                          ? 'Evidence grounded'
                           : `Grounding verification: ${letterFactCheck.groundingScore}%`}
                       </h4>
                       <p className="fact-check-desc">
@@ -1146,11 +1146,47 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
         <button
           type="button"
           className="btn-primary btn-next-step"
-          onClick={() => onNavigateToTab?.('form')}
+          onClick={() => onNavigateToTab?.('prepare_application')}
         >
           Next Step: Auto-Fill Application Form &rarr;
         </button>
       </div>
     </div>
   );
+};
+
+};
+v>
+  );
+};
+
+};
+
+};
+  );
+};
+
+};
+
+};
+
+};
+
+
+};
+
+};
+
+
+};
+
+
+};
+
+};
+
+
+
+};
+
 };

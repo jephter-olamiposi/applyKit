@@ -1,11 +1,11 @@
 /**
- * @fileoverview Live Sourced Opportunities Feed with 5-Gate Qualification & EV Tiering.
+ * @fileoverview Live sourced opportunities feed with 5-gate qualification and EV tiering.
  *
- * Implements Stage 1 (Direct Sourcing) of the autonomous application pipeline (ADR-0043):
+ * Implements Stage 1 (direct sourcing) of the application pipeline (ADR-0043):
  * - Direct unauthenticated queries against Greenhouse, Ashby, and Lever APIs bypass middlemen.
  * - On-the-fly 5-gate waterfall qualification flags non-viable roles (e.g. US-only restrictions).
- * - Expected-Value (EV) priority tiering surfaces the highest likelihood opportunities first.
- * - One-click "Open & Stage" opens the job in browser and prepares the copilot for tailoring.
+ * - Expected-value tiering surfaces the highest-likelihood opportunities first.
+ * - "Open and stage" opens the posting and prepares the copilot for tailoring.
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -60,18 +60,15 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
   const [isHarvesting, setIsHarvesting] = useState<boolean>(false);
   const [harvestError, setHarvestError] = useState<string | null>(null);
 
-  // Custom company board scanner state
   const [showCustomModal, setShowCustomModal] = useState<boolean>(false);
   const [customName, setCustomName] = useState<string>('');
   const [customSlug, setCustomSlug] = useState<string>('');
   const [customPlatform, setCustomPlatform] = useState<'greenhouse' | 'ashby' | 'lever'>('greenhouse');
 
-  // Load cached opportunities from background service worker on mount
   useEffect(() => {
-    sendToBackground<
-      { type: 'GET_SOURCED_OPPORTUNITIES' },
-      GetSourcedOpportunitiesResponse
-    >({ type: 'GET_SOURCED_OPPORTUNITIES' })
+    sendToBackground<{ type: 'GET_SOURCED_OPPORTUNITIES' }, GetSourcedOpportunitiesResponse>({
+      type: 'GET_SOURCED_OPPORTUNITIES',
+    })
       .then((res) => {
         if (res.opportunities && res.opportunities.length > 0) {
           setOpportunities(res.opportunities);
@@ -111,7 +108,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
         setStatusMessage(
           failedSources.length > 0
             ? `Found ${res.opportunities.length} opportunities. ${failedSources.length} source(s) could not be scanned.`
-            : `Discovered and screened ${res.opportunities.length} live opportunities.`
+            : `Found ${res.opportunities.length} live opportunities.`
         );
       } else {
         setErrorMessage(res.error || 'Failed to scan employer boards.');
@@ -160,7 +157,6 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
       });
 
       if (res.success) {
-        // Prepend custom board results and deduplicate
         setOpportunities((prev) => {
           const existingIds = new Set(res.opportunities.map((o) => o.id));
           return [...res.opportunities, ...prev.filter((p) => !existingIds.has(p.id))];
@@ -183,10 +179,9 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
     setIsHarvesting(true);
     setHarvestError(null);
     try {
-      const res = await sendToBackground<
-        { type: 'HARVEST_PAGE_LINKS' },
-        HarvestPageLinksResponse
-      >({ type: 'HARVEST_PAGE_LINKS' });
+      const res = await sendToBackground<{ type: 'HARVEST_PAGE_LINKS' }, HarvestPageLinksResponse>({
+        type: 'HARVEST_PAGE_LINKS',
+      });
 
       if (res.success) {
         setHarvestedLinks(res.links);
@@ -221,7 +216,6 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
     }
   };
 
-  // Filter opportunities by tier, platform, and in-memory search
   const filteredOpportunities = useMemo(() => {
     return opportunities.filter((opp) => {
       if (selectedTier !== 'all' && opp.tier !== selectedTier) {
@@ -256,7 +250,6 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
     keywordQuery,
   ]);
 
-  // Aggregate tier counts for summary filter badges
   const tierCounts = useMemo(() => {
     const counts = {
       all: opportunities.length,
@@ -274,119 +267,60 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
   }, [opportunities]);
 
   return (
-    <div className="sourced-feed-container" style={{ padding: '4px 0' }}>
-      {/* Header and Controls */}
-      <div
-        style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '8px',
-          border: '1px solid #e2e8f0',
-          padding: '12px 14px',
-          marginBottom: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+    <div className="feed-container">
+      <section className="feed-header">
+        <div className="feed-header-top">
           <div>
-            <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>
-              📡 Live Job Sourcing &amp; Feed
-            </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
-              Direct ATS board queries with instant 5-Gate qualification &amp; EV tiering
+            <h2 className="feed-title">Job search</h2>
+            <p className="feed-subtitle">
+              Direct queries to employer ATS boards, screened against your eligibility and
+              preferences.
             </p>
           </div>
           <button
             type="button"
+            className="btn-ghost"
             onClick={() => setShowCustomModal(true)}
-            style={{
-              fontSize: '11px',
-              padding: '4px 8px',
-              backgroundColor: '#f1f5f9',
-              color: '#334155',
-              border: '1px solid #cbd5e1',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
           >
-            + Add Board
+            Add board
           </button>
         </div>
 
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+        <div className="feed-actions">
           <button
             type="button"
+            className="btn-primary-sm"
             onClick={handleScanWatchlist}
             disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: '7px 12px',
-              backgroundColor: isLoading ? '#94a3b8' : '#2563eb',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-            }}
           >
             {isLoading ? 'Scanning boards...' : 'Scan watchlist'}
           </button>
 
           <button
             type="button"
+            className="btn-ghost"
             onClick={handleHarvestPageLinks}
             disabled={isHarvesting}
-            style={{
-              padding: '7px 12px',
-              backgroundColor: '#f8fafc',
-              color: '#334155',
-              border: '1px solid #cbd5e1',
-              borderRadius: '6px',
-              fontSize: '12px',
-              fontWeight: 500,
-              cursor: isHarvesting ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-            title="Scan current browser tab for ATS job links"
+            title="Scan the current browser tab for ATS job links"
           >
             {isHarvesting ? 'Harvesting...' : 'Harvest active tab'}
           </button>
         </div>
 
-        {/* Search & Filter Row */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="feed-search-row">
           <input
             type="text"
-            placeholder="Filter title, company, or keyword..."
+            className="feed-search-input"
+            aria-label="Filter opportunities"
+            placeholder="Filter by title, company, or keyword"
             value={keywordQuery}
             onChange={(e) => setKeywordQuery(e.target.value)}
-            style={{
-              flex: 1,
-              padding: '6px 10px',
-              fontSize: '12px',
-              border: '1px solid #cbd5e1',
-              borderRadius: '6px',
-              outline: 'none',
-            }}
           />
           <select
+            className="feed-select"
+            aria-label="Filter by ATS platform"
             value={selectedPlatform}
-            onChange={(e) => setSelectedPlatform(e.target.value as any)}
-            style={{
-              padding: '6px 8px',
-              fontSize: '11px',
-              border: '1px solid #cbd5e1',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-              color: '#334155',
-            }}
+            onChange={(e) => setSelectedPlatform(e.target.value as 'all' | SourcedPlatformId)}
           >
             <option value="all">All ATS</option>
             <option value="greenhouse">Greenhouse</option>
@@ -394,22 +328,16 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
             <option value="lever">Lever</option>
           </select>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
-          <label style={{ fontSize: '11px', color: '#475569' }}>
+
+        <div className="feed-filter-row">
+          <label className="feed-filter-label">
             Workplace
             <select
+              className="feed-select"
               value={workplacePreference}
               onChange={(e) =>
                 setWorkplacePreference(e.target.value as 'remote' | 'hybrid' | 'onsite' | 'any')
               }
-              style={{
-                marginLeft: '5px',
-                padding: '6px 8px',
-                fontSize: '11px',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                backgroundColor: '#ffffff',
-              }}
             >
               <option value="any">Any</option>
               <option value="remote">Remote only</option>
@@ -417,19 +345,12 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
               <option value="onsite">Onsite only</option>
             </select>
           </label>
-          <label style={{ fontSize: '11px', color: '#475569' }}>
+          <label className="feed-filter-label">
             Employment
             <select
+              className="feed-select"
               value={employmentPreference}
               onChange={(e) => setEmploymentPreference(e.target.value as EmploymentPreference)}
-              style={{
-                marginLeft: '5px',
-                padding: '6px 8px',
-                fontSize: '11px',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                backgroundColor: '#ffffff',
-              }}
             >
               <option value="any">Any</option>
               <option value="full_time">Full time</option>
@@ -438,184 +359,236 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
               <option value="internship">Internship</option>
             </select>
           </label>
-          <span style={{ fontSize: '10px', color: '#64748b' }}>This search only</span>
+          <span className="feed-filter-note">Applies to this search only</span>
         </div>
 
-        {/* Status / Error feedback */}
-        {statusMessage && !errorMessage && (
-          <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#059669' }}>
-            ✓ {statusMessage}
-          </p>
-        )}
-        {errorMessage && (
-          <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#dc2626' }}>
-            {errorMessage}
-          </p>
-        )}
-      </div>
+        {statusMessage && !errorMessage && <p className="feed-status">{statusMessage}</p>}
+        {errorMessage && <p className="feed-error-text">{errorMessage}</p>}
+      </section>
 
-      {/* Harvested Active Tab Links Panel */}
       {harvestedLinks.length > 0 && (
-        <div
-          style={{
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-            border: '1px solid #bbf7d0',
-            padding: '10px 12px',
-            marginBottom: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: '#166534' }}>
-              Discovered on Active Tab ({harvestedLinks.length})
+        <section className="feed-harvest-panel">
+          <div className="feed-harvest-head">
+            <span className="feed-harvest-title">
+              Links found on this tab ({harvestedLinks.length})
             </span>
-            <button
-              type="button"
-              onClick={() => setHarvestedLinks([])}
-              style={{ background: 'none', border: 'none', fontSize: '11px', color: '#64748b', cursor: 'pointer' }}
-            >
+            <button type="button" className="feed-link-btn" onClick={() => setHarvestedLinks([])}>
               Dismiss
             </button>
           </div>
-          <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div className="feed-harvest-list">
             {harvestedLinks.slice(0, 15).map((link, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '4px 6px',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '4px',
-                  border: '1px solid #dcfce7',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 500,
-                    color: '#0f172a',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '220px',
-                  }}
-                  title={link.title}
-                >
+              <div className="feed-harvest-item" key={`${link.url}-${idx}`}>
+                <span className="feed-harvest-link" title={link.title}>
                   {link.title}
                 </span>
                 <button
                   type="button"
+                  className="btn-ghost btn-ghost-sm"
                   onClick={() => handleOpenAndStage(link.url)}
-                  style={{
-                    fontSize: '10px',
-                    padding: '2px 6px',
-                    backgroundColor: '#166534',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '3px',
-                    cursor: 'pointer',
-                  }}
                 >
                   Stage
                 </button>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {harvestError && (
-        <div
-          style={{
-            backgroundColor: '#fef2f2',
-            borderRadius: '8px',
-            border: '1px solid #fecaca',
-            padding: '8px 12px',
-            marginBottom: '12px',
-            fontSize: '11px',
-            color: '#b91c1c',
-          }}
-        >
-          {harvestError}
-        </div>
-      )}
+      {harvestError && <p className="feed-error-banner">{harvestError}</p>}
 
-      {/* EV Priority Tier Badges / Filter Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '4px',
-          overflowX: 'auto',
-          paddingBottom: '6px',
-          marginBottom: '8px',
-        }}
-      >
+      <div className="feed-tiers">
         <button
           type="button"
+          className={`tier-pill ${selectedTier === 'all' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('all')}
-          style={{
-            padding: '4px 8px',
-            borderRadius: '12px',
-            fontSize: '11px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            border: 'none',
-            backgroundColor: selectedTier === 'all' ? '#0f172a' : '#f1f5f9',
-            color: selectedTier === 'all' ? '#ffffff' : '#475569',
-            whiteSpace: 'nowrap',
-          }}
         >
           All ({tierCounts.all})
         </button>
-
         <button
           type="button"
+          className={`tier-pill tier-pill-1 ${selectedTier === 'tier1_high_ev' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier1_high_ev')}
-          style={{
-            padding: '4px 8px',
-            borderRadius: '12px',
-            fontSize: '11px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            border: 'none',
-            backgroundColor: selectedTier === 'tier1_high_ev' ? '#166534' : '#dcfce7',
-            color: selectedTier === 'tier1_high_ev' ? '#ffffff' : '#166534',
-            whiteSpace: 'nowrap',
-          }}
         >
-          ★ Tier 1: High EV ({tierCounts.tier1_high_ev})
+          Tier 1: High EV ({tierCounts.tier1_high_ev})
         </button>
-
         <button
           type="button"
+          className={`tier-pill tier-pill-2 ${selectedTier === 'tier2_competitive' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier2_competitive')}
-          style={{
-            padding: '4px 8px',
-            borderRadius: '12px',
-            fontSize: '11px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            border: 'none',
-            backgroundColor: selectedTier === 'tier2_competitive' ? '#1d4ed8' : '#dbeafe',
-            color: selectedTier === 'tier2_competitive' ? '#ffffff' : '#1d4ed8',
-            whiteSpace: 'nowrap',
-          }}
         >
           Tier 2: Competitive ({tierCounts.tier2_competitive})
         </button>
-
         <button
           type="button"
+          className={`tier-pill tier-pill-3 ${selectedTier === 'tier3_conditional' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier3_conditional')}
-          style={{
-            padding: '4px 8px',
-            borderRadius: '12px',
-            fontSize: '11px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            border: 'none',
+        >
+          Tier 3: Conditional ({tierCounts.tier3_conditional})
+        </button>
+        <button
+          type="button"
+          className={`tier-pill tier-pill-4 ${selectedTier === 'tier4_low_or_blocked' ? 'tier-pill-active' : ''}`}
+          onClick={() => setSelectedTier('tier4_low_or_blocked')}
+        >
+          Blocked / Low ({tierCounts.tier4_low_or_blocked})
+        </button>
+      </div>
+
+      <div className="feed-list">
+        {filteredOpportunities.length === 0 && !isLoading && (
+          <div className="feed-empty">
+            <p className="feed-empty-title">No opportunities loaded</p>
+            <p className="feed-empty-text">
+              Select <strong>Scan watchlist</strong> to fetch live openings from employer boards.
+            </p>
+          </div>
+        )}
+
+        {filteredOpportunities.map((opp) => (
+          <article className="opp-card" key={opp.id}>
+            <div className="opp-head">
+              <div className="opp-employer-group">
+                <span className="opp-employer">{opp.employer}</span>
+                <span className={`opp-platform opp-platform-${opp.sourcePlatform}`}>
+                  {opp.sourcePlatform}
+                </span>
+              </div>
+
+              {opp.matchScore !== undefined && (
+                <span className="opp-match">{opp.matchScore}% match</span>
+              )}
+            </div>
+
+            <h3 className="opp-title">{opp.title}</h3>
+
+            <div className="opp-meta">
+              <span>{opp.locationText}</span>
+              {opp.compensationText && (
+                <span className="opp-compensation">{opp.compensationText}</span>
+              )}
+            </div>
+
+            {opp.verdict && (
+              <div className="opp-verdict">
+                {opp.verdict === 'OPEN' && (
+                  <span className="verdict-pill verdict-open">Passes all eligibility gates</span>
+                )}
+                {opp.verdict === 'CONDITIONAL' && (
+                  <span className="verdict-pill verdict-conditional">Needs manual review</span>
+                )}
+                {opp.verdict === 'BLOCKED' && (
+                  <div className="verdict-blocked">
+                    <span className="verdict-blocked-title">
+                      Blocked: {opp.fatalGate ? opp.fatalGate.replace('_', ' ') : 'ineligible'}
+                    </span>
+                    {opp.verbatimEvidence && (
+                      <p className="verdict-evidence">&quot;{opp.verbatimEvidence}&quot;</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="opp-actions">
+              <button
+                type="button"
+                className="btn-ghost btn-ghost-sm"
+                onClick={() => {
+                  void navigator.clipboard.writeText(opp.url);
+                }}
+              >
+                Copy link
+              </button>
+              <button
+                type="button"
+                className={`btn-primary-sm ${opp.verdict === 'BLOCKED' ? 'btn-primary-sm-muted' : ''}`}
+                onClick={() => handleOpenAndStage(opp.url)}
+              >
+                Open and stage
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {showCustomModal && (
+        <div className="app-modal-overlay" role="dialog" aria-modal="true" aria-label="Add employer board">
+          <div className="app-modal">
+            <h3 className="app-modal-title">Add employer board</h3>
+
+            <form onSubmit={handleScanCustomBoard}>
+              <div className="app-modal-field">
+                <label className="app-modal-label" htmlFor="custom-board-name">
+                  Company name (optional)
+                </label>
+                <input
+                  id="custom-board-name"
+                  type="text"
+                  className="app-modal-input"
+                  placeholder="OpenAI, Stripe"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                />
+              </div>
+
+              <div className="app-modal-field">
+                <label className="app-modal-label" htmlFor="custom-board-platform">
+                  ATS platform
+                </label>
+                <select
+                  id="custom-board-platform"
+                  className="app-modal-input"
+                  value={customPlatform}
+                  onChange={(e) =>
+                    setCustomPlatform(e.target.value as 'greenhouse' | 'ashby' | 'lever')
+                  }
+                >
+                  <option value="greenhouse">Greenhouse (boards-api.greenhouse.io)</option>
+                  <option value="ashby">Ashby (api.ashbyhq.com)</option>
+                  <option value="lever">Lever (api.lever.co)</option>
+                </select>
+              </div>
+
+              <div className="app-modal-field">
+                <label className="app-modal-label" htmlFor="custom-board-slug">
+                  Company slug
+                </label>
+                <input
+                  id="custom-board-slug"
+                  type="text"
+                  required
+                  className="app-modal-input"
+                  placeholder="figma, stripe, replit"
+                  value={customSlug}
+                  onChange={(e) => setCustomSlug(e.target.value)}
+                />
+                <span className="app-modal-hint">
+                  The slug appears in URLs such as jobs.ashbyhq.com/slug or
+                  boards.greenhouse.io/slug.
+                </span>
+              </div>
+
+              <div className="app-modal-actions">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setShowCustomModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary-sm">
+                  Scan board
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+,
             backgroundColor: selectedTier === 'tier3_conditional' ? '#b45309' : '#fef3c7',
             color: selectedTier === 'tier3_conditional' ? '#ffffff' : '#b45309',
             whiteSpace: 'nowrap',

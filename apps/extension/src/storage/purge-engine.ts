@@ -16,6 +16,7 @@ import {
   getIndexedDbFactory,
 } from './indexeddb.js';
 import { clearAllApiKeys, getApiKeysStatus } from './credential-store.js';
+import { APPLYKIT_STORAGE_KEYS } from './storage-keys.js';
 
 /**
  * Summary of candidate data stored locally in the extension.
@@ -193,12 +194,12 @@ export async function purgeAllCandidateData(
     // Continue with storage.local clear even if IndexedDB delete threw
   }
 
-  // Wipe chrome.storage.local encrypted keys and cached state
+  // Wipe chrome.storage.local credentials and ApplyKit caches, leaving unrelated settings intact.
   let keysCleared = false;
   try {
     await clearAllApiKeys();
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      await chrome.storage.local.clear();
+      await chrome.storage.local.remove([...APPLYKIT_STORAGE_KEYS]);
     }
     keysCleared = true;
   } catch {
@@ -206,7 +207,7 @@ export async function purgeAllCandidateData(
   }
 
   return {
-    success: true,
+    success: keysCleared,
     storesPurged: purgedStores,
     keysCleared,
     purgedAt: new Date().toISOString(),

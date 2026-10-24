@@ -500,14 +500,16 @@ describe('Canonical Careers (4581200) Real-World End-to-End Simulation', () => {
     expect(plan.actions.find((a) => a.action.selector === '#last_name')?.action.value).toBe('Reed');
     expect(plan.actions.find((a) => a.action.selector === '#email')?.action.value).toBe('morgan.reed@example.com');
     expect(plan.actions.find((a) => a.action.selector === '#question_41855638')?.action.value).toBe('United Kingdom');
-    expect(plan.actions.find((a) => a.action.selector === '#question_42880856')?.action.value).toBe('1');
-    expect(plan.actions.find((a) => a.action.selector === '#question_37490520')?.action.value).toBe('Top 5% at school');
-    expect(plan.actions.find((a) => a.action.selector === '#question_37491142')?.action.value).toBe('Top 10% at school');
-    expect(plan.actions.find((a) => a.action.selector === '#question_41855687')?.action.value).toContain('distinction');
     expect(plan.actions.find((a) => a.action.selector === '#question_37490054')?.action.value).toContain('First Class');
-    expect(plan.actions.find((a) => a.action.selector === '#question_37491668')?.action.value).toBe('1');
-    expect(plan.actions.find((a) => a.action.selector === '#question_37493242')?.action.value).toBe('Acknowledge/Confirm');
     expect(plan.actions.find((a) => a.action.selector === '#question_55259163')?.action.value).toBe('5');
+
+    // Ungrounded and candidate-decision fields must be left for the user, never guessed.
+    expect(plan.actions.find((a) => a.action.selector === '#question_42880856')).toBeUndefined();
+    expect(plan.actions.find((a) => a.action.selector === '#question_37490520')).toBeUndefined();
+    expect(plan.actions.find((a) => a.action.selector === '#question_37491142')).toBeUndefined();
+    expect(plan.actions.find((a) => a.action.selector === '#question_41855687')).toBeUndefined();
+    expect(plan.actions.find((a) => a.action.selector === '#question_37491668')).toBeUndefined();
+    expect(plan.actions.find((a) => a.action.selector === '#question_37493242')).toBeUndefined();
 
     // Anti-Autonomous Submit Hard Gate: submit button must NOT have an action
     expect(plan.actions.some((a) => a.action.selector.includes('submit'))).toBe(false);

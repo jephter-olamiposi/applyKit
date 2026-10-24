@@ -207,9 +207,10 @@ import {
   IndexedDbEvidenceRepository,
   exportCandidateBackup,
   importCandidateBackup,
-  purgeAllLocalData,
   purgeAllCandidateData,
   getStorageUsageSummary,
+  getApiKeysStatus,
+  setApiKey,
 } from '../storage/index.js';
 
 import { AIGateway } from '../ai/gateway.js';
@@ -261,9 +262,11 @@ if (typeof chrome !== 'undefined' && chrome.sidePanel && chrome.sidePanel.setPan
 }
 
 /**
- * In-memory fallback extraction cache indexed by tab ID.
+ * In-memory extraction cache indexed by tab ID.
+ *
+ * Prevents the side panel from showing a posting extracted on a different tab.
  */
-const tabExtractionCache = new Map<number, ExtractedPageData>();
+const tabExtractionCache = new Map<number, { data: ExtractedPageData; jobPosting: JobPosting | null }>();
 
 /**
  * In-memory cache holding the currently planned DryRunPlan for active candidate review.
@@ -284,38 +287,6 @@ async function loadActivePlanFromStorage(): Promise<void> {
   const data = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_DRY_RUN_PLAN);
   const stored = data[STORAGE_KEYS.ACTIVE_DRY_RUN_PLAN];
   activeDryRunPlan = stored && typeof stored === 'object' ? (stored as DryRunPlan) : null;
-}
-
-/**
- * Retrieves the current configured status of provider API keys.
- *
- * Invariant (ADR-0002): Returns boolean indicators only. Never returns raw secret keys.
- */
-export async function getApiKeysStatus(): Promise<ApiKeysStatus> {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.PROVIDER_KEYS);
-  const keys = (result[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, string>) || {};
-
-  return {
-    openai: Boolean(keys.openai && keys.openai.trim().length > 0),
-    anthropic: Boolean(keys.anthropic && keys.anthropic.trim().length > 0),
-    gemini: Boolean(keys.gemini && keys.gemini.trim().length > 0),
-    openrouter: Boolean(keys.openrouter && keys.openrouter.trim().length > 0),
-  };
-}
-
-/**
- * Securely persists an AI provider API key in background storage.
- *
- * @param provider The provider identifier.
- * @param apiKey The raw secret API key.
- */
-export async function setApiKey(provider: AIProviderName, apiKey: string): Promise<boolean> {
-  const existing = await chrome.storage.local.get(STORAGE_KEYS.PROVIDER_KEYS);
-  const currentKeys = (existing[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, string>) || {};
-
-  currentKeys[provider] = apiKey.trim();
-  await chrome.storage.local.set({ [STORAGE_KEYS.PROVIDER_KEYS]: currentKeys });
-  return true;
 }
 
 /**
@@ -498,15 +469,27 @@ async function commitExtraction(
   response: ExtractJobResponse
 ): Promise<ExtractJobResponse> {
   if (!response.success || !response.data) return response;
-  tabExtractionCache.set(tabId, response.data);
+  tabExtractionCache.set(tabId, {
+    data: response.data,
+    jobPosting: response.jobPosting ?? null,
+  });
+
+  let committed = response;
   if (response.jobPosting) {
-    await jobRepo.saveJob(response.jobPosting);
+    // Re-extracting the same posting must update the existing record, not fork history.
+    const existing = await jobRepo.getJobByUrl(response.jobPosting.url);
+    const jobPosting = existing
+      ? { ...response.jobPosting, id: existing.id }
+      : response.jobPosting;
+    await jobRepo.saveJob(jobPosting);
+    committed = { ...response, jobPosting };
   }
+
   await chrome.storage.local.set({
     [STORAGE_KEYS.LAST_EXTRACTION]: response.data,
-    ...(response.jobPosting ? { [STORAGE_KEYS.LAST_JOB_POSTING]: response.jobPosting } : {}),
+    ...(committed.jobPosting ? { [STORAGE_KEYS.LAST_JOB_POSTING]: committed.jobPosting } : {}),
   });
-  return response;
+  return committed;
 }
 
 /**
@@ -702,6 +685,9 @@ export async function recordApplicationExecution(
     const companyName = job?.companyName || plan.detectedAts.toUpperCase();
     const jobTitle = job?.title || 'Job Application';
     const jobPostingUrl = plan.formUrl || job?.url || '';
+    const matchedRequirementsScore = job && profile && job.requirements.length > 0
+      ? evaluateJobRequirements(job.requirements, profile).overallMatchScore
+      : 0;
 
     // Check if an existing application record exists for this job
     let app: ApplicationRecord | null = null;
@@ -742,7 +728,7 @@ export async function recordApplicationExecution(
         jobTitle,
         jobPostingUrl,
         jobDescriptionSnapshot: job?.rawDescription,
-        matchedRequirementsScore: 0,
+        matchedRequirementsScore,
       });
 
       let transitioned = transitionApplicationRecord(newApp, 'ready_to_fill', 'Form detected and actions planned');
@@ -904,11 +890,48 @@ async function fetchAndScreenAtsJobs(
 }
 
 /**
+ * Requests the isolated content script is allowed to originate.
+ *
+ * Everything else is a privileged operation that may only come from an extension
+ * page (side panel or options page); the content script executes untrusted page
+ * context and must not be able to read the profile, mutate settings, or execute plans.
+ */
+const CONTENT_SCRIPT_ALLOWED_REQUESTS: ReadonlySet<string> = new Set([
+  'PING',
+  'GET_CANDIDATE_PROFILE',
+  'ANSWER_AD_HOC_QUESTION',
+  'EXECUTE_ONE_CLICK_AUTO_FILL',
+  'OPEN_SIDEPANEL_TAB',
+  'SUBMISSION_DETECTED',
+]);
+
+/**
+ * Authorizes a runtime message by its sender context.
+ *
+ * Invariant: privileged messages are rejected when they carry a `sender.tab`,
+ * because only extension pages (which have no tab) may configure credentials,
+ * mutate the profile, or execute a plan.
+ */
+function isAuthorizedMessageSender(
+  requestType: string,
+  sender: chrome.runtime.MessageSender | undefined
+): boolean {
+  const runtimeId = typeof chrome !== 'undefined' ? chrome.runtime?.id : undefined;
+  if (!runtimeId || !sender || sender.id !== runtimeId) return false;
+
+  if (typeof sender.tab?.id === 'number') {
+    return CONTENT_SCRIPT_ALLOWED_REQUESTS.has(requestType);
+  }
+
+  return typeof sender.url === 'string' && sender.url.startsWith(`chrome-extension://${runtimeId}/`);
+}
+
+/**
  * Message listener orchestrating requests between extension components.
  */
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!isValidExtensionRequest(message)) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!isValidExtensionRequest(message) || !isAuthorizedMessageSender(message.type, sender)) {
       return false;
     }
 
@@ -960,12 +983,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
           });
           return true;
         }
-        if (typeof payload.apiKey !== 'string' || payload.apiKey.trim().length === 0) {
+        if (typeof payload.apiKey !== 'string') {
           sendResponse({
             type: 'SET_API_KEY_RESULT',
             success: false,
             provider: payload.provider,
-            error: 'API key must be a non-empty string.',
+            error: 'API key must be a string.',
           });
           return true;
         }
@@ -1022,25 +1045,36 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
       }
 
       case 'GET_CURRENT_EXTRACTION': {
-        chrome.storage.local
-          .get([STORAGE_KEYS.LAST_EXTRACTION, STORAGE_KEYS.LAST_JOB_POSTING])
-          .then((stored) => {
-            const data = (stored[STORAGE_KEYS.LAST_EXTRACTION] as ExtractedPageData) || null;
-            const jobPosting = (stored[STORAGE_KEYS.LAST_JOB_POSTING] as any) || null;
+        (async () => {
+          const activeTab = await getActiveWebTab();
+          const cached = activeTab?.id != null ? tabExtractionCache.get(activeTab.id) : undefined;
+          if (cached) {
             const res: CurrentExtractionResponse = {
               type: 'CURRENT_EXTRACTION_RESULT',
-              data,
-              jobPosting,
+              data: cached.data,
+              jobPosting: cached.jobPosting,
             };
             sendResponse(res);
-          })
-          .catch(() => {
-            sendResponse({
-              type: 'CURRENT_EXTRACTION_RESULT',
-              data: null,
-              jobPosting: null,
-            });
+            return;
+          }
+
+          const stored = await chrome.storage.local.get([
+            STORAGE_KEYS.LAST_EXTRACTION,
+            STORAGE_KEYS.LAST_JOB_POSTING,
+          ]);
+          const res: CurrentExtractionResponse = {
+            type: 'CURRENT_EXTRACTION_RESULT',
+            data: (stored[STORAGE_KEYS.LAST_EXTRACTION] as ExtractedPageData) || null,
+            jobPosting: (stored[STORAGE_KEYS.LAST_JOB_POSTING] as JobPosting) || null,
+          };
+          sendResponse(res);
+        })().catch(() => {
+          sendResponse({
+            type: 'CURRENT_EXTRACTION_RESULT',
+            data: null,
+            jobPosting: null,
           });
+        });
         return true;
       }
 
@@ -1881,10 +1915,9 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                 );
               });
 
-              // Supply keyword matches supplemented by candidate core evidence so context is never starved
               const relevantClaims = keywordMatchedClaims;
               if (relevantClaims.length === 0) {
-                return null;
+                continue;
               }
 
               const context: FieldAnsweringContext = {
@@ -1919,16 +1952,21 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 
               if (parsed.success && parsed.data) {
                 const answerText = parsed.data.answerText.trim();
-                if (answerText) {
-                  const confidence = Math.min(1, Math.max(0, parsed.data.confidence ?? 0.8));
-                  const supportingClaimIds = parsed.data.supportingClaimIds?.length > 0
-                    ? parsed.data.supportingClaimIds
-                    : relevantClaims.slice(0, 3).map((c) => c.id);
+                const canonicalClaimIds = new Set<string>(
+                  [...(profile.claims || []), ...candidateClaims].map((claim) => claim.id)
+                );
+                const supportingClaimIds = parsed.data.supportingClaimIds.filter((id) =>
+                  canonicalClaimIds.has(id)
+                );
+                // Zero-hallucination gate: an answer without a traceable claim is not staged.
+                if (answerText && supportingClaimIds.length > 0) {
+                  const confidence = Math.min(1, Math.max(0, parsed.data.confidence));
                   answers.push({
                     fieldId: field.id,
                     answerText,
                     confidence,
                     supportingClaimIds,
+                    isGrounded: true,
                   });
                 }
               }
@@ -2827,23 +2865,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             const keysStatus = await getApiKeysStatus();
             const hasAnyKey = keysStatus.openai || keysStatus.anthropic || keysStatus.gemini || keysStatus.openrouter;
             if (!hasAnyKey) {
-              // Check offline fallback for distributed systems questions with user notes
-              if (payload.userNotes && questionLower.includes('distributed system') && (questionLower.includes('instinctively ask') || questionLower.includes('one question'))) {
-                sendResponse({
-                  type: 'ANSWER_AD_HOC_QUESTION_RESULT',
-                  success: true,
-                  answerText: "Where is the system's breaking point under sustained network partitions and unbounded concurrency? In distributed architectures, failure modes must be explicitly bounded rather than treated as edge cases. I first evaluate where the consistency boundaries fracture, how backpressure propagates across asynchronous message boundaries, and whether idempotency guarantees prevent duplicate side-effects when nodes crash or recover.",
-                  confidence: 0.95,
-                  supportingClaimIds: [],
-                  notes: 'Grounded in candidate senior distributed systems experience & candidate perspective (offline fallback).',
-                });
-                return;
-              }
-
               sendResponse({
                 type: 'ANSWER_AD_HOC_QUESTION_RESULT',
                 success: false,
-                error: 'No AI provider API key configured. You can get a free Google Gemini key in 1 click at https://aistudio.google.com/app/apikey (100% free) and add it in Settings, or configure your profile answers to enable offline fast-path answering.',
+                error: 'No AI provider API key configured. Add a provider key in Settings, or save a reusable answer to enable offline fast-path answering.',
               });
               return;
             }
@@ -2918,8 +2943,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               isAiFieldAnswerResult
             );
 
-            let finalAnswer = parsed.success && parsed.data ? parsed.data.answerText.trim() : '';
-            if (!finalAnswer) {
+            if (!parsed.success || !parsed.data) {
               sendResponse({
                 type: 'ANSWER_AD_HOC_QUESTION_RESULT',
                 success: false,
@@ -2928,10 +2952,19 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               return;
             }
 
-            finalAnswer = sanitizeHumanText(finalAnswer);
+            const canonicalClaimIds = new Set<string>(candidateClaims.map((claim) => claim.id));
+            const supportingClaimIds = parsed.data.supportingClaimIds.filter((id) => canonicalClaimIds.has(id));
+            if (supportingClaimIds.length === 0) {
+              sendResponse({
+                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
+                success: false,
+                error: 'No supporting evidence claim was cited for this answer. Please answer this field manually.',
+              });
+              return;
+            }
 
-            const confidence = parsed.success && parsed.data ? (parsed.data.confidence ?? 0.85) : 0.85;
-            const supportingClaimIds = parsed.success && parsed.data ? (parsed.data.supportingClaimIds || []) : relevantClaims.slice(0, 3).map((c) => c.id);
+            let finalAnswer = sanitizeHumanText(parsed.data.answerText.trim());
+            const confidence = Math.min(1, Math.max(0, parsed.data.confidence));
 
             // Enforce character limit if specified
             if (payload.maxLength && finalAnswer.length > payload.maxLength) {
@@ -3317,7 +3350,10 @@ async function loadTailoringContext(jobId?: string) {
  * Monitors navigation events to detect ATS confirmation / thank-you pages automatically (Phase 20).
  */
 if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
-  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url) {
+      tabExtractionCache.delete(tabId);
+    }
     if (changeInfo.status === 'complete' && tab && tab.url) {
       if (isSubmissionConfirmationUrl(tab.url).isConfirmation) {
         processSubmissionDetection(tab.url, tab.title).catch(() => {
@@ -3325,5 +3361,11 @@ if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
         });
       }
     }
+  });
+}
+
+if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    tabExtractionCache.delete(tabId);
   });
 }

@@ -191,9 +191,14 @@ function handleWebPreviewFallback(request: ExtensionRequest): ExtensionResponse 
       return { success: true, profile } as unknown as ExtensionResponse;
     }
     case 'SET_API_KEY': {
-      const req = request as unknown as { provider: string; apiKey: string };
-      storage.setItem(`applykit_key_${req.provider}`, req.apiKey);
-      return { success: true } as unknown as ExtensionResponse;
+      // Security invariant (ADR-0002): the web preview has no service worker and
+      // therefore no isolated credential boundary. Never persist provider secrets here.
+      return {
+        type: 'SET_API_KEY_RESULT',
+        success: false,
+        provider: (request as unknown as { provider: string }).provider,
+        error: 'API keys can only be stored inside the installed extension.',
+      } as unknown as ExtensionResponse;
     }
     case 'GET_CURRENT_EXTRACTION': {
       return {
@@ -218,7 +223,14 @@ function handleWebPreviewFallback(request: ExtensionRequest): ExtensionResponse 
     }
     case 'EXPORT_BACKUP': {
       const raw = storage.getItem('applykit_preview_profile');
-      return { jsonContent: JSON.stringify({ profile: raw ? JSON.parse(raw) : null, exportedAt: new Date().toISOString() }) } as unknown as ExtensionResponse;
+      return {
+        type: 'EXPORT_BACKUP_RESULT',
+        success: true,
+        jsonString: JSON.stringify({
+          profile: raw ? JSON.parse(raw) : null,
+          exportedAt: new Date().toISOString(),
+        }),
+      } as unknown as ExtensionResponse;
     }
     case 'PURGE_ALL_DATA': {
       storage.removeItem('applykit_preview_profile');

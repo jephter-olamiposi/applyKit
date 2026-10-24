@@ -56,10 +56,11 @@ Return a valid JSON object matching this schema:
   );
 
   const wrappedText = wrapUntrustedContent(context.rawHtmlOrText, 'untrusted_job_content');
+  const pageTitle = wrapUntrustedContent(context.pageTitle || 'Job Posting', 'untrusted_page_title');
 
   const userPrompt = `Please parse the following job posting content into the required JSON schema.
 
-Target Page: ${context.pageTitle || 'Job Posting'} (${context.pageUrl})
+Target Page: ${pageTitle} (${context.pageUrl})
 
 ${wrappedText}`;
 
@@ -108,9 +109,12 @@ Return a valid JSON object matching this schema:
 }`
   );
 
-  const reqSummary = context.requirements
-    .map((r, i) => `${i + 1}. [${r.importance.toUpperCase()}] ${r.rawText}`)
-    .join('\n');
+  const reqSummary = wrapUntrustedContent(
+    context.requirements
+      .map((r, i) => `${i + 1}. [${r.importance.toUpperCase()}] ${r.rawText}`)
+      .join('\n'),
+    'untrusted_job_requirements'
+  );
 
   const skillsSummary = context.candidateSkills
     .map((s) => `- ${s.name} (${s.proficiency}${s.yearsOfExperience ? `, ${s.yearsOfExperience}y` : ''})`)
@@ -125,8 +129,8 @@ Return a valid JSON object matching this schema:
     .join('\n');
 
   const userPrompt = `Compare the candidate's verified background against the job requirements for:
-Role: ${context.jobTitle}
-Company: ${context.companyName}
+Role: ${wrapUntrustedContent(context.jobTitle, 'target_role')}
+Company: ${wrapUntrustedContent(context.companyName, 'company_name')}
 
 JOB REQUIREMENTS:
 ${reqSummary}
@@ -205,9 +209,10 @@ export function buildFieldAnsweringPrompt(
 CRITICAL DIRECTIVES:
 1. Use only the supplied candidate evidence. Never fill gaps with assumptions or ATS-oriented claims.
 2. If the evidence does not support the question, return an empty answerText, confidence 0, and isGrounded false.
-3. Answer naturally in the candidate's voice without mentioning the AI, profile, evidence, verification, missing data, or this instruction.
+3. Answer in the candidate's voice, the way they would type it themselves. Do not mention the AI, profile, evidence, verification, missing data, or this instruction.
 4. Use the exact requested format and limits.
 5. For technical questions, use concrete trade-offs only when supported by the candidate's work.
+6. Prefer plain words and short sentences. No corporate filler and no self-praise.
 
 ${styleGuidance ? `WRITING STYLE (match this voice):\n${styleGuidance}\n` : ''}
 
@@ -250,18 +255,21 @@ Return a valid JSON object matching this schema:
     .map((ed) => `${ed.degree} in ${ed.fieldOfStudy} from ${ed.institution}${ed.gpa ? ` (GPA: ${ed.gpa})` : ''}${ed.honors?.length ? ` (Honors: ${ed.honors.join(', ')})` : ''}`)
     .join('; ');
 
-  const optionsText = context.options
-    ? `Available Dropdown Options: ${context.options.map((o) => `"${o.label}" (value: ${o.value})`).join(', ')}`
+  const optionsText = context.options && context.options.length > 0
+    ? `Available dropdown options:\n${wrapUntrustedContent(
+        context.options.map((o) => `"${o.label}" (value: ${o.value})`).join('\n'),
+        'untrusted_field_options'
+      )}`
     : '';
 
-  const userPrompt = `Formulate an affirmative, ATS-winning answer for the following application form field:
+  const userPrompt = `Answer the following application form field using only the evidence supplied below:
 ${wrappedLabel}
 
 Field Type: ${context.fieldType}
 ${context.fieldType === 'number' ? 'Instruction: This field requires a single numeric value (e.g. 9 or 10 for ratings, or target salary integer). In answerText, provide solely the numeric digits.' : ''}
 ${optionsText}
 ${context.maxLength ? `Max Characters: ${context.maxLength}` : ''}
-${context.placeholder ? `Placeholder: ${context.placeholder}` : ''}
+${context.placeholder ? `Placeholder: ${wrapUntrustedContent(context.placeholder, 'untrusted_placeholder')}` : ''}
 
 ${context.candidateSummary ? `CANDIDATE SUMMARY:\n${context.candidateSummary}\n` : ''}
 ${expText ? `CANDIDATE WORK EXPERIENCE & PRODUCTION HIGHLIGHTS:\n${expText}\n` : ''}
@@ -274,7 +282,7 @@ ${answersText || 'None available.'}
 SUPPORTING CANDIDATE CLAIMS:
 ${claimsText || 'None available.'}
 
-Provide an affirmative, confident, ATS-optimized answer strictly in JSON. If dropdown or radio options are available, return the exact option value or label that qualifies the candidate.`;
+Provide an answer strictly in JSON. If dropdown or radio options are available, return the exact option value or label supported by the evidence. If the evidence does not support an answer, return an empty answerText, confidence 0, and isGrounded false.`;
 
   return {
     prompt: userPrompt,
@@ -298,15 +306,14 @@ export function buildResumeTailoringPrompt(
   context: ResumeTailoringContext
 ): AIRequest<ResumeTailoringContext> {
   const systemPrompt = buildHardenedSystemPrompt(
-    `You are an expert executive resume writer.
-Your task is to emphasize and tailor the candidate's existing, verified accomplishments for a target job.
+    `You are a careful resume editor. Your job is to make the candidate's existing bullets clearer and more specific, not to make them sound impressive.
 
 CRITICAL INVARIANTS:
-1. Reword, polish, and reorder existing bullets adhering to the Google XYZ Formula: "Accomplished [X] as measured by [Y] by doing [Z]".
-2. Begin every bullet point with an impactful active verb (e.g., Engineered, Architected, Designed, Spearheaded, Built, Optimized, Streamlined).
-3. Synthesize an authoritative 2-3 sentence executive summary highlighting total verified engineering tenure, core architectural competencies, and proven impact.
-4. You must NEVER fabricate new metrics, projects, technologies, or responsibilities.
-5. Every tailored bullet must correspond to a real, verifiable highlight in the candidate's background.
+1. Keep the candidate's facts, numbers, tools, employers, and scope exactly as given. Never add a metric, technology, responsibility, or result that is not in the input.
+2. Start each bullet with a plain past-tense verb (Built, Led, Shipped, Reduced, Fixed, Migrated, Wrote). Do not use "spearheaded", "engineered", "orchestrated", "leveraged", "facilitated", "utilized", or "synergized".
+3. Write the summary as 2-3 short sentences: the candidate's role, tenure only if the input states it, the main kind of work they did, and one real result from the input. Do not use "proven track record", "passionate", "committed to", "results-driven", "dynamic", or flattery about the company.
+4. Describe work the way the candidate would describe it to another engineer: concrete nouns, short clauses, no adjectives used for praise.
+5. Every bullet must correspond to a real highlight in the candidate's background.
 
 Return a valid JSON object matching this schema:
 {
@@ -320,7 +327,10 @@ Return a valid JSON object matching this schema:
 }`
   );
 
-  const reqText = context.requirements.map((r) => `- [${r.importance}] ${r.rawText}`).join('\n');
+  const reqText = wrapUntrustedContent(
+    context.requirements.map((r) => `- [${r.importance}] ${r.rawText}`).join('\n'),
+    'untrusted_job_requirements'
+  );
 
   const expText = context.experiences
     .map(
@@ -333,8 +343,8 @@ Return a valid JSON object matching this schema:
     .join('\n');
 
   const userPrompt = `Tailor candidate resume materials for the following target position:
-Role: ${context.targetJobTitle}
-Company: ${context.companyName}
+Role: ${wrapUntrustedContent(context.targetJobTitle, 'target_role')}
+Company: ${wrapUntrustedContent(context.companyName, 'company_name')}
 
 KEY REQUIREMENTS:
 ${reqText}
@@ -370,13 +380,15 @@ export function buildCoverLetterPrompt(
   context: CoverLetterContext
 ): AIRequest<CoverLetterContext> {
   const systemPrompt = buildHardenedSystemPrompt(
-    `You are an expert executive cover letter writer.
-Your task is to draft a compelling, evidence-grounded cover letter tailored to the target job opportunity.
+    `You are helping a candidate write a cover letter in their own voice. The result should read like a person wrote it after looking at the job, not like a template.
 
 CRITICAL INVARIANTS:
 1. Every achievement, scale metric, or technical responsibility in the body paragraphs MUST come directly from the provided verified candidate accomplishments.
-2. You must NEVER invent metrics, achievements, employer partnerships, or technologies not present in the input.
-3. Keep the tone professional, concise, and focused on demonstrated value.
+2. Never invent metrics, achievements, employer partnerships, or technologies not present in the input.
+3. Keep the tone direct and specific. One concrete example is worth more than three adjectives.
+4. Do not open with "I am writing to apply", "I am excited", or "I would be a perfect fit". Do not close with "Thank you for your time and consideration".
+5. Do not repeat the job description back to the reader. Say what the candidate did and why it matters for this role.
+6. Avoid "passionate", "results-driven", "proven track record", "leverage", "synergy", "cutting-edge", and "dynamic".
 
 Return a valid JSON object matching this schema:
 {
@@ -390,7 +402,10 @@ Return a valid JSON object matching this schema:
 }`
   );
 
-  const reqText = context.requirements.map((r) => `- [${r.importance}] ${r.rawText}`).join('\n');
+  const reqText = wrapUntrustedContent(
+    context.requirements.map((r) => `- [${r.importance}] ${r.rawText}`).join('\n'),
+    'untrusted_job_requirements'
+  );
   const skillsText = context.candidateSkills.map((s) => s.name).join(', ');
   const accomplishmentsText = context.verifiedAccomplishments.map((a) => `- ${a}`).join('\n');
 
