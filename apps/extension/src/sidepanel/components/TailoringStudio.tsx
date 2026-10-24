@@ -524,7 +524,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
                   disabled={loadingResume}
                   title="Regenerate resume ordering"
                 >
-                  ↻ Refresh
+                  Refresh
                 </button>
               </div>
 
@@ -966,7 +966,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
               onClick={generateLetter}
               disabled={loadingLetter}
             >
-              {loadingLetter ? 'Drafting...' : '↻ Generate Letter'}
+              {loadingLetter ? 'Drafting...' : 'Generate Letter'}
             </button>
           </div>
 
@@ -1153,40 +1153,4 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
       </div>
     </div>
   );
-};
-
-};
-v>
-  );
-};
-
-};
-
-};
-  );
-};
-
-};
-
-};
-
-};
-
-
-};
-
-};
-
-
-};
-
-
-};
-
-};
-
-
-
-};
-
 };

@@ -119,7 +119,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
     navigator.clipboard
       .writeText(answer)
       .then(() => {
-        setFeedback('✓ Copied answer to clipboard!');
+        setFeedback('Copied answer to clipboard.');
         setTimeout(() => setFeedback(null), 3000);
       })
       .catch(() => {
@@ -142,7 +142,7 @@ export const InstantQuestionSolver: React.FC<InstantQuestionSolverProps> = ({
       });
 
       if (res.success) {
-        setFeedback('✓ Successfully inserted into active form field on webpage!');
+        setFeedback('Successfully inserted into active form field on webpage.');
         setTimeout(() => setFeedback(null), 4000);
       } else {
         setError(res.error || 'Click into the target text field on the webpage first, then click Insert.');

@@ -215,7 +215,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     });
 
     const probesToggle = Array.from(container.querySelectorAll('span')).find(
-      (s) => s.textContent?.includes('ATS board probes')
+      (s) => s.textContent?.includes('ATS board endpoints')
     );
     expect(probesToggle).toBeDefined();
 
@@ -274,7 +274,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     const { ApplicationTracker } = await import('../sidepanel/components/ApplicationTracker.js');
 
     await act(async () => {
-      root.render(<ApplicationTracker onNavigateToTab={() => {}} />);
+      root.render(<ApplicationTracker />);
     });
 
     await act(async () => {

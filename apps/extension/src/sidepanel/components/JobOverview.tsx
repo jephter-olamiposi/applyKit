@@ -194,7 +194,7 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
                           : '#059669',
                     }}
                   >
-                    {eligibility.verdict === 'OPEN' && '✓ Eligibility: OPEN'}
+                    {eligibility.verdict === 'OPEN' && 'Eligibility: OPEN'}
                     {eligibility.verdict === 'CONDITIONAL' && 'Eligibility: CONDITIONAL'}
                     {eligibility.verdict === 'BLOCKED' && 'Eligibility: BLOCKED'}
                   </span>
@@ -377,24 +377,3 @@ export const JobOverview: React.FC<JobOverviewProps> = ({
     </div>
   );
 };
-"job-card-title">
-              {jobData.h1[0] || jobData.title || 'Untitled Posting'}
-            </h2>
-          </header>
-
-          <div className="job-section">
-            <h3 className="section-title">Extracted Text Preview</h3>
-            <div className="body-preview">
-              {jobData.cleanBodyText.slice(0, 600)}
-              {jobData.cleanBodyText.length > 600 ? '...' : ''}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-v>
-  );
-};
-

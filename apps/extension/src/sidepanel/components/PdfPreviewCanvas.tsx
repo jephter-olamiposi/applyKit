@@ -272,21 +272,3 @@ export const PdfPreviewCanvas: React.FC<PdfPreviewCanvasProps> = ({
     </div>
   );
 };
-
-};
-;
-
-};
-;
-ssName="pdf-canvas-footer-tip">
-        <span>If content spills onto page 2, toggle <strong>1-Page Fit</strong> or select <strong>Tight</strong> density.</span>
-      </div>
-    </div>
-  );
-};
-
-};
-;
-
-};
-;

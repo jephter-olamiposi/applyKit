@@ -99,9 +99,9 @@ describe('InterviewPrepModal Component Test Suite', () => {
       );
     });
 
-    expect(container.textContent).toContain('Distributed Systems Engineer @ Canonical');
-    expect(container.textContent).toContain('100% Evidence Grounded');
-    expect(container.textContent).toContain('Company Focus:');
+    expect(container.textContent).toContain('Distributed Systems Engineer at Canonical');
+    expect(container.textContent).toContain('Evidence grounded');
+    expect(container.textContent).toContain('Company focus');
   });
 
   it('displays verified STAR behavioral narratives with Situation, Task, Action, Result', () => {
@@ -116,10 +116,10 @@ describe('InterviewPrepModal Component Test Suite', () => {
       );
     });
 
-    expect(container.textContent).toContain('STAR behavioral stories');
+    expect(container.textContent).toContain('Behavioural stories');
     expect(container.textContent).toContain('CloudStream');
     expect(container.textContent).toContain('Engineered low-latency Raft consensus');
-    expect(container.textContent).toContain('Copy STAR');
+    expect(container.textContent).toContain('Copy answer');
   });
 
   it('allows switching to questions to ask interviewer and triggers close', () => {
@@ -138,7 +138,7 @@ describe('InterviewPrepModal Component Test Suite', () => {
 
     // Switch tab to reverse questions
     const reverseTabBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Questions to Ask')
+      btn.textContent?.includes('Questions to ask')
     );
     expect(reverseTabBtn).toBeDefined();
 
@@ -146,12 +146,12 @@ describe('InterviewPrepModal Component Test Suite', () => {
       reverseTabBtn?.click();
     });
 
-    expect(container.textContent).toContain('Stand out as a thoughtful engineering candidate');
+    expect(container.textContent).toContain('Questions about architecture, autonomy, and team culture');
     expect(container.textContent).toContain('Canonical');
 
     // Click close button
     const closeBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Close Prep Kit')
+      btn.textContent?.includes('Close')
     );
     act(() => {
       closeBtn?.click();

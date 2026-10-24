@@ -82,7 +82,7 @@ describe('SourcedOpportunitiesFeed', () => {
     expect(container.textContent).toContain('Monad Labs');
     expect(container.textContent).toContain('Senior Distributed Systems Engineer');
     expect(container.textContent).toContain('Stripe');
-    expect(container.textContent).toContain('5-Gate Pass (Eligible)');
+    expect(container.textContent).toContain('Passes all eligibility gates');
     expect(container.textContent).toContain('Blocked: geography');
     expect(container.textContent).toContain('Candidates must be physically located');
   });
@@ -118,7 +118,7 @@ describe('SourcedOpportunitiesFeed', () => {
       type: 'FETCH_ATS_JOBS',
       keyword: undefined,
     });
-    expect(container.textContent).toContain('Discovered and screened 2 live opportunities.');
+    expect(container.textContent).toContain('Found 2 live opportunities.');
     expect(container.textContent).toContain('Monad Labs');
   });
 
@@ -195,7 +195,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     expect(mockedSend).toHaveBeenCalledWith({ type: 'HARVEST_PAGE_LINKS' });
-    expect(container.textContent).toContain('Discovered on Active Tab (1)');
+    expect(container.textContent).toContain('Links found on this tab (1)');
     expect(container.textContent).toContain('Senior Software Engineer');
   });
 

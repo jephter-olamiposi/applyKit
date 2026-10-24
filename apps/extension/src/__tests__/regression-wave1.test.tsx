@@ -279,7 +279,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     });
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Review & Complete')
+        b.textContent?.includes('Review and complete')
       )?.click();
     });
 
@@ -349,7 +349,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     });
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Review & Complete')
+        b.textContent?.includes('Review and complete')
       )?.click();
     });
 
@@ -415,7 +415,7 @@ describe('W1.2 OnboardingWizard preserves resume-derived profile', () => {
     });
     await act(async () => {
       Array.from(document.querySelectorAll('button')).find((b) =>
-        b.textContent?.includes('Review & Complete')
+        b.textContent?.includes('Review and complete')
       )?.click();
     });
 

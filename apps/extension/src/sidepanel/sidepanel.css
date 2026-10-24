@@ -4730,11 +4730,6 @@ body {
   gap: 4px;
 }
 
-.celebration-icon {
-  font-size: 36px;
-  line-height: 1;
-}
-
 .celebration-title {
   margin: 4px 0 0 0;
   font-size: 16px;
@@ -4758,17 +4753,8 @@ body {
 }
 
 .checklist-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   font-size: 11px;
   color: #e2e8f0;
-}
-
-.check-icon {
-  color: #34d399;
-  font-weight: 700;
-  font-size: 12px;
 }
 
 .quick-tip-card {

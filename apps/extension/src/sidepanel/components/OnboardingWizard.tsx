@@ -538,7 +538,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         </div>
         {onCancel && (
           <button type="button" className="btn-close-onboarding" onClick={onCancel} title="Close onboarding">
-            ✕
+            ×
           </button>
         )}
       </div>
@@ -546,17 +546,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {/* Stepper Progress Bar */}
       <div className="onboarding-stepper" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={4}>
         <div className={`step-item ${currentStep >= 1 ? 'step-active' : ''} ${currentStep > 1 ? 'step-done' : ''}`}>
-          <div className="step-circle">{currentStep > 1 ? '✓' : '1'}</div>
+          <div className="step-circle">1</div>
           <span className="step-label">Resume</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 2 ? 'step-active' : ''} ${currentStep > 2 ? 'step-done' : ''}`}>
-          <div className="step-circle">{currentStep > 2 ? '✓' : '2'}</div>
+          <div className="step-circle">2</div>
           <span className="step-label">Profile</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 3 ? 'step-active' : ''} ${currentStep > 3 ? 'step-done' : ''}`}>
-          <div className="step-circle">{currentStep > 3 ? '✓' : '3'}</div>
+          <div className="step-circle">3</div>
           <span className="step-label">Provider</span>
         </div>
         <div className="step-divider" />
@@ -969,7 +969,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 className="btn-secondary"
                 onClick={() => setCurrentStep(1)}
               >
-                ← Back to Resume
+                Back to resume
               </button>
               <button type="submit" className="btn-primary">
                 Continue to AI setup
@@ -1006,7 +1006,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               rel="noreferrer"
               className="btn-get-gemini-key"
             >
-              Get Free Gemini Key in 1 Click ↗
+              Get a free Gemini key
             </a>
           </div>
 
@@ -1067,7 +1067,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               className="btn-secondary"
               onClick={() => setCurrentStep(2)}
             >
-              ← Back
+              Back
             </button>
             <button
               type="button"
@@ -1086,7 +1086,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {currentStep === 4 && (
         <div className="onboarding-step-content">
           <div className="celebration-box">
-            <span className="celebration-icon" aria-hidden="true">✓</span>
             <h3 className="celebration-title">You're All Set!</h3>
             <p className="celebration-subtitle">
               ApplyKit is configured and ready to assist with your real job applications.
@@ -1095,39 +1094,33 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
           <div className="summary-checklist">
             <div className="checklist-item">
-              <span className="check-icon">✓</span>
               <div>
                 <strong>Candidate Identity:</strong> {firstName} {lastName} ({email})
               </div>
             </div>
             {city && (
               <div className="checklist-item">
-                <span className="check-icon">✓</span>
                 <div>
                   <strong>Location:</strong> {city}{stateOrProvince ? `, ${stateOrProvince}` : ''}{country ? `, ${country}` : ''}
                 </div>
               </div>
             )}
             <div className="checklist-item">
-              <span className="check-icon">✓</span>
               <div>
                 <strong>Work Authorization:</strong> {isAuthorized ? 'Authorized in resident country' : 'Not confirmed'}{requiresSponsorship ? ' (Sponsorship required)' : ''}
               </div>
             </div>
             <div className="checklist-item">
-              <span className="check-icon">✓</span>
               <div>
                 <strong>Master Resume & Evidence:</strong> {ingestStats ? `${ingestStats.evidenceCount} verified evidence items & ${ingestStats.claimsCount} claims` : (resumeText ? 'Master resume loaded' : 'Clean profile aggregate')}
               </div>
             </div>
             <div className="checklist-item">
-              <span className="check-icon">✓</span>
               <div>
                 <strong>AI Provider:</strong> {skipApiKey || !apiKey ? 'Offline / Local rules mode' : `${selectedProvider.toUpperCase()} configured`}
               </div>
             </div>
             <div className="checklist-item">
-              <span className="check-icon">✓</span>
               <div>
                 <strong>Submission Hard Gate:</strong> Programmatically enabled (Zero autonomous submit hazard)
               </div>
@@ -1151,7 +1144,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={() => setCurrentStep(3)}
               disabled={isSubmitting}
             >
-              ← Back
+              Back
             </button>
             <button
               type="button"
@@ -1167,14 +1160,3 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     </div>
   );
 };
-
-  );
-};
-
-  );
-};
-
-};
-
-};
-;

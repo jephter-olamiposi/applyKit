@@ -290,7 +290,7 @@ export const MatchAnalysis: React.FC<MatchAnalysisProps> = ({
                           : '#059669',
                     }}
                   >
-                    {eligibility.verdict === 'OPEN' && '✓ Eligibility: OPEN'}
+                    {eligibility.verdict === 'OPEN' && 'Eligibility: OPEN'}
                     {eligibility.verdict === 'CONDITIONAL' && 'Eligibility: CONDITIONAL'}
                     {eligibility.verdict === 'BLOCKED' && 'Eligibility: BLOCKED'}
                   </span>

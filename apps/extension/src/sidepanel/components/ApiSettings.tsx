@@ -298,14 +298,14 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                Get Free Key ↗
+                Get a free key
               </button>
             </div>
             <p style={{ margin: '0 0 6px 0', fontSize: '11px', color: '#15803d' }}>
               Google provides a generous free tier for Gemini that costs $0 with <strong>no credit card required</strong>:
             </p>
             <ol style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: '#166534', lineHeight: 1.4 }}>
-              <li>Click <strong>&quot;Get Free Key ↗&quot;</strong> to open Google AI Studio.</li>
+              <li>Click <strong>&quot;Get a free key&quot;</strong> to open Google AI Studio.</li>
               <li>Sign in with your normal Google / Gmail account.</li>
               <li>Click <strong>&quot;Create API Key&quot;</strong> and copy the generated key.</li>
               <li>Paste it into the box below and click <strong>&quot;Save Key&quot;</strong>.</li>
@@ -322,7 +322,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
               rel="noopener noreferrer"
               style={{ color: '#2563eb', fontWeight: 600 }}
             >
-              OpenAI API Keys ↗
+              OpenAI API keys
             </a>
           </div>
         )}
@@ -336,7 +336,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
               rel="noopener noreferrer"
               style={{ color: '#2563eb', fontWeight: 600 }}
             >
-              Anthropic Console ↗
+              Anthropic Console
             </a>
           </div>
         )}
@@ -350,7 +350,7 @@ export const ApiSettings: React.FC<ApiSettingsProps> = ({
               rel="noopener noreferrer"
               style={{ color: '#2563eb', fontWeight: 600 }}
             >
-              OpenRouter Keys ↗
+              OpenRouter keys
             </a>
           </div>
         )}

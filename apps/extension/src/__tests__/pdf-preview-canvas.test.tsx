@@ -71,7 +71,7 @@ describe('PdfPreviewCanvas Component Test Suite', () => {
     expect(container.textContent).toContain('Relaxed');
 
     // Check 1-page budget badge
-    expect(container.textContent).toContain('1-Page Budget');
+    expect(container.textContent).toContain('One-page budget');
 
     // Check embedded iframe
     const iframe = container.querySelector('iframe');

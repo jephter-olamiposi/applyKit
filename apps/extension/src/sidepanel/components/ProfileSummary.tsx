@@ -1228,7 +1228,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                         onClick={() => handleDeleteSavedAnswer(ans.id)}
                         title="Delete saved answer"
                       >
-                        ✕
+                        ×
                       </button>
                     </div>
                     <p className="saved-answer-text">{ans.answerText}</p>
@@ -1298,30 +1298,4 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
       )}
     </div>
   );
-};
-div>
-  );
-};
-;
-};
-;
-};
-
-};
-;
-};
-;
-};
-;
-};
-;
-};
-};
-};
-};
-};
-};
-
-};
-};
 };

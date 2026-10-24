@@ -697,7 +697,7 @@ export const ApplicationTracker: React.FC = () => {
                                 onClick={() => handleTransitionStatus(app.id, 'submitted', 'Candidate advanced to submitted')}
                                 title="Advance to Applied"
                               >
-                                → Applied
+                                Applied
                               </button>
                             )}
                             {col.id === 'applied' && (
@@ -707,7 +707,7 @@ export const ApplicationTracker: React.FC = () => {
                                 onClick={() => handleTransitionStatus(app.id, 'interviewing', 'Advanced to interviewing stage')}
                                 title="Advance to Interviewing"
                               >
-                                → Interview
+                                Interviewing
                               </button>
                             )}
                             {col.id === 'interviewing' && (
