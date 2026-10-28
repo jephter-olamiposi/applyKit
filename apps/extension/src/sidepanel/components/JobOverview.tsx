@@ -1,378 +1,151 @@
 /**
- * @fileoverview Job Overview display component for extracted posting content.
+ * @fileoverview The Job tab: read the posting on the current page and show how well it fits.
+ *
+ * One button reads the page. The result is a short job card (title, company, where, pay)
+ * followed by the fit check, so the candidate sees in one place whether this job is worth
+ * their time and what to do next.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import type { JobPosting, CandidateProfile, JobEligibilityReport } from '@applykit/domain';
-import { verifyJobEligibility } from '@applykit/domain';
-import { sendToBackground } from '../../messages/bridge.js';
-import type { ExtractedPageData, GetCandidateProfileResponse } from '../../messages/contracts.js';
+import React, { useState } from 'react';
+import type { JobPosting } from '@applykit/domain';
+import type { ExtractedPageData } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
-import { AtsSourcingEngine } from './AtsSourcingEngine.js';
+import { MatchAnalysis } from './MatchAnalysis.js';
 
 interface JobOverviewProps {
   jobData: ExtractedPageData | null;
   jobPosting: JobPosting | null;
   isExtracting: boolean;
   onExtract: () => void;
-  onViewRequirements?: () => void;
-  onViewMatch?: () => void;
-  onNavigateToTab?: (tab: TabId) => void;
+  onNavigateToTab: (tab: TabId) => void;
   error?: string | null;
 }
 
+const WORKPLACE_LABELS: Record<string, string> = {
+  remote: 'Remote',
+  hybrid: 'Hybrid',
+  onsite: 'On-site',
+};
+
+const EMPLOYMENT_LABELS: Record<string, string> = {
+  full_time: 'Full-time',
+  part_time: 'Part-time',
+  contract: 'Contract',
+  internship: 'Internship',
+  temporary: 'Temporary',
+};
+
+function formatSalary(salary: NonNullable<JobPosting['salaryRange']>): string {
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: salary.currency,
+    maximumFractionDigits: 0,
+  });
+  const range = salary.min === salary.max ? formatter.format(salary.min) : `${formatter.format(salary.min)} to ${formatter.format(salary.max)}`;
+  return `${range} ${salary.period === 'hourly' ? 'an hour' : 'a year'}`;
+}
+
 /**
- * Displays active tab job posting data, extraction status, and trigger controls.
+ * Renders the read-page action, the job card, and the fit check.
  */
 export const JobOverview: React.FC<JobOverviewProps> = ({
   jobData,
   jobPosting,
   isExtracting,
   onExtract,
-  onViewRequirements,
-  onViewMatch,
   onNavigateToTab,
   error,
 }) => {
-  const [profile, setProfile] = useState<CandidateProfile | null>(null);
-  const [showGateDetails, setShowGateDetails] = useState<boolean>(false);
+  const [showDescription, setShowDescription] = useState(false);
 
-  useEffect(() => {
-    sendToBackground<{ type: 'GET_CANDIDATE_PROFILE' }, GetCandidateProfileResponse>({
-      type: 'GET_CANDIDATE_PROFILE',
-    })
-      .then((res) => {
-        if (res.profile) {
-          setProfile(res.profile);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load profile for eligibility verification:', err);
-      });
-  }, []);
-
-  const eligibility: JobEligibilityReport | null = useMemo(() => {
-    if (!jobPosting || !profile) return null;
-    return verifyJobEligibility(jobPosting, profile);
-  }, [jobPosting, profile]);
-
-  const formatSalary = (salary: NonNullable<JobPosting['salaryRange']>) => {
-    const formatter = new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: salary.currency,
-      maximumFractionDigits: 0,
-    });
-    const min = formatter.format(salary.min);
-    const max = formatter.format(salary.max);
-    return `${min} - ${max} / ${salary.period}`;
-  };
+  const readButton = (
+    <button type="button" className={`ui-btn ${jobPosting ? '' : 'ui-btn-primary ui-btn-block'}`} onClick={onExtract} disabled={isExtracting}>
+      {isExtracting ? 'Reading the page...' : jobPosting ? 'Read this page again' : 'Read the job on this page'}
+    </button>
+  );
 
   return (
-    <div className="job-overview-container">
-      <div className="action-bar">
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={onExtract}
-          disabled={isExtracting}
-        >
-          {isExtracting ? 'Extracting Page...' : 'Extract Job from Page'}
-        </button>
-      </div>
-
-      {error && (
-        <div className="alert-error" role="alert">
-          <p className="alert-title">Extraction Error</p>
-          <p className="alert-message">{error}</p>
-          {typeof chrome !== 'undefined' && chrome.tabs && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ marginTop: '8px', fontSize: '11px', padding: '4px 10px', width: 'auto' }}
-              onClick={async () => {
-                try {
-                  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-                  if (tab && tab.id) {
-                    await chrome.tabs.reload(tab.id);
-                  }
-                } catch {
-                  // Fallback
-                }
-              }}
-            >
-              Refresh page
-            </button>
-          )}
-        </div>
+    <div className="ui-stack">
+      {!jobPosting && (
+        <section className="ui-card ui-stack" style={{ gap: 10 }}>
+          <div>
+            <h2 className="ui-card-title">Open a job posting, then read it here</h2>
+            <p className="ui-text">
+              Works on Greenhouse, Lever, Ashby, Workday, Recruitee and most company career pages. ApplyKit reads the
+              page in your browser and nothing is sent anywhere.
+            </p>
+          </div>
+          {readButton}
+          <button type="button" className="ui-link" style={{ alignSelf: 'flex-start' }} onClick={() => onNavigateToTab('sourced_feed')}>
+            No job open? Find one
+          </button>
+        </section>
       )}
 
-      {!jobData && !jobPosting && !error && (
-        <>
-          <div className="empty-state">
-            <p className="empty-state-title">No Job Posting Extracted</p>
-            <p className="empty-state-text">
-              Navigate to any job application or career portal (Greenhouse, Lever, Workday, LinkedIn, etc.)
-              and click <strong>Extract Job from Page</strong> to inspect metadata and requirements.
-            </p>
-            {onNavigateToTab && (
+      {error && (
+        <div className="ui-note ui-note-bad" role="alert">
+          <strong style={{ fontWeight: 600 }}>Couldn't read this page.</strong> {error}
+          {typeof chrome !== 'undefined' && chrome.tabs && (
+            <div style={{ marginTop: 6 }}>
               <button
                 type="button"
-                className="btn-next-step"
-                onClick={() => onNavigateToTab('sourced_feed')}
+                className="ui-link"
+                onClick={async () => {
+                  try {
+                    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+                    if (tab?.id) await chrome.tabs.reload(tab.id);
+                  } catch {
+                    // The tab may have closed; the user can reload it themselves.
+                  }
+                }}
               >
-                Open job search
+                Reload the page and try again
               </button>
-            )}
-          </div>
-          <AtsSourcingEngine profile={profile} initialExpanded={true} />
-        </>
+            </div>
+          )}
+        </div>
       )}
 
       {jobPosting && (
-        <div className="job-details-card">
-          <header className="job-card-header">
-            <div className="job-title-group">
-              <h2 className="job-card-title">{jobPosting.title}</h2>
-              <p className="job-card-company">{jobPosting.companyName}</p>
-            </div>
-            <div className="badge-group">
-              <span className="badge badge-site">
-                {jobPosting.metadata?.adapter
-                  ? `${jobPosting.metadata.adapter.charAt(0).toUpperCase() + jobPosting.metadata.adapter.slice(1)} Application`
-                  : 'Direct Application'}
-              </span>
-              <span className={`badge badge-${jobPosting.workplaceType || 'hybrid'}`}>
-                {(jobPosting.workplaceType || 'hybrid').toUpperCase()}
-              </span>
-            </div>
-          </header>
-
-          {/* 5-Gate Eligibility Waterfall Card (SKILL.md Phase 2: Verification Precedes Effort) */}
-          {eligibility && (
-            <div
-              className={`eligibility-card eligibility-${eligibility.verdict.toLowerCase()}`}
-              style={{
-                margin: '12px 0',
-                padding: '12px 14px',
-                borderRadius: '8px',
-                border:
-                  eligibility.verdict === 'BLOCKED'
-                    ? '1px solid #ef4444'
-                    : eligibility.verdict === 'CONDITIONAL'
-                    ? '1px solid #f59e0b'
-                    : '1px solid #10b981',
-                backgroundColor:
-                  eligibility.verdict === 'BLOCKED'
-                    ? '#fef2f2'
-                    : eligibility.verdict === 'CONDITIONAL'
-                    ? '#fffbeb'
-                    : '#f0fdf4',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '8px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize: '11px',
-                      textTransform: 'uppercase',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      color: '#ffffff',
-                      backgroundColor:
-                        eligibility.verdict === 'BLOCKED'
-                          ? '#dc2626'
-                          : eligibility.verdict === 'CONDITIONAL'
-                          ? '#d97706'
-                          : '#059669',
-                    }}
-                  >
-                    {eligibility.verdict === 'OPEN' && 'Eligibility: OPEN'}
-                    {eligibility.verdict === 'CONDITIONAL' && 'Eligibility: CONDITIONAL'}
-                    {eligibility.verdict === 'BLOCKED' && 'Eligibility: BLOCKED'}
-                  </span>
-                  <span style={{ fontSize: '12px', color: '#374151', fontWeight: 500 }}>
-                    {eligibility.verdict === 'OPEN' && 'Passes 5-gate screening: Geography, Auth, Entity, Timezone, Requirements.'}
-                    {eligibility.verdict === 'CONDITIONAL' && 'Timezone or hours overlap conditional. Candidate confirmation needed.'}
-                    {eligibility.verdict === 'BLOCKED' && `Fatal roadblock on Gate ${eligibility.fatalGate ? eligibility.fatalGate.toUpperCase() : ''}. Zero effort recommended.`}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowGateDetails((prev) => !prev)}
-                  style={{
-                    fontSize: '11px',
-                    color: '#4b5563',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {showGateDetails ? 'Hide Details' : 'View 5 Gates'}
-                </button>
-              </div>
-
-              {/* Verbatim employer evidence quote */}
-              {eligibility.verbatimEvidence && (
-                <div
-                  style={{
-                    marginTop: '8px',
-                    padding: '6px 10px',
-                    fontSize: '11px',
-                    fontStyle: 'italic',
-                    color: eligibility.verdict === 'BLOCKED' ? '#991b1b' : '#92400e',
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                    borderLeft: `3px solid ${eligibility.verdict === 'BLOCKED' ? '#dc2626' : '#d97706'}`,
-                    borderRadius: '0 4px 4px 0',
-                  }}
-                >
-                  <strong>Verbatim Employer Evidence:</strong> "{eligibility.verbatimEvidence}"
-                </div>
-              )}
-
-              {/* Expandable 5-gate checklist */}
-              {showGateDetails && (
-                <div style={{ marginTop: '10px', fontSize: '11px', borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: '8px' }}>
-                  {eligibility.checks.map((check) => (
-                    <div
-                      key={check.gate}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '6px',
-                        marginBottom: '4px',
-                        color: check.status === 'passed' ? '#065f46' : check.status === 'conditional' ? '#92400e' : '#991b1b',
-                      }}
-                    >
-                      <span>{check.status === 'passed' ? 'Pass' : check.status === 'conditional' ? 'Review' : 'Fail'}</span>
-                      <div>
-                        <strong style={{ textTransform: 'capitalize' }}>{check.gate}:</strong>{' '}
-                        <span>{check.reason}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+        <section className="ui-card ui-stack" style={{ gap: 10 }} aria-label="Job">
+          <div>
+            <h2 className="ui-title">{jobPosting.title}</h2>
+            <p className="ui-text">{jobPosting.companyName}</p>
+          </div>
+          <dl className="ui-facts">
+            <dt>Where</dt>
+            <dd>
+              {[WORKPLACE_LABELS[jobPosting.workplaceType] ?? '', jobPosting.location]
+                .filter((part, index, all) => part && !(index === 0 && all[1]?.toLowerCase().startsWith(part.toLowerCase())))
+                .join(' · ') || 'Not listed'}
+            </dd>
+            <dt>Type</dt>
+            <dd>{EMPLOYMENT_LABELS[jobPosting.employmentType] ?? jobPosting.employmentType.replace(/_/g, ' ')}</dd>
+            <dt>Pay</dt>
+            <dd>{jobPosting.salaryRange ? formatSalary(jobPosting.salaryRange) : 'Not listed'}</dd>
+          </dl>
+          {jobPosting.rawDescription && (
+            <div>
+              <button type="button" className="ui-link" onClick={() => setShowDescription((v) => !v)}>
+                {showDescription ? 'Hide the job description' : 'Show the job description'}
+              </button>
+              {showDescription && <div className="ui-pre" style={{ marginTop: 8 }}>{jobPosting.rawDescription}</div>}
             </div>
           )}
-
-          <div className="job-metadata-grid">
-            <div className="metadata-item">
-              <span className="metadata-label">Location:</span>
-              <span className="metadata-text">{jobPosting.location}</span>
-            </div>
-
-            <div className="metadata-item">
-              <span className="metadata-label">Employment Type:</span>
-              <span className="metadata-text">{jobPosting.employmentType.replace(/_/g, ' ')}</span>
-            </div>
-
-            {jobPosting.salaryRange && (
-              <div className="metadata-item">
-                <span className="metadata-label">Compensation:</span>
-                <span className="metadata-text salary-highlight">
-                  {formatSalary(jobPosting.salaryRange)}
-                </span>
-              </div>
-            )}
-
-            <div className="metadata-item">
-              <span className="metadata-label">Requirements Parsed:</span>
-              <span className="metadata-text">
-                {jobPosting.requirements.length} qualifications identified
-              </span>
-            </div>
-          </div>
-
-          {jobPosting.requirements.length > 0 && (
-            <div className="requirements-cta-card">
-              <p className="cta-text">
-                Found <strong>{jobPosting.requirements.length}</strong> requirements ({jobPosting.requirements.filter(r => r.isRequired).length} required).
-              </p>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                {onViewMatch && (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={onViewMatch}
-                  >
-                    Analyze Match &amp; Gaps &rarr;
-                  </button>
-                )}
-                {onViewRequirements && (
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm"
-                    onClick={onViewRequirements}
-                  >
-                    Inspect Raw Requirements &rarr;
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="job-section">
-            <h3 className="section-title">Job Description Summary</h3>
-            <div className="body-preview">
-              {jobPosting.rawDescription.slice(0, 600)}
-              {jobPosting.rawDescription.length > 600 ? '...' : ''}
-            </div>
-          </div>
-
-          {/* Job sourcing remains available as a secondary view from Find Jobs. */}
-          <AtsSourcingEngine profile={profile} initialExpanded={false} />
-
-          {/* Pipeline Forward Progression Card */}
-          <div className="pipeline-next-step-card">
-            <div className="next-step-info">
-              <span className="next-step-title">Prepare your application</span>
-              <span className="next-step-desc">
-                Review the resume and cover letter before opening the application form.
-              </span>
-            </div>
-            <button
-              type="button"
-              className="btn-primary btn-next-step"
-              onClick={() => {
-                if (onNavigateToTab) {
-                  onNavigateToTab('tailor_resume');
-                } else if (onViewMatch) {
-                  onViewMatch();
-                }
-              }}
-            >
-              Continue to resume
-            </button>
-          </div>
-        </div>
+          <div>{readButton}</div>
+        </section>
       )}
 
-      {!jobPosting && jobData && (
-        <div className="job-details-card">
-          <header className="job-card-header">
-            <h2 className="job-card-title">
-              {jobData.h1[0] || jobData.title || 'Untitled Posting'}
-            </h2>
-          </header>
+      {jobPosting && <MatchAnalysis jobPosting={jobPosting} onNavigateToTab={onNavigateToTab} />}
 
-          <div className="job-section">
-            <h3 className="section-title">Extracted Text Preview</h3>
-            <div className="body-preview">
-              {jobData.cleanBodyText.slice(0, 600)}
-              {jobData.cleanBodyText.length > 600 ? '...' : ''}
-            </div>
-          </div>
-        </div>
+      {!jobPosting && jobData && (
+        <section className="ui-card">
+          <h2 className="ui-card-title">{jobData.h1[0] || jobData.title || 'This page'}</h2>
+          <p className="ui-subtle" style={{ marginBottom: 8 }}>
+            This page doesn't look like a job posting, so here is the text we found.
+          </p>
+          <div className="ui-pre">{jobData.cleanBodyText.slice(0, 1200)}</div>
+        </section>
       )}
     </div>
   );

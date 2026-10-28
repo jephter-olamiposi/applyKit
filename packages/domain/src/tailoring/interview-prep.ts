@@ -11,6 +11,7 @@ import type { CandidateProfile } from '../candidate/profile.js';
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
 import type { CompanyCultureProfile } from '../job/company-culture.js';
 import type { EvidenceId } from '../types/ids.js';
+import { formatDateSpan, joinPresent } from './display-format.js';
 
 export type CompanyCulture = CompanyCultureProfile;
 
@@ -73,6 +74,16 @@ export interface InterviewPrepKit {
   /** Overall grounding score (0–100%) indicating factual basis. */
   readonly groundingScore: number;
 }
+
+/** Common behavioural questions, matched in turn to the candidate's resume lines. */
+const STORY_PROMPTS: ReadonlyArray<{ question: (company: string) => string; why: string }> = [
+  { question: (c) => `Tell me about a piece of work you owned end to end at ${c}.`, why: 'Interviewers use this to see how you take ownership and follow through.' },
+  { question: (c) => `What is a hard technical problem you solved at ${c}?`, why: 'They want to hear how you break a problem down and decide.' },
+  { question: (c) => `Tell me about something you built at ${c} that you are proud of.`, why: 'A chance to show what good work means to you.' },
+  { question: (c) => `Describe a time at ${c} when something went wrong. What did you do?`, why: 'They are checking how you handle pressure and fix things.' },
+  { question: (c) => `How did you make something faster, safer or simpler at ${c}?`, why: 'They want a concrete improvement and how you got there.' },
+  { question: (c) => `Tell me about a time you worked closely with others at ${c}.`, why: 'They are looking at how you work with a team.' },
+];
 
 /**
  * Synthesizes an evidence-grounded interview preparation kit tailored for a specific role.
@@ -154,23 +165,37 @@ export function generateInterviewPrepKit(
         (ev) => ev.textSnippet.includes(highlight) || highlight.includes(ev.textSnippet)
       );
 
+      const tech = exp.technologiesUsed.slice(0, 3);
+      const span = formatDateSpan(exp.startDate, exp.endDate, exp.isCurrent);
+      // Only the figure itself ("300,000 events/sec"), not the clause around it, which
+      // repeated the whole action line back as the result.
+      const metric = highlight
+        .match(/\d[\d,.]*\s*(?:%|x\b|ms\b|k\b|m\b|users|customers|requests|events|transactions|orders|hours|days)(?:\/\w+)?/i)?.[0]
+        ?.trim();
+
+      // Only the situation and action come from the resume. The result is either a number
+      // the resume already states or a prompt for the candidate, never a made-up outcome.
       const starStory: StarStory = {
-        situation: `While serving as ${exp.title} at ${exp.company} (${exp.startDate} - ${exp.isCurrent ? 'Present' : exp.endDate || ''}).`,
-        task: `Faced with optimizing and architecting high-reliability systems utilizing ${exp.technologiesUsed.slice(0, 3).join(', ')}.`,
+        situation: `I was ${exp.title} at ${exp.company}${span ? ` (${span})` : ''}.`,
+        task: `Say what you were asked to deliver and why it mattered${tech.length > 0 ? ` (you used ${joinPresent(tech, ', ')})` : ''}.`,
         action: highlight,
-        result: `Successfully delivered measurable impact and production stability documented in verified profile highlights.`,
+        result: metric
+          ? `End on the figure your resume gives: ${metric}.`
+          : `Add the outcome in your own words: what changed, and how you know.`,
         verifiedEvidenceIds: relatedEvidence ? [relatedEvidence.id] : [],
       };
 
       behavioralQuestions.push({
         id: `behav_q_${expIndex}`,
         category: 'behavioral_star',
-        question: `Tell me about a time you took ownership of a critical engineering deliverable under tight constraints at ${exp.company}.`,
-        relevanceRationale: `Proves execution capability and aligns with autonomous engineering expectations.`,
+        // Each story gets a different common question, so two lines from one job do not
+        // read as the same question twice.
+        question: STORY_PROMPTS[(expIndex - 1) % STORY_PROMPTS.length]!.question(exp.company),
+        relevanceRationale: STORY_PROMPTS[(expIndex - 1) % STORY_PROMPTS.length]!.why,
         talkingPoints: [
-          `Reference role as ${exp.title}.`,
-          `Emphasize hands-on ownership using ${exp.technologiesUsed.slice(0, 3).join(', ')}.`,
-          `Highlight outcome: ${highlight}`,
+          `Your role: ${exp.title}.`,
+          ...(tech.length > 0 ? [`What you used: ${joinPresent(tech, ', ')}.`] : []),
+          `What you did: ${highlight}`,
         ],
         starStory,
       });

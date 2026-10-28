@@ -22,6 +22,12 @@ export interface WorkAuthorization {
   readonly visaStatus?: string;
   /** ISO or full country names where candidate holds permanent citizenship or right to work. */
   readonly authorizedCountries: readonly string[];
+  /**
+   * True once the candidate has answered the authorization and sponsorship questions
+   * themselves. Resume parsing cannot know these facts, so until this is set the form
+   * filler leaves those questions for the candidate instead of guessing "Yes" or "No".
+   */
+  readonly confirmedByCandidate?: boolean;
 }
 
 /**
@@ -48,6 +54,8 @@ export interface DemographicDisclosures {
  */
 export interface CandidateIdentity {
   readonly legalFirstName: string;
+  /** Middle name(s), kept apart so a form's "Last name" gets only the surname. */
+  readonly legalMiddleName?: string;
   readonly legalLastName: string;
   readonly preferredName?: string;
   readonly email: string;
@@ -61,7 +69,10 @@ export interface CandidateIdentity {
  * Computes the candidate's legal full name formatted as "FirstName LastName".
  */
 export function getFullName(identity: CandidateIdentity): string {
-  return `${identity.legalFirstName} ${identity.legalLastName}`.trim();
+  return [identity.legalFirstName, identity.legalMiddleName, identity.legalLastName]
+    .map((part) => (part ?? '').trim())
+    .filter(Boolean)
+    .join(' ');
 }
 
 /**
@@ -72,16 +83,4 @@ export function getPreferredOrLegalName(identity: CandidateIdentity): string {
     return `${identity.preferredName} ${identity.legalLastName}`.trim();
   }
   return getFullName(identity);
-}
-
-/**
- * Evaluates whether the candidate holds valid work authorization for a given target country.
- */
-export function isAuthorizedForCountry(
-  auth: WorkAuthorization,
-  targetCountryCodeOrName: string
-): boolean {
-  if (auth.isAuthorizedInCountry) return true;
-  const target = targetCountryCodeOrName.trim().toLowerCase();
-  return auth.authorizedCountries.some((c) => c.trim().toLowerCase() === target);
 }

@@ -40,7 +40,7 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
       }
     }
 
-    let location = 'Remote / Unspecified';
+    let location = '';
     const rawLocations = data['jobLocation'];
     if (Array.isArray(rawLocations)) {
       // Multiple nested WorkLocations (ICIMS/RECRUITEE style): collect all place names.
@@ -74,6 +74,16 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
           location = parts.join(', ');
         }
       }
+    }
+
+    // Remote postings name who may apply in applicantLocationRequirements rather than in
+    // jobLocation, e.g. { "@type": "Country", "name": "Nigeria" }.
+    const applicantRegions = readApplicantRegions(data['applicantLocationRequirements']);
+    if (data['jobLocationType'] === 'TELECOMMUTE') {
+      const remoteLabel = applicantRegions.length > 0 ? `Remote (${applicantRegions.join(', ')})` : 'Remote';
+      location = location ? `${location}; ${remoteLabel}` : remoteLabel;
+    } else if (!location && applicantRegions.length > 0) {
+      location = applicantRegions.join(', ');
     }
 
     let workplaceType: WorkplaceType = 'onsite';
@@ -118,7 +128,7 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
     if (rawHtmlDesc.length > 0) {
       // Parse via DOMParser instead of innerHTML: the description is untrusted
       // page content, and DOMParser never executes scripts or handler attributes.
-      const parsed = new DOMParser().parseFromString(rawHtmlDesc, 'text/html');
+      const parsed = new DOMParser().parseFromString(decodeEncodedMarkup(rawHtmlDesc), 'text/html');
       requirements = [...extractStructuredSections(parsed.body).requirements];
     }
 
@@ -135,7 +145,7 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
       workplaceType,
       employmentType,
       ...(salaryRange ? { salaryRange } : {}),
-      rawDescription: rawHtmlDesc.length > 0 ? rawHtmlDesc : extractCleanBodyText(doc),
+      rawDescription: rawHtmlDesc.length > 0 ? htmlToReadableText(rawHtmlDesc) : extractCleanBodyText(doc),
       parsedAt: new Date().toISOString(),
       requirements,
       metadata: {
@@ -144,4 +154,53 @@ export class JsonLdJobSiteAdapter implements JobSiteAdapter {
       },
     };
   }
+}
+
+/**
+ * Some boards publish the description entity-encoded ("&lt;p&gt;"). Decoding once through
+ * a detached DOMParser document turns it back into markup without executing anything.
+ */
+function decodeEncodedMarkup(html: string): string {
+  if (!/&lt;\/?[a-z]/i.test(html)) return html;
+  return new DOMParser().parseFromString(html, 'text/html').documentElement.textContent ?? html;
+}
+
+/**
+ * Converts description HTML into readable plain text: list items become "- " lines and
+ * block elements become line breaks, so the side panel never shows raw tags.
+ */
+export function htmlToReadableText(html: string): string {
+  const doc = new DOMParser().parseFromString(decodeEncodedMarkup(html), 'text/html');
+  doc.querySelectorAll('script, style, iframe').forEach((node) => node.remove());
+  doc.querySelectorAll('li').forEach((li) => {
+    li.insertBefore(doc.createTextNode('\n- '), li.firstChild);
+  });
+  doc.querySelectorAll('br').forEach((br) => br.replaceWith(doc.createTextNode('\n')));
+  doc.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, ul, ol, section').forEach((block) => {
+    block.appendChild(doc.createTextNode('\n'));
+  });
+  return (doc.body.textContent ?? '')
+    .replace(/[ \t\u00a0]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Reads country or region names from schema.org applicantLocationRequirements. */
+function readApplicantRegions(value: unknown): string[] {
+  const entries = Array.isArray(value) ? value : value ? [value] : [];
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry === 'string' && entry.trim()) {
+      names.push(entry.trim());
+    } else if (entry && typeof entry === 'object') {
+      const record = entry as Record<string, unknown>;
+      const name = typeof record['name'] === 'string' ? record['name'] : undefined;
+      const address = record['address'] as Record<string, unknown> | undefined;
+      const country = address && typeof address['addressCountry'] === 'string' ? address['addressCountry'] : undefined;
+      const label = (name ?? country ?? '').trim();
+      if (label) names.push(label);
+    }
+  }
+  return [...new Set(names)];
 }

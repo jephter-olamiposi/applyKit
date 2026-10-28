@@ -9,6 +9,7 @@ import { extractPageData } from './extractor.js';
 import { extractStructuredJob } from './adapters/index.js';
 import { inspectPageForms } from './form-crawler.js';
 import { executeBrowserPlan, insertTextIntoActiveElement } from './action-interpreter.js';
+import { annotatePageWidgetsOnce, pageHooks } from './page-widget-bridge.js';
 import {
   highlightTargetElement,
   clearTargetHighlight,
@@ -21,7 +22,7 @@ import {
 } from './in-page-hub.js';
 import { initSubmissionObserver, destroySubmissionObserver } from './submission-observer.js';
 import { harvestPageJobLinks } from './link-harvester.js';
-import { isJobOrApplicationPage } from './page-context.js';
+import { isJobOrApplicationPage, shouldShowApplyHub } from './page-context.js';
 import type {
   ExtractJobResponse,
   PingResponse,
@@ -33,6 +34,47 @@ import type {
   HarvestPageLinksResponse,
 } from '../messages/contracts.js';
 import { isValidExtensionRequest } from '../messages/contracts.js';
+
+/**
+ * Whether this instance runs in the tab's top-level document.
+ *
+ * The script is injected into every frame so application forms nested inside an
+ * iframe can still be inspected and filled, but the floating hub is a per-tab
+ * affordance and must not appear once per frame.
+ */
+const IS_TOP_FRAME = (() => {
+  try {
+    return window.top === window;
+  } catch {
+    // Cross-origin ancestors make `window.top` unreadable; treat as a nested frame.
+    return false;
+  }
+})();
+
+/**
+ * The script runs in every frame, and Chrome takes the first frame that answers a tab
+ * message. A Greenhouse page carries a reCAPTCHA frame, so that frame often answered
+ * first: "no form on this page" while the form was right there, or a job read from the
+ * captcha's "Content" heading. Now a frame with nothing to offer stays silent, and the
+ * top frame waits briefly before giving an empty answer so a frame that does have the
+ * form wins.
+ */
+function answerFromBestFrame<T>(hasResult: boolean, sendResponse: (response: T) => void, response: T): boolean {
+  if (hasResult) {
+    sendResponse(response);
+    return false;
+  }
+  if (!IS_TOP_FRAME) return false;
+  setTimeout(() => sendResponse(response), 350);
+  return true;
+}
+
+/** True when a plan was built from the form in this frame's document. */
+function planBelongsToThisFrame(formUrl: unknown): boolean {
+  if (typeof formUrl !== 'string' || !formUrl) return IS_TOP_FRAME;
+  const strip = (url: string) => url.split('#')[0];
+  return strip(formUrl) === strip(window.location.href);
+}
 
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -52,6 +94,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     }
 
     if (requestType === 'EXTRACT_JOB') {
+      // The job posting is the page itself, never an embedded frame (captcha, video, map).
+      if (!IS_TOP_FRAME) return false;
       try {
         const data = extractPageData(document, window.location.href);
         const jobPosting = extractStructuredJob(document, window.location.href);
@@ -76,30 +120,38 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     }
 
     if (requestType === 'INSPECT_PAGE_FORMS') {
-      try {
-        const forms = inspectPageForms(document);
-        const response: InspectPageFormsResponse = {
-          type: 'INSPECT_PAGE_FORMS_RESULT',
-          success: true,
-          forms: [...forms],
-        };
-        sendResponse(response);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        const failureResponse: InspectPageFormsResponse = {
-          type: 'INSPECT_PAGE_FORMS_RESULT',
-          success: false,
-          forms: [],
-          error: errorMsg,
-        };
-        sendResponse(failureResponse);
-      }
-      return false;
+      const respond = () => {
+        try {
+          const forms = inspectPageForms(document);
+          const response: InspectPageFormsResponse = {
+            type: 'INSPECT_PAGE_FORMS_RESULT',
+            success: true,
+            forms: [...forms],
+          };
+          answerFromBestFrame(forms.length > 0, sendResponse, response);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          const failureResponse: InspectPageFormsResponse = {
+            type: 'INSPECT_PAGE_FORMS_RESULT',
+            success: false,
+            forms: [],
+            error: errorMsg,
+          };
+          if (IS_TOP_FRAME) sendResponse(failureResponse);
+        }
+      };
+      // React dropdowns only reveal their options to page code, so ask the service
+      // worker to tag them first. A slow or failed tag still lets the scan run.
+      annotatePageWidgetsOnce().finally(respond);
+      return true;
     }
 
     if (requestType === 'EXECUTE_CONTENT_PLAN') {
       const planReq = message as { plan: any; options?: any };
-      executeBrowserPlan(planReq.plan, document, planReq.options)
+      // Only the frame the form was read from fills it; the others stay silent so their
+      // empty report cannot reach the side panel first.
+      if (!planBelongsToThisFrame(planReq.plan?.formUrl)) return false;
+      executeBrowserPlan(planReq.plan, document, planReq.options, pageHooks)
         .then((report) => {
           const response: ExecuteContentPlanResponse = {
             type: 'EXECUTE_CONTENT_PLAN_RESULT',
@@ -127,8 +179,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         type: 'HIGHLIGHT_FORM_FIELD_RESULT',
         success,
       };
-      sendResponse(response);
-      return false;
+      return answerFromBestFrame(success, sendResponse, response);
     }
 
     if (requestType === 'CLEAR_FORM_FIELD_HIGHLIGHT') {
@@ -154,24 +205,22 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         success: true,
         count,
       };
-      sendResponse(response);
-      return false;
+      return answerFromBestFrame(count > 0 || !payload.enabled, sendResponse, response);
     }
 
     if (requestType === 'INSERT_TEXT_INTO_ACTIVE_ELEMENT') {
       const payload = message as { text: string };
       const success = insertTextIntoActiveElement(payload.text, document);
-      sendResponse({
+      return answerFromBestFrame(success, sendResponse, {
         type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT',
         success,
       });
-      return false;
     }
 
     if (requestType === 'TOGGLE_IN_PAGE_HUB') {
       const payload = message as { enabled: boolean };
       if (payload.enabled) {
-        initInPageHub(document);
+        if (IS_TOP_FRAME && shouldShowApplyHub(document, window.location.href)) initInPageHub(document);
       } else {
         unmountInPageHub(document);
         destroySubmissionObserver();
@@ -184,6 +233,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     }
 
     if (requestType === 'HARVEST_PAGE_LINKS') {
+      if (!IS_TOP_FRAME) return false;
       try {
         const links = harvestPageJobLinks(document, window.location.href);
         const response: HarvestPageLinksResponse = {
@@ -212,14 +262,21 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 // Automatically mount In-Page Floating Hub and Submission Observer
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   let lastPageUrl = window.location.href;
-  const syncInPageAssistant = () => {
-    const isJobPage = isJobOrApplicationPage(document, window.location.href);
-    if (isJobPage) {
+  // The "Fill this form" bar shows only while an application form is on the page. It
+  // used to show on every job or careers page, including listings and search results.
+  // Forms often appear after load (an "Apply" click, a Lever /apply step, an embedded
+  // Greenhouse frame), so the check repeats while the page is open.
+  const syncApplyHub = () => {
+    if (!IS_TOP_FRAME) return;
+    if (shouldShowApplyHub(document, window.location.href)) {
       initInPageHub(document);
-      initSubmissionObserver();
     } else {
       unmountInPageHub(document);
     }
+  };
+  const syncInPageAssistant = () => {
+    syncApplyHub();
+    if (IS_TOP_FRAME && isJobOrApplicationPage(document, window.location.href)) initSubmissionObserver();
   };
 
   if (document.readyState === 'loading') {
@@ -230,10 +287,14 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     syncInPageAssistant();
   }
 
+  let ticks = 0;
   window.setInterval(() => {
+    ticks += 1;
     if (window.location.href !== lastPageUrl) {
       lastPageUrl = window.location.href;
       syncInPageAssistant();
+    } else if (ticks % 2 === 0 && !document.hidden) {
+      syncApplyHub();
     }
   }, 1000);
 }

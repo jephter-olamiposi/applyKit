@@ -306,8 +306,16 @@ export function extractGroupQuestionLabel(
 export function isElementRequired(element: HTMLElement, labelText: string): boolean {
   if (element.hasAttribute('required')) return true;
   if (element.getAttribute('aria-required') === 'true') return true;
-  if (/\b(?:required|\*)\b/i.test(labelText)) return true;
-  return false;
+  // A trailing asterisk has no word boundary after it, so it is tested on its own.
+  if (/\brequired\b|\*/i.test(labelText)) return true;
+  // The cleaned label drops the asterisk, so also read the label element itself.
+  const doc = element.ownerDocument;
+  const labelledBy = (element.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+  const labelNodes = [
+    ...(element.id ? Array.from(doc.querySelectorAll(`label[for="${CSS.escape(element.id)}"]`)) : []),
+    ...labelledBy.map((id) => doc.getElementById(id)).filter((node): node is HTMLElement => Boolean(node)),
+  ];
+  return labelNodes.some((node) => /\*\s*$/.test((node.textContent || '').trim()));
 }
 
 /**

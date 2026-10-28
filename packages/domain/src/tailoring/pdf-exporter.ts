@@ -14,6 +14,7 @@ import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Font, pdf } from '@react-pdf/renderer';
 import type { CandidateProfile } from '../candidate/profile.js';
 import { getPreferredOrLegalName } from '../candidate/identity.js';
+import { formatDegree, joinPresent, formatMonthYear, formatDateSpan, formatPlace } from './display-format.js';
 import type {
   TailoredCoverLetter,
   TailoredResume,
@@ -21,6 +22,11 @@ import type {
   ResumeTemplateId,
   SpacingDensity,
 } from './tailoring-types.js';
+
+// Never split words across lines. react-pdf hyphenates by default ("produc-tion"), and
+// applicant tracking systems read the PDF's text layer, where a split word no longer
+// matches the keyword it is. Registered once at module load; it only affects layout.
+Font.registerHyphenationCallback((word) => [word]);
 
 const coverLetterStyles = StyleSheet.create({
   page: {
@@ -49,7 +55,7 @@ const coverLetterStyles = StyleSheet.create({
     textAlign: 'justify',
   },
   closing: {
-    marginTop: 24,
+    marginTop: 10,
   },
 });
 
@@ -74,7 +80,6 @@ const modernResumeStyles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#0f172a',
-    letterSpacing: 0.5,
     lineHeight: 1.2,
     marginBottom: 4,
   },
@@ -102,7 +107,6 @@ const modernResumeStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    letterSpacing: 1,
     color: '#0f172a',
     marginTop: 10,
     marginBottom: 5,
@@ -249,7 +253,6 @@ const classicResumeStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#111827',
     textAlign: 'center',
-    letterSpacing: 1,
     lineHeight: 1.2,
     marginBottom: 4,
   },
@@ -281,7 +284,6 @@ const classicResumeStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
     color: '#111827',
     marginTop: 10,
     marginBottom: 5,
@@ -626,7 +628,6 @@ const compactResumeStyles = StyleSheet.create({
     fontSize: 9,
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
     color: '#0f172a',
     marginTop: 7,
     marginBottom: 3,
@@ -846,14 +847,7 @@ function resolveResumeStyles(templateId: ResumeTemplateId = 'modern', density?: 
 }
 
 function formatDate(isoString?: string): string {
-  if (!isoString) return '';
-  try {
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return isoString;
-    return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-  } catch {
-    return isoString;
-  }
+  return formatMonthYear(isoString);
 }
 
 function renderCoverLetterParagraph(text: string) {
@@ -884,11 +878,11 @@ function buildCoverLetterDocument(letter: TailoredCoverLetter) {
         React.createElement(
           Text,
           { style: coverLetterStyles.date },
-          new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+          new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
         ),
         React.createElement(View, { style: coverLetterStyles.recipient }, formatRecipient(letter.companyName))
       ),
-      React.createElement(Text, { style: coverLetterStyles.greeting }, 'Dear Hiring Team,'),
+      React.createElement(Text, { style: coverLetterStyles.greeting }, letter.greeting || 'Dear Hiring Team,'),
       renderCoverLetterParagraph(letter.openingParagraph),
       letter.bodyParagraphs.map((p, i) =>
         React.createElement(Text, { key: i, style: coverLetterStyles.paragraph }, p.paragraphText)
@@ -896,7 +890,15 @@ function buildCoverLetterDocument(letter: TailoredCoverLetter) {
       React.createElement(
         View,
         { style: coverLetterStyles.closing },
-        letter.closingParagraph.split('\n').map((line, i) => React.createElement(Text, { key: i }, line))
+        // Blocks split on blank lines. Splitting on every newline rendered the blank line
+        // as an empty Text with no height, so "Best," sat flush under the courtesy line.
+        letter.closingParagraph.split(/\n\s*\n/).map((block, i, blocks) =>
+          React.createElement(
+            Text,
+            { key: i, style: i < blocks.length - 1 ? { marginBottom: 14 } : {} },
+            block
+          )
+        )
       )
     )
   );
@@ -921,9 +923,7 @@ function buildResumeDocument(
   if (profile?.identity.email) contactItems.push(profile.identity.email);
   if (profile?.identity.phone) contactItems.push(profile.identity.phone);
   if (profile?.identity.location) {
-    const loc = [profile.identity.location.city, profile.identity.location.stateOrProvince, profile.identity.location.country]
-      .filter(Boolean)
-      .join(', ');
+    const loc = formatPlace([profile.identity.location.city, profile.identity.location.stateOrProvince, profile.identity.location.country]);
     if (loc) contactItems.push(loc);
   }
 
@@ -1014,7 +1014,6 @@ function buildResumeDocument(
             React.createElement(Text, { style: styles.sectionTitle }, 'WORK EXPERIENCE'),
             experiencesToRender.map((exp, i) => {
               const profileExp = profile?.experiences.find((pe) => pe.id === exp.experienceId);
-              const locString = profileExp?.location ? ` • ${profileExp.location}` : '';
               const bullets = isOnePage ? exp.rankedHighlights.slice(0, 3) : exp.rankedHighlights;
 
               return React.createElement(
@@ -1030,13 +1029,13 @@ function buildResumeDocument(
                       Text,
                       { style: styles.expTitle },
                       `${exp.title} `,
-                      React.createElement(Text, { style: styles.expCompany }, `— ${exp.company}${locString}`)
+                      React.createElement(Text, { style: styles.expCompany }, joinPresent([exp.company, profileExp?.location]) ? ` | ${joinPresent([exp.company, profileExp?.location], ' | ')}` : '')
                     )
                   ),
                   React.createElement(
                     Text,
                     { style: styles.expDates },
-                    `${formatDate(exp.startDate)} – ${exp.isCurrent ? 'Present' : formatDate(exp.endDate)}`
+                    formatDateSpan(exp.startDate, exp.endDate, exp.isCurrent)
                   )
                 ),
                 bullets.map((h, j) =>
@@ -1107,7 +1106,7 @@ function buildResumeDocument(
                   React.createElement(
                     Text,
                     { style: styles.eduDegree },
-                    `${edu.degree} in ${edu.fieldOfStudy}${edu.gpa ? ` (GPA: ${edu.gpa})` : ''}`
+                    `${formatDegree(edu)}${edu.gpa ? ` (GPA: ${edu.gpa})` : ''}`
                   ),
                   React.createElement(
                     Text,
@@ -1118,7 +1117,7 @@ function buildResumeDocument(
                 React.createElement(
                   Text,
                   { style: styles.eduYear },
-                  edu.endDate ? formatDate(edu.endDate) : ''
+                  edu.endDate ? edu.endDate.slice(0, 4) : ''
                 )
               )
             )

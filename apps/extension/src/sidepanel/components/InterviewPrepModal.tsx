@@ -6,7 +6,14 @@
  * modal never claims experience the candidate has not recorded.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { sendToBackground } from '../../messages/bridge.js';
+import type {
+  GetCandidateProfileRequest,
+  GetCandidateProfileResponse,
+  GetEvidenceGraphRequest,
+  GetEvidenceGraphResponse,
+} from '../../messages/contracts.js';
 import type { ApplicationRecord, CandidateProfile, EvidenceGraph } from '@applykit/domain';
 import {
   generateInterviewPrepKit,
@@ -35,10 +42,50 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<PrepTab>('behavioral');
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
+  // The tracker opens this without a profile. It used to fall back to an empty one, so
+  // every story and talking point came out generic. Load the real resume instead.
+  const [loadedProfile, setLoadedProfile] = useState<CandidateProfile | null>(candidateProfile ?? null);
+  const [loadedGraph, setLoadedGraph] = useState<EvidenceGraph | null>(evidenceGraph ?? null);
+  const [isLoading, setIsLoading] = useState(!candidateProfile || !evidenceGraph);
+
+  useEffect(() => {
+    if (candidateProfile && evidenceGraph) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [profileRes, graphRes] = await Promise.all([
+          candidateProfile
+            ? Promise.resolve(null)
+            : sendToBackground<GetCandidateProfileRequest, GetCandidateProfileResponse>({ type: 'GET_CANDIDATE_PROFILE' }),
+          evidenceGraph
+            ? Promise.resolve(null)
+            : sendToBackground<GetEvidenceGraphRequest, GetEvidenceGraphResponse>({ type: 'GET_EVIDENCE_GRAPH' }),
+        ]);
+        if (cancelled) return;
+        if (profileRes?.profile) setLoadedProfile(profileRes.profile);
+        if (graphRes?.success) setLoadedGraph(buildEvidenceGraph(graphRes.evidence, graphRes.claims));
+      } catch {
+        // Falls back to what the profile alone can support.
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateProfile, evidenceGraph]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const prepKit: InterviewPrepKit = useMemo(() => {
-    const profile = candidateProfile || createEmptyProfile(createProfileId('prof_default'));
-    const graph = evidenceGraph || buildEvidenceGraph([], []);
+    const profile = loadedProfile || createEmptyProfile(createProfileId('prof_default'));
+    const graph = loadedGraph || buildEvidenceGraph([], []);
 
     const job = {
       id: application.jobPostingId || createJobPostingId('job_generic'),
@@ -47,7 +94,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
       companyName: application.companyName,
       rawDescription: application.jobDescriptionSnapshot || '',
       requirements: [],
-      location: 'Remote / Hybrid',
+      location: '',
       workplaceType: 'remote' as const,
       employmentType: 'full_time' as const,
       parsedAt: application.updatedAt,
@@ -59,7 +106,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
       : undefined;
 
     return generateInterviewPrepKit(job, profile, graph, { culture });
-  }, [application, candidateProfile, evidenceGraph]);
+  }, [application, loadedProfile, loadedGraph]);
 
   const handleCopyText = (id: string, text: string) => {
     void navigator.clipboard.writeText(text);
@@ -77,10 +124,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
       <div className="prep-modal">
         <header className="prep-modal-header">
           <div>
-            <div className="prep-badges">
-              <span className="prep-badge">Role interview prep</span>
-              <span className="prep-badge prep-badge-grounded">Evidence grounded</span>
-            </div>
+            <p className="prep-eyebrow">Interview prep, from your resume</p>
             <h2 className="prep-title">
               {application.jobTitle} at {application.companyName}
             </h2>
@@ -108,7 +152,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
             aria-pressed={activeTab === 'behavioral'}
             onClick={() => setActiveTab('behavioral')}
           >
-            Behavioural stories ({prepKit.behavioralQuestions.length})
+            Your stories ({prepKit.behavioralQuestions.length})
           </button>
           <button
             type="button"
@@ -116,7 +160,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
             aria-pressed={activeTab === 'technical'}
             onClick={() => setActiveTab('technical')}
           >
-            Technical questions ({prepKit.technicalQuestions.length})
+            Technical ({prepKit.technicalQuestions.length})
           </button>
           <button
             type="button"
@@ -124,16 +168,17 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
             aria-pressed={activeTab === 'reverse'}
             onClick={() => setActiveTab('reverse')}
           >
-            Questions to ask ({prepKit.questionsToAskInterviewer.length})
+            To ask them ({prepKit.questionsToAskInterviewer.length})
           </button>
         </div>
 
         <div className="prep-body">
-          {activeTab === 'behavioral' && (
+          {isLoading && <p className="prep-intro">Reading your resume...</p>}
+          {!isLoading && activeTab === 'behavioral' && (
             <div className="prep-list">
               <p className="prep-intro">
-                Answers use the situation, task, action, result structure, built from experience
-                highlights you have already recorded.
+                Each story is one of your own resume lines laid out as situation, task, action and
+                result. Say it in your own words.
               </p>
 
               {prepKit.behavioralQuestions.map((q) => {
@@ -176,11 +221,11 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
             </div>
           )}
 
-          {activeTab === 'technical' && (
+          {!isLoading && activeTab === 'technical' && (
             <div className="prep-list">
               <p className="prep-intro">
-                Questions based on the core requirements of this role, with talking points from
-                your recorded background.
+                Likely questions for what this job asks for, with points from your resume to
+                mention.
               </p>
 
               {prepKit.technicalQuestions.map((q) => (
@@ -189,7 +234,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
                   <p className="prep-rationale">{q.relevanceRationale}</p>
 
                   <div className="prep-points">
-                    <span className="prep-points-label">Talking points</span>
+                    <span className="prep-points-label">Points to mention</span>
                     <ul className="prep-points-list">
                       {q.talkingPoints.map((tp, i) => (
                         <li key={`${q.id}-point-${i}`}>{tp}</li>
@@ -201,11 +246,10 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
             </div>
           )}
 
-          {activeTab === 'reverse' && (
+          {!isLoading && activeTab === 'reverse' && (
             <div className="prep-list">
               <p className="prep-intro">
-                Questions about architecture, autonomy, and team culture that are worth asking in
-                the interview.
+                Good questions to ask at the end. Pick two or three.
               </p>
 
               <div className="prep-reverse-list">
@@ -228,7 +272,7 @@ export const InterviewPrepModal: React.FC<InterviewPrepModalProps> = ({
 
         <footer className="prep-footer">
           <span className="prep-footer-note">
-            Built only from your saved profile and recorded evidence.
+            Nothing here is invented: it all comes from your resume and the job posting.
           </span>
           <button type="button" className="prep-footer-btn" onClick={onClose}>
             Close

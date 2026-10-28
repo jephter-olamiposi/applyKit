@@ -121,7 +121,7 @@ export function exportAuditTrailAsCsv(applications: readonly ApplicationRecord[]
       app.expectedSalary || '',
       app.appliedAt || '',
       app.nextFollowUpDate || '',
-      Math.round(app.matchedRequirementsScore * 100),
+      Math.min(100, Math.round(app.matchedRequirementsScore > 1 ? app.matchedRequirementsScore : app.matchedRequirementsScore * 100)),
       app.filledFieldsCount,
     ];
 

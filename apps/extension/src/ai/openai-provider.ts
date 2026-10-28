@@ -14,6 +14,14 @@ import type {
 } from '@applykit/domain';
 import { BaseHttpProvider } from './base-provider.js';
 
+/**
+ * Default OpenAI model. gpt-4o-mini is deprecated with removal on January 14, 2027, and
+ * OpenAI lists gpt-6-luna as its replacement. Newer models reject a custom temperature and
+ * the legacy max_tokens field, so the request uses max_completion_tokens and no sampling
+ * overrides.
+ */
+export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
+
 interface OpenAiChatCompletionResponse {
   choices: Array<{
     message: {
@@ -40,7 +48,7 @@ export class OpenAIProvider extends BaseHttpProvider {
 
   constructor(
     apiKey: string,
-    modelName = 'gpt-4o-mini',
+    modelName = DEFAULT_OPENAI_MODEL,
     timeoutMs = 30000,
     customFetch?: typeof fetch
   ) {
@@ -59,8 +67,7 @@ export class OpenAIProvider extends BaseHttpProvider {
     const body = {
       model: this.modelName,
       messages,
-      temperature: request.temperature ?? 0.1,
-      max_tokens: request.maxTokens ?? 2000,
+      max_completion_tokens: request.maxTokens ?? 2000,
       response_format: { type: 'json_object' },
     };
 

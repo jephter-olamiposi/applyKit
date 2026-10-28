@@ -135,15 +135,6 @@ export const DIRECT_ATS_REGISTRY: readonly DirectAtsEndpoint[] = [
   },
 ];
 
-/**
- * Standard global remote hiring eligibility phrases (SKILL.md line 69).
- */
-const GLOBAL_REMOTE_PHRASES = [
-  '"work from anywhere"',
-  '"remote worldwide"',
-  '"hire anywhere"',
-  '"any timezone"',
-] as const;
 
 /**
  * Formats a Google search URL from a dork query.
@@ -218,7 +209,7 @@ export function generateAtsSearchDorks(
   const ashbyQuery = `site:jobs.ashbyhq.com (${roleKeywords}) ("work from anywhere" OR "remote worldwide") after:${afterDate}`;
   dorks.push({
     category: 'ashby',
-    title: 'Ashby — Worldwide Remote Roles',
+    title: 'Ashby: worldwide remote',
     query: ashbyQuery,
     searchUrl: toGoogleSearchUrl(ashbyQuery),
   });
@@ -227,7 +218,7 @@ export function generateAtsSearchDorks(
   const greenhouseQuery = `site:job-boards.greenhouse.io (${roleKeywords}) ("remote" OR "work from anywhere") (${techKeywords}) after:${afterDate}`;
   dorks.push({
     category: 'greenhouse',
-    title: 'Greenhouse — Tech Stack Matched Remote Roles',
+    title: 'Greenhouse: remote roles using your stack',
     query: greenhouseQuery,
     searchUrl: toGoogleSearchUrl(greenhouseQuery),
   });
@@ -236,7 +227,7 @@ export function generateAtsSearchDorks(
   const leverQuery = `site:jobs.lever.co (${roleKeywords}) ("any timezone" OR "remote worldwide" OR "work from anywhere") after:${afterDate}`;
   dorks.push({
     category: 'lever',
-    title: 'Lever — Any Timezone & Global Remote',
+    title: 'Lever: any time zone',
     query: leverQuery,
     searchUrl: toGoogleSearchUrl(leverQuery),
   });
@@ -245,7 +236,7 @@ export function generateAtsSearchDorks(
   const workableQuery = `site:apply.workable.com (${roleKeywords}) ("remote" OR "work from anywhere") after:${afterDate}`;
   dorks.push({
     category: 'workable',
-    title: 'Workable — Remote Engineering Positions',
+    title: 'Workable: remote engineering',
     query: workableQuery,
     searchUrl: toGoogleSearchUrl(workableQuery),
   });
@@ -254,7 +245,7 @@ export function generateAtsSearchDorks(
   const smartRecruiteeQuery = `(site:jobs.smartrecruiters.com OR site:*.recruitee.com) (${roleKeywords}) "remote" after:${afterDate}`;
   dorks.push({
     category: 'smartrecruiters',
-    title: 'SmartRecruiters & Recruitee — Remote Roles',
+    title: 'SmartRecruiters and Recruitee: remote',
     query: smartRecruiteeQuery,
     searchUrl: toGoogleSearchUrl(smartRecruiteeQuery),
   });
@@ -264,7 +255,7 @@ export function generateAtsSearchDorks(
   const stackDorkQuery = `(site:jobs.ashbyhq.com OR site:job-boards.greenhouse.io OR site:jobs.lever.co) (${langDorkPhrases}) ("remote" OR "work from anywhere") after:${afterDate}`;
   dorks.push({
     category: 'global_remote',
-    title: 'Language-Specific Role Dork (Captures Unlabeled Titles)',
+    title: 'Any board: roles named after your main language',
     query: stackDorkQuery,
     searchUrl: toGoogleSearchUrl(stackDorkQuery),
   });
@@ -273,7 +264,7 @@ export function generateAtsSearchDorks(
   const independentQuery = `(inurl:careers OR inurl:jobs) "${primaryRole}" ("work from anywhere" OR "remote worldwide") -linkedin -indeed -glassdoor -wellfound after:${afterDate}`;
   dorks.push({
     category: 'independent_careers',
-    title: 'Direct Company Career Pages (Excludes Stale Aggregators)',
+    title: 'Company career pages (skips job aggregators)',
     query: independentQuery,
     searchUrl: toGoogleSearchUrl(independentQuery),
   });

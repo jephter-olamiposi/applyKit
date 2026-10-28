@@ -204,26 +204,6 @@ export async function dbGetByIndex<T>(
 }
 
 /**
- * Retrieves all records matching an indexed key, ordered by index order.
- */
-export async function dbGetAllByIndex<T>(
-  db: IDBDatabase,
-  storeName: StoreName,
-  indexName: string,
-  query?: IDBValidKey | IDBKeyRange,
-  limit?: number
-): Promise<T[]> {
-  return runTransaction(db, storeName, 'readonly', (store) => {
-    return new Promise<T[]>((resolve, reject) => {
-      const index = store.index(indexName);
-      const request = limit ? index.getAll(query, limit) : index.getAll(query);
-      request.onsuccess = () => resolve((request.result as T[]) ?? []);
-      request.onerror = () => reject(request.error);
-    });
-  });
-}
-
-/**
  * Completely drops the local IndexedDB database.
  * Used for the "Right to be Forgotten" data wipe action.
  */

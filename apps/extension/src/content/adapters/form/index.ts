@@ -36,13 +36,6 @@ const FORM_ADAPTERS: readonly AtsFormAdapter[] = [
 ].sort((a, b) => b.priority - a.priority);
 
 /**
- * Retrieves the list of available ATS form adapters.
- */
-export function getRegisteredFormAdapters(): readonly AtsFormAdapter[] {
-  return FORM_ADAPTERS;
-}
-
-/**
  * Resolves the best-matching ATS form adapter for the given URL and document.
  *
  * @param url Active webpage URL.

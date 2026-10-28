@@ -81,6 +81,13 @@ describe('Extension Messaging Bridge & Contracts', () => {
     })).toBe(true);
   });
 
+  it('only accepts side panel destinations the panel can render', () => {
+    expect(isValidExtensionRequest({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor_resume' })).toBe(true);
+    expect(isValidExtensionRequest({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor' })).toBe(false);
+    expect(isValidExtensionRequest({ type: 'OPEN_SIDEPANEL_TAB', tab: 7 })).toBe(false);
+    expect(isValidExtensionRequest({ type: 'OPEN_SIDEPANEL_TAB' })).toBe(false);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

@@ -15,7 +15,7 @@
  *      * Synthesizes answers using candidate evidence claims and tone/character constraints
  * 2. Reusable answer persistence via SAVE_REUSABLE_ANSWER.
  * 3. Dry-run planner integration matching saved answers for custom unmapped form questions.
- * 4. InstantQuestionSolver React component rendering and user actions (tones, lengths, save, insert).
+ * 4. InstantQuestionSolver rendering and user actions (style, length, save, insert, copy).
  *
  * @vitest-environment happy-dom
  */
@@ -30,7 +30,6 @@ import {
   generateDryRunPlan,
   type CandidateProfile,
   type ApplicationForm,
-  type SavedAnswer,
 } from '@applykit/domain';
 import { InstantQuestionSolver } from '../sidepanel/components/InstantQuestionSolver.js';
 import * as bridge from '../messages/bridge.js';
@@ -206,18 +205,16 @@ describe('InstantQuestionSolver React Component', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders dedicated tab header, tone selectors, length presets, and sample chips', async () => {
+  it('renders the heading, style and length choices, and sample questions', async () => {
     await act(async () => {
       root.render(<InstantQuestionSolver isDedicatedTab={true} />);
     });
 
-    expect(container.textContent).toContain('Instant Q&A Copilot');
-    expect(container.textContent).toContain('Offline profile lookup');
-    expect(container.textContent).toContain('Evidence-backed answers');
+    expect(container.textContent).toContain('Answer a question');
     expect(container.textContent).toContain('What country are you located in?');
-    expect(container.textContent).toContain('Keyword-focused');
-    expect(container.textContent).toContain('STAR method');
-    expect(container.textContent).toContain('150 chars');
+    expect(container.textContent).toContain("Use the job's words");
+    expect(container.textContent).toContain('A story (STAR)');
+    expect(container.textContent).toContain('Up to 150 characters');
   });
 
   it('clicking a sample chip populates the question textarea', async () => {
@@ -238,14 +235,14 @@ describe('InstantQuestionSolver React Component', () => {
     expect(textarea?.value).toBe('What is your notice period?');
   });
 
-  it('triggers ANSWER_AD_HOC_QUESTION and displays grounded answer with confidence and character count', async () => {
+  it('triggers ANSWER_AD_HOC_QUESTION and shows the answer with its note', async () => {
     mockedSend.mockResolvedValueOnce({
       type: 'ANSWER_AD_HOC_QUESTION_RESULT',
       success: true,
-      answerText: 'Immediate — I can start right away without a notice period.',
+      answerText: 'I can start right away. I have no notice period.',
       confidence: 1.0,
       supportingClaimIds: [],
-      notes: 'Resolved deterministically from verified profile attributes (0ms offline).',
+      notes: 'Taken straight from your profile.',
     } as never);
 
     await act(async () => {
@@ -272,13 +269,14 @@ describe('InstantQuestionSolver React Component', () => {
       expect.objectContaining({
         type: 'ANSWER_AD_HOC_QUESTION',
         question: 'What is your notice period?',
-        tone: 'ats_aggressive',
+        tone: 'plain',
       })
     );
 
-    expect(container.textContent).toContain('Immediate — I can start right away without a notice period.');
-    expect(container.textContent).toContain('100% Confidence');
-    expect(container.textContent).toContain('Resolved deterministically from verified profile attributes (0ms offline).');
+    expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Answer"]')?.value).toBe(
+      'I can start right away. I have no notice period.'
+    );
+    expect(container.textContent).toContain('Taken straight from your profile.');
   });
 
   it('allows saving generated answer to verified candidate profile', async () => {
@@ -289,7 +287,7 @@ describe('InstantQuestionSolver React Component', () => {
         answerText: 'London, Greater London, United Kingdom',
         confidence: 1.0,
         supportingClaimIds: [],
-        notes: 'Resolved deterministically from verified profile attributes (0ms offline).',
+        notes: 'Taken straight from your profile.',
       } as never)
       .mockResolvedValueOnce({
         type: 'SAVE_REUSABLE_ANSWER_RESULT',
@@ -332,7 +330,7 @@ describe('InstantQuestionSolver React Component', () => {
       })
     );
 
-    expect(container.textContent).toContain('Answer saved to profile.');
+    expect(container.textContent).toContain('Saved. ApplyKit will reuse it');
   });
 
   it('copies generated answer to system clipboard', async () => {
@@ -381,7 +379,7 @@ describe('InstantQuestionSolver React Component', () => {
     });
 
     expect(writeTextMock).toHaveBeenCalledWith('https://linkedin.com/in/adalovelace');
-    expect(container.textContent).toContain('Copied answer to clipboard!');
+    expect(container.textContent).toContain('Copied.');
   });
 
   it('triggers INSERT_TEXT_INTO_ACTIVE_ELEMENT to insert answer into webpage input', async () => {
@@ -432,10 +430,10 @@ describe('InstantQuestionSolver React Component', () => {
       })
     );
 
-    expect(container.textContent).toContain('Successfully inserted into active form field');
+    expect(container.textContent).toContain('Inserted into the field on the page.');
   });
 
-  it('displays character counter badge and alerts when length exceeds limit', async () => {
+  it('shows the character count against the chosen limit', async () => {
     mockedSend.mockResolvedValueOnce({
       type: 'ANSWER_AD_HOC_QUESTION_RESULT',
       success: true,
@@ -448,12 +446,12 @@ describe('InstantQuestionSolver React Component', () => {
       root.render(<InstantQuestionSolver isDedicatedTab={true} />);
     });
 
-    // Select 150 chars preset
-    const presetBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent === '150 chars'
-    );
+    const lengthSelect = Array.from(container.querySelectorAll('label'))
+      .find((el) => el.textContent?.startsWith('Length'))
+      ?.querySelector('select') as HTMLSelectElement;
     await act(async () => {
-      presetBtn?.click();
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(lengthSelect, '150');
+      lengthSelect.dispatchEvent(new Event('change', { bubbles: true }));
     });
 
     const textarea = container.querySelector<HTMLTextAreaElement>('#ad-hoc-question')!;
@@ -470,6 +468,6 @@ describe('InstantQuestionSolver React Component', () => {
       generateBtn?.click();
     });
 
-    expect(container.textContent).toContain('/ 150 chars');
+    expect(container.textContent).toContain('/ 150 characters');
   });
 });

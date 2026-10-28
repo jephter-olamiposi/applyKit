@@ -1,36 +1,31 @@
-debug
-target
+# Dependencies and build output
 node_modules/
-dist/
-dist-types/
 **/dist/
 **/dist-types/
 *.tsbuildinfo
-.DS_Store
-**/.DS_Store
+dist-release/
 
-**/*.rs.bk
+# Ready-to-load unpacked build
+ApplyKit-extension/
 
-*.pdb
-
-**/mutants.out*/
+# Local environment and OS files
 .env
 *.env
+.DS_Store
 
-
-plans/
-chrome/
-
+# AI coding assistant settings (personal, not part of the project)
 .agents/
 .claude/
-.gemini/
 .codex/
+.gemini/
 AGENTS.md
 CLAUDE.md
 CODEX.md
 GEMINI.md
 
-# Local reference material and generated resume artifacts
+# Local reference material and generated resume files
+plans/
+chrome/
 job-application-pipeline/
 scratch_*.pdf
 scratch_*.pdf.png

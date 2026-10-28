@@ -10,8 +10,7 @@ import type { CandidateProfile } from '../candidate/profile.js';
 import type { WorkExperience } from '../candidate/experience.js';
 import type { CandidateProject } from '../candidate/project.js';
 import type { EducationRecord } from '../candidate/education.js';
-import type { CandidateSkill, SkillCategory } from '../candidate/skill.js';
-import type { DocumentReference } from '../candidate/document.js';
+import type { CandidateSkill } from '../candidate/skill.js';
 import type { ProfileId, EvidenceId } from '../types/ids.js';
 import {
   createProfileId,
@@ -25,6 +24,7 @@ import {
 import type { Evidence } from './evidence.js';
 import type { ParsedResumeDocument } from './parser.js';
 import { normalizeSkillName, categorizeSkill } from '../candidate/skill.js';
+import { computeExperienceYears } from '../job/matching.js';
 
 /**
  * Result of decomposing a candidate profile or document into atomic evidence nodes.
@@ -318,8 +318,8 @@ export function createProfileFromParsedResume(
     company: exp.company,
     title: exp.title,
     employmentType: 'full_time',
-    location: exp.location || 'Remote',
-    isRemote: exp.location ? /remote/i.test(exp.location) : true,
+    location: exp.location ?? '',
+    isRemote: exp.location ? /remote/i.test(exp.location) : false,
     startDate: exp.startDate,
     endDate: exp.endDate,
     isCurrent: exp.isCurrent,
@@ -390,14 +390,18 @@ export function createProfileFromParsedResume(
   }
 
   // Construct raw profile aggregate
+  const nameParts = parsed.identity.fullName.split(/\s+/).map((part) => part.trim()).filter(Boolean);
   const rawProfile: CandidateProfile = {
     id: profileId,
     version: 1,
     createdAt: now,
     updatedAt: now,
     identity: {
-      legalFirstName: (parsed.identity.fullName.split(' ')[0] ?? '').trim(),
-      legalLastName: parsed.identity.fullName.split(' ').slice(1).join(' ').trim(),
+      // "Jephter Olamiposi Olaifa": first, middle, last. Forms ask for first and last
+      // separately, so a middle name must not ride along in the surname.
+      legalFirstName: nameParts[0] ?? '',
+      ...(nameParts.length > 2 ? { legalMiddleName: nameParts.slice(1, -1).join(' ') } : {}),
+      legalLastName: nameParts.length > 1 ? nameParts[nameParts.length - 1]! : '',
       email: parsed.identity.email || '',
       phone: parsed.identity.phone || '',
       location: {
@@ -409,12 +413,14 @@ export function createProfileFromParsedResume(
         isAuthorizedInCountry: true,
         requiresSponsorship: false,
         authorizedCountries: parsedCountry ? [parsedCountry] : [],
+        confirmedByCandidate: false,
       },
     },
     professional: {
       headline: parsed.experiences[0]?.title || '',
       summary: parsed.summary,
-      totalYearsOfExperience: Math.max(parsed.experiences.length * 2, 0),
+      // Overlapping roles count once; undated roles count for nothing.
+      totalYearsOfExperience: computeExperienceYears(rawExperiences),
       primaryRoles: parsed.experiences.map((e) => e.title).slice(0, 3),
       targetRoles: parsed.experiences.map((e) => e.title).slice(0, 3),
       preferredLocations: [],

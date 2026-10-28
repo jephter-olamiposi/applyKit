@@ -86,7 +86,9 @@ export class GeminiProvider extends BaseHttpProvider {
     let data: GeminiGenerateContentResponse | null = null;
 
     for (const model of candidateModels) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+      // The key travels only in the x-goog-api-key header. A query-string key ends up in
+      // proxy logs, crash reports, and DevTools history, so it is never put in the URL.
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
       try {
         const res = await this.fetchWithRetry(url, {
           method: 'POST',

@@ -50,7 +50,7 @@ export class WorkdayJobSiteAdapter implements JobSiteAdapter {
     }
 
     const locationEl = doc.querySelector('[data-automation-id="locations"]');
-    const location = locationEl?.textContent?.trim() || 'Remote / Unspecified';
+    const location = locationEl?.textContent?.trim() || '';
 
     const timeTypeEl = doc.querySelector('[data-automation-id="timeType"]');
     const timeTypeText = timeTypeEl?.textContent?.toLowerCase() || '';

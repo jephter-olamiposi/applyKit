@@ -20,6 +20,10 @@ const SYNONYM_GROUPS: readonly (readonly string[])[] = [
   ['rust', 'rustlang'],
   ['ruby', 'rails', 'ruby on rails'],
   ['java'],
+  ['haskell'],
+  ['scala'],
+  ['zig'],
+  ['elixir'],
   ['php'],
   ['swift'],
   ['kotlin'],
@@ -67,6 +71,26 @@ const SYNONYM_GROUPS: readonly (readonly string[])[] = [
   ['testing', 'debugging', 'unit testing', 'test automation', 'load testing', 'benchmarking', 'tdd', 'test driven development'],
   ['oss', 'open source', 'open-source', 'oss contributions', 'open source software'],
   ['agile', 'scrum'],
+  ['kafka', 'message queue', 'message queues', 'message broker', 'event streaming', 'rabbitmq', 'nats', 'sqs', 'pubsub', 'pub sub'],
+
+  // Industry domains. Requirements such as "experience building payment or fintech systems"
+  // are met by work described in these terms even when the word "fintech" never appears.
+  ['fintech', 'payments', 'payment', 'payment systems', 'payouts', 'ledger', 'double entry', 'settlement', 'reconciliation', 'billing', 'banking', 'card processing', 'wallet', 'remittance', 'lending', 'transactions'],
+  ['healthtech', 'healthcare', 'clinical', 'clinics', 'hospital', 'patient', 'ehr', 'emr', 'telemedicine', 'medical'],
+  ['ecommerce', 'e commerce', 'checkout', 'marketplace', 'retail', 'orders'],
+  // "services" and "APIs" are deliberately absent: they appear in nearly every posting
+  // and would make any sentence about services count as backend evidence.
+  ['backend', 'back end', 'server side', 'backend development', 'backend engineering'],
+  ['connection pooling', 'connection pooler', 'pgbouncer'],
+  ['fault tolerance', 'fault tolerant', 'high availability', 'resilient systems'],
+  ['concurrency', 'multi threading', 'multithreading', 'multi threaded'],
+  ['memory management'],
+  ['operating systems', 'os internals', 'linux internals'],
+  ['managed databases', 'database as a service', 'dbaas', 'managed database platform'],
+  ['frontend', 'front end', 'client side', 'ui', 'web app'],
+  ['mobile', 'ios', 'android', 'react native', 'flutter'],
+  ['mentoring', 'mentor', 'mentored', 'coaching', 'mentorship'],
+  ['incident response', 'on call', 'oncall', 'postmortem', 'postmortems', 'sre', 'reliability'],
 ];
 
 /**
@@ -100,6 +124,9 @@ export function normalizeCompetencyToken(text: string): string {
     .replace(/[/\\_-]+/g, ' ')
     // Remove characters that do not form technical tokens (preserving letters, digits, '.', '+', '#')
     .replace(/[^a-z0-9.+ #]/g, '')
+    // A full stop that ends a word is punctuation ("proficiency in SQL."), not part of
+    // a token; dots inside or before a name (".net", "node.js") are kept.
+    .replace(/\.+(?=\s|$)/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -146,3 +173,52 @@ export function areCompetenciesEquivalent(a: string, b: string): boolean {
 
   return false;
 }
+
+/**
+ * Returns true when the token belongs to a registered synonym cluster. Used to accept
+ * short but unambiguous technology names such as "Go" that would otherwise be ignored
+ * by length-based noise filters.
+ */
+export function isKnownCompetency(token: string): boolean {
+  return ALIAS_TO_CLUSTER.has(normalizeCompetencyToken(token));
+}
+
+/**
+ * Finds which registered competency phrases (including synonyms) appear in free text,
+ * matched on whole words. Requirement sentences like "Experience with Kafka or another
+ * message queue" yield every phrase they mention so each can be checked against evidence.
+ */
+export function findCompetencyPhrases(text: string): readonly string[] {
+  const haystack = ` ${normalizeCompetencyToken(text)} `;
+  const found: string[] = [];
+  for (const alias of ALIAS_TO_CLUSTER.keys()) {
+    if (alias.length < 2) continue;
+    if (haystack.includes(` ${alias} `)) found.push(alias);
+  }
+  return found;
+}
+
+/**
+ * One-way implications: evidence of the right-hand terms proves the left-hand one, but
+ * not the reverse. Writing PostgreSQL migrations is SQL work; a posting that asks for
+ * SQL is not asking for PostgreSQL. Kept separate from synonyms for exactly that reason.
+ */
+const IMPLIED_BY: Readonly<Record<string, readonly string[]>> = {
+  sql: ['postgresql', 'postgres', 'mysql', 'mariadb', 'sqlite', 'mssql', 'sql server', 'oracle database'],
+  'relational databases': ['postgresql', 'postgres', 'mysql', 'mariadb', 'sqlite', 'mssql', 'sql server'],
+  'cloud platforms': ['aws', 'gcp', 'google cloud', 'azure'],
+};
+
+/**
+ * Terms whose presence in a candidate's history proves `competency` (see IMPLIED_BY).
+ * Returns an empty list for competencies with no registered implication.
+ */
+export function getImplyingCompetencies(competency: string): readonly string[] {
+  return IMPLIED_BY[normalizeCompetencyToken(competency)] ?? [];
+}
+
+/** All competencies that have one-way implications, so callers can look for them in text. */
+export function impliableCompetencies(): readonly string[] {
+  return Object.keys(IMPLIED_BY);
+}
+

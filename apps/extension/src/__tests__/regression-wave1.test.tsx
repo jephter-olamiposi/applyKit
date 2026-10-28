@@ -56,7 +56,6 @@ describe('W1.1 Background profile summary handler resolves on failure', () => {
     _sender: unknown,
     sendResponse: (res?: unknown) => void
   ) => boolean | undefined) | undefined;
-  let bridgeModule: typeof import('../messages/bridge.js');
 
   beforeEach(async () => {
     installChromeMock();
@@ -67,7 +66,6 @@ describe('W1.1 Background profile summary handler resolves on failure', () => {
       listener = fn;
     });
 
-    bridgeModule = await import('../messages/bridge.js');
 
     // Import the background worker now that chrome is mocked; its listener
     // registration is captured into `listener`.

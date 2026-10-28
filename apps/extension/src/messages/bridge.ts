@@ -9,6 +9,28 @@
 import type { ExtensionRequest, ExtensionResponse } from './contracts.js';
 
 /**
+ * Requests that may call an AI model, which can take a draft plus a corrected draft per
+ * question. With the old flat 20 seconds the panel reported a timeout while the answer
+ * was still on its way. Each value covers the worst case the service worker allows.
+ */
+const SLOW_REQUEST_TIMEOUTS_MS: Partial<Record<ExtensionRequest['type'], number>> = {
+  ANSWER_AD_HOC_QUESTION: 120_000,
+  ANSWER_CUSTOM_FIELDS: 180_000,
+  EXECUTE_ONE_CLICK_AUTO_FILL: 180_000,
+  REWORD_RESUME_WITH_AI: 90_000,
+  MATCH_JOB_REQUIREMENTS: 60_000,
+  SET_API_KEY: 30_000,
+  CHECK_API_KEY: 30_000,
+};
+
+/** A plain-language message for a request that ran out of time. */
+function timeoutMessage(type: string): string {
+  return SLOW_REQUEST_TIMEOUTS_MS[type as ExtensionRequest['type']]
+    ? 'The AI took too long to answer. Check your connection and try again.'
+    : `ApplyKit did not answer in time (${type}). Try again.`;
+}
+
+/**
  * Sends a typed request message to the Extension Service Worker background context.
  *
  * @param request The structured request conforming to {@link ExtensionRequest}.
@@ -18,7 +40,7 @@ import type { ExtensionRequest, ExtensionResponse } from './contracts.js';
 export async function sendToBackground<
   TReq extends ExtensionRequest = ExtensionRequest,
   TRes extends ExtensionResponse = ExtensionResponse
->(request: TReq, timeoutMs = 20000): Promise<TRes> {
+>(request: TReq, timeoutMs = SLOW_REQUEST_TIMEOUTS_MS[request.type] ?? 20000): Promise<TRes> {
   return new Promise((resolve, reject) => {
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
       const fallback = handleWebPreviewFallback(request);
@@ -34,7 +56,7 @@ export async function sendToBackground<
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
-        reject(new Error(`Background request timed out for message type ${request.type}`));
+        reject(new Error(timeoutMessage(request.type)));
       }
     }, timeoutMs);
 

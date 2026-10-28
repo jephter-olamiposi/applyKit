@@ -45,19 +45,11 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
     const headingText = heading.textContent?.trim() || '';
     if (!headingText) continue;
 
-    let sectionType: 'responsibilities' | 'required' | 'preferred' | 'ignore' = 'ignore';
-
-    if (/\b(nice\s+to\s+have|preferred|bonus|plus|desirable|optional)\b/i.test(headingText)) {
-      sectionType = 'preferred';
-    } else if (/\b(responsibilit\w*|duties|what\s+you('ll|\s+will)\s+do|the\s+role|about\s+the\s+role)\b/i.test(headingText)) {
-      sectionType = 'responsibilities';
-    } else if (/\b(requirement\w*|qualification\w*|what\s+you\s+(bring|need)|must\s+have|who\s+you\s+are|basic\s+qualification\w*)\b/i.test(headingText)) {
-      sectionType = 'required';
-    }
-
-    if (sectionType === 'ignore') {
-      continue;
-    }
+    const sectionType = classifySectionHeading(headingText);
+    // A heading we cannot place still owns the list under it. Its items are kept only
+    // when they read like qualifications; otherwise duties and perks would leak into
+    // the requirement list through the "uncaptured lists" sweep below.
+    const keepOnlyQualifications = sectionType === 'unknown';
 
     const sectionItems: string[] = [];
 
@@ -95,7 +87,10 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
           // Capture standalone requirement-style paragraphs within an active section so
           // they inherit the correct preferred/required importance from their heading.
           const text = current.textContent?.trim();
-          if (text && text.length >= 15 && text.length <= 260 && (!current.querySelector(headingSelector))) {
+          // Pay, location, and equal-opportunity lines often sit right under a
+          // requirements list; they are never requirements.
+          const isBoilerplate = /[$£€]\s?\d|\b(salary|compensation|pay range|base pay|equity|benefits|equal opportunity|visa|relocat\w*)\b/i.test(text ?? '');
+          if (text && text.length >= 15 && text.length <= 260 && !isBoilerplate && (!current.querySelector(headingSelector))) {
             sectionItems.push(text);
           }
         } else {
@@ -113,7 +108,12 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
     }
 
     if (sectionItems.length > 0) {
-      if (sectionType === 'responsibilities') {
+      if (sectionType === 'context') {
+        // Benefits, process, stack, about-us: not requirements, nothing to record.
+      } else if (keepOnlyQualifications) {
+        const qualifications = sectionItems.filter(looksLikeQualification);
+        if (qualifications.length > 0) requirements.push(...normalizeRequirementsList(qualifications, 'required'));
+      } else if (sectionType === 'responsibilities') {
         responsibilities.push(...sectionItems);
       } else if (sectionType === 'preferred') {
         requirements.push(...normalizeRequirementsList(sectionItems, 'preferred'));
@@ -173,6 +173,40 @@ export function extractStructuredSections(container: Element): NormalizedJobSect
   }
 
   return { responsibilities, requirements };
+}
+
+/** What a section heading introduces. */
+export type SectionKind = 'required' | 'preferred' | 'responsibilities' | 'context' | 'unknown';
+
+/**
+ * Places a section heading. Wording comes from real postings: "What else will help you
+ * be successful" (PlanetScale), "You should apply if" and "What you'll be working on"
+ * (Monzo), "The ideal candidate for the role" and "As part of this role, you will"
+ * (Mercury). Order matters: "What you will need" is a requirement even though it
+ * contains "you will".
+ */
+export function classifySectionHeading(headingText: string): SectionKind {
+  const text = headingText.toLowerCase().replace(/[’']/g, "'");
+  if (/\b(nice[\s-]+to[\s-]+haves?|preferred|bonus|bonus points|plus(es)?|desirable|optional|what else|will help you|would be (great|nice|a plus)|extra credit|even better|stand out|ideally)\b/.test(text)) {
+    return 'preferred';
+  }
+  if (/\b(requirements?|qualifications?|what you (bring|need|have)|you will need|you'll need|must[\s-]+haves?|who you are|about you|you should apply|ideal candidate|attributes|describe you|you have|skills|experience|we're looking for|looking for (someone|you)|what we('re| are) looking for)\b/.test(text)) {
+    return 'required';
+  }
+  if (/\b(responsibilit\w*|duties|what you('ll| will) (do|own|build)|you will|you'll|job to be done|day[\s-]+to[\s-]+day|your impact|in this role|part of this role|the role|about the role|your mission|working on|what you'll work on)\b/.test(text)) {
+    return 'responsibilities';
+  }
+  if (/\b(benefits?|perks?|in it for you|why (join|work|us|\w+$)|interview|process|how we work|about us|about \w+$|compensation|salary|pay|equal opportunit\w*|diversity|tech stack|our stack|technolog\w*|location|where you'll work|culture|values)\b/.test(text)) {
+    return 'context';
+  }
+  return 'unknown';
+}
+
+/** True for bullet text that states something a candidate has, rather than a duty or perk. */
+export function looksLikeQualification(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (/^(you will|you'll|we will|we'll|we offer|we provide|own |build |design |lead |partner |work with|help )/.test(lower)) return false;
+  return /\b(experience|years?|proficien\w*|knowledge|familiar\w*|understanding|skills?|degree|ability|able to|expert\w*|fluent|you have|you are|you're|background in|comfortable with|track record)\b/.test(lower);
 }
 
 /**
@@ -248,12 +282,14 @@ export function classifyRequirementCategory(text: string): RequirementCategory {
  * Extracts explicit minimum years of experience required from text statements.
  */
 export function extractYearsRequired(text: string): number | undefined {
-  const match = text.match(/(\d+)\+?\s*years?/i);
-  if (match && match[1]) {
-    const years = parseInt(match[1], 10);
-    return isNaN(years) ? undefined : years;
-  }
-  return undefined;
+  // A range ("3-7 years", "3 to 7 years") asks for its lower bound. Reading only the
+  // number next to "years" turned Mercury's "3-7 years" into a 7-year requirement.
+  const range = text.match(/(\d+)\s*(?:-|–|—|to)\s*\d+\s*\+?\s*years?/i);
+  const single = text.match(/(\d+)\s*\+?\s*years?/i);
+  const value = range?.[1] ?? single?.[1];
+  if (!value) return undefined;
+  const years = parseInt(value, 10);
+  return Number.isNaN(years) ? undefined : years;
 }
 
 /**

@@ -14,6 +14,8 @@ export interface DryRunAction {
   readonly id: ActionId;
   readonly action: BrowserAction;
   readonly fieldId?: FieldId;
+  /** The question as the page labels it ("First Name", "Why do you want to work here?"). */
+  readonly fieldLabel?: string;
   /** Value currently in the DOM input prior to action. */
   readonly currentValue: string;
   /** Value to be inserted by this action. */

@@ -104,20 +104,6 @@ export const AI_PHRASING_PATTERNS = [
   /^\s*[-•]\s+/m,
 ] as const;
 
-export function createWritingStyleProfile(
-  id: WritingStyleProfileId,
-  overrides: Partial<WritingStyleProfile> = {}
-): WritingStyleProfile {
-  const now = new Date().toISOString();
-  return {
-    ...DEFAULT_WRITING_STYLE,
-    id,
-    ...overrides,
-    createdAt: overrides.createdAt ?? now,
-    lastUpdated: now,
-  };
-}
-
 export function extractWritingFeatures(text: string): WritingStyleFeatures {
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
   const words = text.split(/\s+/).filter(w => w.length > 0);
@@ -202,19 +188,19 @@ export function validateWritingQuality(text: string, profile: WritingStyleProfil
   }
 
   if (features.emDashFrequency > 0.005) {
-    violations.push('Em dashes detected — avoid as stylistic device');
+    violations.push('Em dashes detected. Avoid as stylistic device');
   }
 
   if (features.colonFrequency > 0.01) {
-    violations.push('Colon-based constructions detected — avoid as stylistic device');
+    violations.push('Colon-based constructions detected. Avoid as stylistic device');
   }
 
   if (features.bulletPointFrequency > 0.1) {
-    violations.push('Bullet points detected in plain answer — avoid unless format requires');
+    violations.push('Bullet points detected in plain answer. Avoid unless format requires');
   }
 
   if (features.headingFrequency > 0.05) {
-    violations.push('Headings detected in plain answer — avoid unless format requires');
+    violations.push('Headings detected in plain answer. Avoid unless format requires');
   }
 
   if (features.corporatePhraseFrequency > 0.02) {
@@ -264,4 +250,48 @@ export function validateWritingQuality(text: string, profile: WritingStyleProfil
     violations,
     suggestions,
   };
+}
+/**
+ * Stock phrases that readers recognize as template or machine writing in cover letters
+ * and screening answers. Generated text is tested against this list so it never ships.
+ */
+export const STOCK_LETTER_PHRASES: readonly RegExp[] = [
+  /\bI am writing to express\b/i,
+  /\bstrong interest in\b/i,
+  /\bconsistently focused on\b/i,
+  /\btangible,? high-impact\b/i,
+  /\bhigh-impact outcomes\b/i,
+  /\bengineering (initiatives|demands|goals)\b/i,
+  /\bverified (experience|background)\b/i,
+  /\bcommitment to (writing|excellence|quality)\b/i,
+  /\bcollaborating cross-functionally\b/i,
+  /\bdirectly prepared me\b/i,
+  /\bI am excited by the opportunity\b/i,
+  /\bthank you for your time and consideration\b/i,
+  /\bmy technical background includes\b/i,
+  /\bteam's ongoing\b/i,
+  /\bwelcome the opportunity to discuss\b/i,
+];
+
+/**
+ * Lists every stock, filler, or AI-style phrase found in the text, plus em dashes.
+ * Empty when the text reads like something a person wrote.
+ */
+export function findAiPhrasing(text: string): string[] {
+  const found: string[] = [];
+  const patterns: readonly RegExp[] = [...FORBIDDEN_PATTERNS, ...CORPORATE_FILLER_PATTERNS, ...STOCK_LETTER_PHRASES];
+  for (const pattern of patterns) {
+    const probe = new RegExp(pattern.source, pattern.flags.replace('g', ''));
+    const match = text.match(probe);
+    if (match) found.push(match[0]);
+  }
+  for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
+    for (const pattern of AI_PHRASING_PATTERNS) {
+      if (pattern.source === '—' || pattern.source.includes('[-•]')) continue;
+      const match = sentence.trim().match(pattern);
+      if (match) found.push(match[0]);
+    }
+  }
+  if (text.includes('—')) found.push('—');
+  return found;
 }

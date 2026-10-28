@@ -1,5 +1,5 @@
 /**
- * @fileoverview Content Script ATS Submission Confirmation Observer (Phase 20, ADR-0032).
+ * @fileoverview Content Script ATS Submission Confirmation Observer (ADR-0032).
  *
  * Runs in the webpage context to detect when the candidate has successfully submitted
  * an application on the ATS and reached the confirmation / thank-you view:

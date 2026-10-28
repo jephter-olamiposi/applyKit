@@ -4,6 +4,7 @@ import {
   generateResumeDocxBlob,
   generateCoverLetterDocxBlob,
   getStandardResumeFilename,
+  getApplicationFolderName,
   createEmptyProfile,
   createProfileId,
   type TailoredResume,
@@ -154,6 +155,17 @@ describe('DOCX Resume & Cover Letter Exporter Suite (ADR-0043, SKILL.md)', () =>
     it('falls back to Resume.docx when profile is undefined', () => {
       expect(getStandardResumeFilename(undefined, 'docx')).toBe('Resume.docx');
     });
+
+    it('keeps the surname when the preferred name is a single word', () => {
+      const oneWord = { ...sampleProfile, identity: { ...sampleProfile.identity, preferredName: 'Jephter' } };
+      expect(getStandardResumeFilename(oneWord, 'pdf')).toBe('Jephter_Olaifa_Resume.pdf');
+    });
+
+    it('puts each application in its own folder under Downloads', () => {
+      expect(getApplicationFolderName('Monzo', 'Senior Backend Engineer')).toBe('ApplyKit/Monzo - Senior Backend Engineer');
+      expect(getApplicationFolderName('Unknown Company', 'Engineer: Platform/Infra')).toBe('ApplyKit/Engineer Platform Infra');
+      expect(getApplicationFolderName(undefined, undefined)).toBe('ApplyKit');
+    });
   });
 
   describe('generateResumeDocxBlob', () => {
@@ -206,6 +218,15 @@ describe('DOCX Resume & Cover Letter Exporter Suite (ADR-0043, SKILL.md)', () =>
   });
 
   describe('generateCoverLetterDocxBlob', () => {
+    it('puts the sign-off on its own lines (Word ignores newlines inside a run)', async () => {
+      const blob = await generateCoverLetterDocxBlob(sampleCoverLetter, sampleProfile);
+      const xml = (await (await JSZip.loadAsync(await blob.arrayBuffer())).file('word/document.xml')?.async('string')) ?? '';
+      const closing = xml.slice(xml.indexOf('Thank you for your consideration.'));
+      expect(closing.indexOf('<w:br/>')).toBeGreaterThan(-1);
+      expect(closing.indexOf('<w:br/>')).toBeLessThan(closing.indexOf('Sincerely,'));
+      expect(xml).not.toContain('consideration.\n');
+    });
+
     it('generates valid DOCX blob for tailored cover letter', async () => {
       const blob = await generateCoverLetterDocxBlob(sampleCoverLetter, sampleProfile);
 

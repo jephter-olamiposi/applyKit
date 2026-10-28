@@ -13,7 +13,6 @@ import {
   deleteDatabase,
   STORES,
   type StoreName,
-  getIndexedDbFactory,
 } from './indexeddb.js';
 import { clearAllApiKeys, getApiKeysStatus } from './credential-store.js';
 import { APPLYKIT_STORAGE_KEYS } from './storage-keys.js';

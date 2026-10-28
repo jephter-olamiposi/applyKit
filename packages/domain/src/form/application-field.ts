@@ -19,6 +19,8 @@ export interface ApplicationField {
   readonly fieldType: FieldType;
   readonly label: string;
   readonly placeholder?: string;
+  /** Character limit the page enforces (the input's maxlength), when it sets one. */
+  readonly maxLength?: number;
   readonly name?: string;
   readonly isRequired: boolean;
   /** Available choices for select dropdowns, radio buttons, or checkbox options. */

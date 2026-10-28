@@ -17,7 +17,6 @@ import type {
   ImportBackupResponse,
   ExportProfileYamlResponse,
   ImportProfileYamlResponse,
-  PurgeAllDataResponse,
   IngestResumeRequest,
   IngestResumeResponse,
 } from '../../messages/contracts.js';
@@ -29,18 +28,20 @@ import {
   bootstrapProfileFromResume,
   type CandidateProfile,
   type CandidateSkill,
-  type SavedAnswer,
   type EmploymentPreference,
   type SkillCategory,
   type SkillProficiency,
   type TargetSeniority,
+  formatPlace,
 } from '@applykit/domain';
+
+/** Answer to a yes/no question, or '' when the candidate hasn't answered. */
+type YesNo = 'yes' | 'no' | '';
 
 interface ProfileSummaryProps {
   readonly profile: CandidateProfileSummary | null;
   readonly loading: boolean;
   readonly onProfileUpdated: () => void;
-  readonly onPurged?: () => void;
 }
 
 interface SkillDraft {
@@ -58,7 +59,6 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
   profile,
   loading,
   onProfileUpdated,
-  onPurged,
 }) => {
   const [fullProfile, setFullProfile] = useState<CandidateProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -79,8 +79,10 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
   const [editPostalCode, setEditPostalCode] = useState('');
 
   // Work Authorization Form States
-  const [editIsAuthorized, setEditIsAuthorized] = useState(true);
-  const [editRequiresSponsorship, setEditRequiresSponsorship] = useState(false);
+  // '' means "not answered yet"; the form filler leaves these questions for the candidate
+  // until both are answered here.
+  const [editIsAuthorized, setEditIsAuthorized] = useState<YesNo>('');
+  const [editRequiresSponsorship, setEditRequiresSponsorship] = useState<YesNo>('');
   const [editVisaStatus, setEditVisaStatus] = useState('');
 
   // Compensation & Availability Form States
@@ -105,7 +107,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
   // Master Resume Hub State
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [newResumeText, setNewResumeText] = useState('');
-  const [newResumeFileName, setNewResumeFileName] = useState('');
+  const [, setNewResumeFileName] = useState('');
   const [isIngestingResume, setIsIngestingResume] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -144,8 +146,9 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
     setEditAddressLine1(p.identity.location?.addressLine1 || '');
     setEditPostalCode(p.identity.location?.postalCode || '');
 
-    setEditIsAuthorized(p.identity.workAuthorization?.isAuthorizedInCountry ?? false);
-    setEditRequiresSponsorship(p.identity.workAuthorization?.requiresSponsorship ?? false);
+    const confirmed = p.identity.workAuthorization?.confirmedByCandidate === true;
+    setEditIsAuthorized(confirmed ? (p.identity.workAuthorization.isAuthorizedInCountry ? 'yes' : 'no') : '');
+    setEditRequiresSponsorship(confirmed ? (p.identity.workAuthorization.requiresSponsorship ? 'yes' : 'no') : '');
     setEditVisaStatus(p.identity.workAuthorization?.visaStatus || '');
 
     setEditSalaryMin(p.professional.compensationExpectation?.targetSalaryMin ?? '');
@@ -238,8 +241,9 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
             postalCode: editPostalCode.trim() || undefined,
           },
           workAuthorization: {
-            isAuthorizedInCountry: editIsAuthorized,
-            requiresSponsorship: editRequiresSponsorship,
+            isAuthorizedInCountry: editIsAuthorized === 'yes',
+            requiresSponsorship: editRequiresSponsorship === 'yes',
+            confirmedByCandidate: editIsAuthorized !== '' && editRequiresSponsorship !== '',
             visaStatus: editVisaStatus.trim() || undefined,
             authorizedCountries: editCountry.trim() ? [editCountry.trim()] : [],
           },
@@ -279,13 +283,13 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
       if (saveRes && saveRes.success) {
         setFullProfile(updatedProfile);
         setIsEditing(false);
-        setActionStatus('Profile successfully updated.');
+        setActionStatus('Saved.');
         onProfileUpdated();
       } else {
-        setActionStatus(`Error saving profile: ${saveRes?.error || 'Unknown error'}`);
+        setActionStatus(`Could not save: ${saveRes?.error || 'try again.'}`);
       }
     } catch (err) {
-      setActionStatus(`Error saving profile: ${err instanceof Error ? err.message : String(err)}`);
+      setActionStatus(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }
@@ -308,11 +312,11 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
       if (res && res.success) {
         setFullProfile(updated);
-        setActionStatus('Saved answer removed from profile.');
+        setActionStatus('Answer deleted.');
         onProfileUpdated();
       }
     } catch (err) {
-      setActionStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setActionStatus(`Something went wrong: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -334,12 +338,12 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        setActionStatus('Backup JSON downloaded successfully.');
+        setActionStatus('Backup downloaded.');
       } else {
-        setActionStatus(`Export error: ${res?.error || 'Failed to export backup'}`);
+        setActionStatus(`Could not create the backup: ${res?.error || 'try again.'}`);
       }
     } catch (err) {
-      setActionStatus(`Export error: ${err instanceof Error ? err.message : String(err)}`);
+      setActionStatus(`Could not create the backup: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -358,14 +362,14 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         >({ type: 'IMPORT_BACKUP', jsonString });
 
         if (res && res.success) {
-          setActionStatus('Backup restored successfully.');
+          setActionStatus('Backup restored.');
           await loadFullProfile();
           onProfileUpdated();
         } else {
-          setActionStatus(`Import failed: ${res?.error || 'Malformed backup file'}`);
+          setActionStatus(`Could not restore: ${res?.error || 'the file does not look like an ApplyKit backup.'}`);
         }
       } catch (err) {
-        setActionStatus(`Import error: ${err instanceof Error ? err.message : String(err)}`);
+        setActionStatus(`Could not restore: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     reader.readAsText(file);
@@ -390,12 +394,12 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        setActionStatus(`profile.yaml downloaded successfully (${res.filename || 'profile.yaml'}).`);
+        setActionStatus(`Downloaded ${res.filename || 'profile.yaml'}.`);
       } else {
-        setActionStatus(`Export YAML error: ${res?.error || 'Failed to export YAML'}`);
+        setActionStatus(`Could not export: ${res?.error || 'try again.'}`);
       }
     } catch (err) {
-      setActionStatus(`Export YAML error: ${err instanceof Error ? err.message : String(err)}`);
+      setActionStatus(`Could not export: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -414,46 +418,18 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         >({ type: 'IMPORT_PROFILE_YAML', yamlContent });
 
         if (res && res.success) {
-          setActionStatus('profile.yaml imported and merged successfully.');
+          setActionStatus('Profile imported.');
           await loadFullProfile();
           onProfileUpdated();
         } else {
-          setActionStatus(`YAML Import failed: ${res?.error || 'Malformed YAML file'}`);
+          setActionStatus(`Could not import: ${res?.error || 'the file is not valid YAML.'}`);
         }
       } catch (err) {
-        setActionStatus(`YAML Import error: ${err instanceof Error ? err.message : String(err)}`);
+        setActionStatus(`Could not import: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     reader.readAsText(file);
     e.target.value = '';
-  };
-
-  const handlePurge = async () => {
-    if (
-      !window.confirm(
-        'Are you sure you want to permanently delete all local candidate data, evidence, and configured keys? This cannot be undone.'
-      )
-    ) {
-      return;
-    }
-
-    setActionStatus(null);
-    try {
-      const res = await sendToBackground<
-        { type: 'PURGE_ALL_DATA' },
-        PurgeAllDataResponse
-      >({ type: 'PURGE_ALL_DATA' });
-
-      if (res && res.success) {
-        setActionStatus('All local candidate data wiped.');
-        onProfileUpdated();
-        onPurged?.();
-      } else {
-        setActionStatus(`Purge error: ${res?.error || 'Unknown error'}`);
-      }
-    } catch (err) {
-      setActionStatus(`Purge error: ${err instanceof Error ? err.message : String(err)}`);
-    }
   };
 
   const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -475,7 +451,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         setNewResumeText(text);
       }
     } catch (err) {
-      setActionStatus(`Failed to read resume file: ${err instanceof Error ? err.message : String(err)}`);
+      setActionStatus(`Could not read that file: ${err instanceof Error ? err.message : String(err)}`);
     }
     e.target.value = '';
   };
@@ -491,7 +467,7 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
       });
       if (res && res.success) {
         setActionStatus(
-          `Master resume re-indexed: ${res.evidenceCount ?? 0} evidence items and ${res.claimsCount ?? 0} verified claims.`
+          `Resume updated. ApplyKit read ${res.evidenceCount ?? 0} lines from it.`
         );
         setShowResumeModal(false);
         setNewResumeText('');
@@ -499,10 +475,10 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
         await loadFullProfile();
         onProfileUpdated();
       } else {
-        setActionStatus(`Resume update failed: ${res?.error || 'Unknown error'}`);
+        setActionStatus(`Could not use this resume: ${res?.error || 'try again.'}`);
       }
     } catch (err) {
-      setActionStatus(`Resume ingest error: ${err instanceof Error ? err.message : String(err)}`);
+      setActionStatus(`Could not use this resume: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsIngestingResume(false);
     }
@@ -516,15 +492,11 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
 
   return (
     <div className="profile-summary-container">
-      {actionStatus && (
-        <div className="status-banner">
-          <p className="status-text">{actionStatus}</p>
-        </div>
-      )}
+      {actionStatus && <div className="ui-note" role="status" style={{ marginBottom: 12 }}>{actionStatus}</div>}
 
       {isEditing ? (
         <form onSubmit={handleSave} className="profile-edit-form">
-          <h3 className="section-title">Edit Candidate Profile</h3>
+          <h3 className="section-title">Edit your profile</h3>
 
           {/* Section: Basic Identity */}
           <div className="form-section-card">
@@ -673,26 +645,29 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
           {/* Section: Work Authorization */}
           <div className="form-section-card">
             <h4 className="form-section-title">Work authorization</h4>
-            <div className="form-checkbox-row">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={editIsAuthorized}
-                  onChange={(e) => setEditIsAuthorized(e.target.checked)}
-                />
-                Legally authorized to work in resident country
-              </label>
-            </div>
-            <div className="form-checkbox-row">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={editRequiresSponsorship}
-                  onChange={(e) => setEditRequiresSponsorship(e.target.checked)}
-                />
-                Requires visa sponsorship now or in the future
-              </label>
-            </div>
+            <p className="ui-subtle" style={{ marginBottom: 8 }}>
+              ApplyKit only answers these on forms once you've answered them here.
+            </p>
+            <label className="form-group">
+              <span className="form-label">Can you legally work in the country you live in?</span>
+              <select className="ui-select" value={editIsAuthorized} onChange={(e) => setEditIsAuthorized(e.target.value as YesNo)}>
+                <option value="">Not answered</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <label className="form-group">
+              <span className="form-label">Will you need visa sponsorship, now or later?</span>
+              <select
+                className="ui-select"
+                value={editRequiresSponsorship}
+                onChange={(e) => setEditRequiresSponsorship(e.target.value as YesNo)}
+              >
+                <option value="">Not answered</option>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </label>
             <div className="form-group" style={{ marginTop: '8px' }}>
               <label className="form-label">Visa / Citizenship Status (Optional)</label>
               <input
@@ -972,133 +947,130 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
           </div>
         </form>
       ) : (
-        <div className="profile-summary-card">
-          <div className="profile-header">
-            <div>
-              <h2 className="profile-name">{profile?.fullName || 'Candidate'}</h2>
-              <p className="profile-headline">{profile?.headline || 'No headline set'}</p>
-              {profile?.email && <p className="profile-email">{profile.email}</p>}
-              {fullProfile?.identity?.phone && (
-                <p className="profile-email">{fullProfile.identity.phone}</p>
-              )}
-              {fullProfile?.identity?.location && (
-                <p className="profile-email">
-                  {[
-                    fullProfile.identity.location.city,
-                    fullProfile.identity.location.stateOrProvince,
-                    fullProfile.identity.location.country,
-                  ]
-                    .filter(Boolean)
-                    .join(', ')}
-                </p>
-              )}
-            </div>
-            <div className="profile-header-actions">
-              <span
-                className={`badge ${
-                  profile?.isComplete ? 'badge-success' : 'badge-warning'
-                }`}
-              >
-                {profile?.isComplete ? 'Verified Profile' : 'Setup Incomplete'}
-              </span>
-              <button
-                type="button"
-                className="btn btn-small btn-secondary"
-                onClick={startEdit}
-                style={{ marginTop: '0.5rem' }}
-              >
-                Edit profile
+        <div className="ui-stack">
+          <section className="ui-card ui-stack" style={{ gap: 8 }} aria-label="About you">
+            <div className="ui-spread" style={{ alignItems: 'flex-start' }}>
+              <div>
+                <h2 className="ui-title">{profile?.fullName || 'Your name'}</h2>
+                <p className="ui-text">{profile?.headline || 'Add your current role'}</p>
+              </div>
+              <button type="button" className="ui-btn ui-btn-sm" onClick={startEdit}>
+                Edit
               </button>
             </div>
-          </div>
+            <dl className="ui-facts">
+              <dt>Email</dt>
+              <dd>{profile?.email || 'Not set'}</dd>
+              <dt>Phone</dt>
+              <dd>{fullProfile?.identity?.phone || 'Not set'}</dd>
+              <dt>Location</dt>
+              <dd>
+                {formatPlace([
+                  fullProfile?.identity?.location?.city,
+                  fullProfile?.identity?.location?.stateOrProvince,
+                  fullProfile?.identity?.location?.country,
+                ]) || 'Not set'}
+              </dd>
+              <dt>Work permit</dt>
+              <dd>
+                {fullProfile?.identity?.workAuthorization?.confirmedByCandidate
+                  ? `${fullProfile.identity.workAuthorization.isAuthorizedInCountry ? 'Can work where you live' : 'Cannot work where you live'}, ${
+                      fullProfile.identity.workAuthorization.requiresSponsorship ? 'needs sponsorship' : 'no sponsorship needed'
+                    }`
+                  : 'Not answered yet'}
+              </dd>
+              {fullProfile?.professional?.compensationExpectation?.targetSalaryMin ? (
+                <>
+                  <dt>Salary floor</dt>
+                  <dd>
+                    {fullProfile.professional.compensationExpectation.currency || 'USD'}{' '}
+                    {fullProfile.professional.compensationExpectation.targetSalaryMin.toLocaleString()} a year
+                  </dd>
+                </>
+              ) : null}
+              {fullProfile?.professional?.noticePeriodDays != null && (
+                <>
+                  <dt>Notice</dt>
+                  <dd>{fullProfile.professional.noticePeriodDays === 0 ? 'Can start now' : `${fullProfile.professional.noticePeriodDays} days`}</dd>
+                </>
+              )}
+            </dl>
+            {!fullProfile?.identity?.location?.country?.trim() && (
+              <div className="ui-note ui-note-warn">
+                Add your country. Without it ApplyKit cannot tell which remote jobs are open to you.{' '}
+                <button type="button" className="ui-link" onClick={startEdit}>
+                  Add it
+                </button>
+              </div>
+            )}
+            {!fullProfile?.identity?.workAuthorization?.confirmedByCandidate && (
+              <div className="ui-note ui-note-warn">
+                Answer the work permit questions so ApplyKit can fill them on forms.{' '}
+                <button type="button" className="ui-link" onClick={startEdit}>
+                  Answer now
+                </button>
+              </div>
+            )}
+            {(fullProfile?.links?.linkedin || fullProfile?.links?.github || fullProfile?.links?.portfolio) && (
+              <div className="ui-row" style={{ gap: 12 }}>
+                {fullProfile.links.linkedin && (
+                  <a className="ui-link" href={fullProfile.links.linkedin} target="_blank" rel="noreferrer">
+                    LinkedIn
+                  </a>
+                )}
+                {fullProfile.links.github && (
+                  <a className="ui-link" href={fullProfile.links.github} target="_blank" rel="noreferrer">
+                    GitHub
+                  </a>
+                )}
+                {fullProfile.links.portfolio && (
+                  <a className="ui-link" href={fullProfile.links.portfolio} target="_blank" rel="noreferrer">
+                    Website
+                  </a>
+                )}
+              </div>
+            )}
+          </section>
 
-          {/* Key Attributes Overview */}
-          <div className="profile-stats-grid">
-            <div className="stat-card">
-              <span className="stat-value">{profile?.skillsCount ?? 0}</span>
-              <span className="stat-label">Verified Skills</span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-value">{profile?.experienceCount ?? 0}</span>
-              <span className="stat-label">Positions</span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-value">{savedAnswersList.length}</span>
-              <span className="stat-label">Saved Answers</span>
-            </div>
-          </div>
-
-          {/* Master Resume & Evidence Grounding Hub */}
           {(() => {
-            const masterDoc = fullProfile?.documents?.find(
-              (d) => d.isPrimaryResume || d.documentType === 'resume'
-            );
+            const masterDoc = fullProfile?.documents?.find((d) => d.isPrimaryResume || d.documentType === 'resume');
             return (
-              <div
-                className="master-resume-card"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  marginTop: '10px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#f1f5f9' }}>
-                        Master Resume & Grounded Evidence
-                      </h4>
-                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#94a3b8' }}>
-                        {masterDoc
-                          ? `${masterDoc.fileName} • ${Math.max(1, Math.round(masterDoc.byteSize / 1024))} KB • Evidence-grounded`
-                          : 'No master resume attached'}
-                      </p>
-                    </div>
+              <section className="ui-card ui-stack" style={{ gap: 8 }} aria-label="Your resume">
+                <div className="ui-spread">
+                  <div>
+                    <h3 className="ui-card-title">Your resume</h3>
+                    <p className="ui-subtle">
+                      {masterDoc
+                        ? `${masterDoc.fileName} · ${profile?.experienceCount ?? 0} roles · ${profile?.skillsCount ?? 0} skills`
+                        : 'No resume added yet'}
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-small btn-secondary"
-                    onClick={() => setShowResumeModal(!showResumeModal)}
-                    style={{ fontSize: '11px' }}
-                  >
-                    {showResumeModal ? 'Close' : (masterDoc ? 'Replace resume' : 'Upload resume')}
+                  <button type="button" className="ui-btn ui-btn-sm" onClick={() => setShowResumeModal(!showResumeModal)}>
+                    {showResumeModal ? 'Close' : masterDoc ? 'Replace' : 'Add'}
                   </button>
                 </div>
 
                 {showResumeModal && (
-                  <div
-                    style={{
-                      marginTop: '12px',
-                      paddingTop: '12px',
-                      borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                    }}
-                  >
-                    <label style={{ fontSize: '11px', fontWeight: 600, color: '#cbd5e1' }}>
-                      Upload New Resume (.pdf, .png, .jpg, .txt, .md, .json) or Paste Below:
+                  <div className="ui-stack" style={{ gap: 8 }}>
+                    <label>
+                      <span className="ui-label">Upload a PDF, Word file, image or text file</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.txt,.md,.text,.json,application/pdf,image/*"
+                        onChange={handleResumeUpload}
+                      />
                     </label>
-                    <input
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.text,.json,application/pdf,image/*"
-                      onChange={handleResumeUpload}
-                      style={{ fontSize: '11px', color: '#94a3b8' }}
-                    />
                     <textarea
-                      className="form-textarea"
-                      rows={5}
-                      placeholder="Or paste full plain-text resume here..."
+                      className="ui-textarea"
+                      rows={6}
+                      placeholder="Or paste your resume text"
                       value={newResumeText}
                       onChange={(e) => setNewResumeText(e.target.value)}
-                      style={{ fontSize: '11px' }}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <div className="ui-row" style={{ justifyContent: 'flex-end' }}>
                       <button
                         type="button"
-                        className="btn btn-small btn-secondary"
+                        className="ui-btn ui-btn-sm"
                         onClick={() => {
                           setShowResumeModal(false);
                           setNewResumeText('');
@@ -1109,191 +1081,68 @@ export const ProfileSummary: React.FC<ProfileSummaryProps> = ({
                       </button>
                       <button
                         type="button"
-                        className="btn btn-small btn-primary"
+                        className="ui-btn ui-btn-sm ui-btn-primary"
                         onClick={handleApplyResumeUpdate}
                         disabled={isIngestingResume || !newResumeText.trim()}
                       >
-                        {isIngestingResume ? 'Re-indexing...' : 'Re-index evidence'}
+                        {isIngestingResume ? 'Reading...' : 'Use this resume'}
                       </button>
                     </div>
                   </div>
                 )}
 
                 {masterDoc?.extractedText && !showResumeModal && (
-                  <div style={{ marginTop: '8px' }}>
-                    <details style={{ fontSize: '11px', color: '#cbd5e1' }}>
-                      <summary style={{ cursor: 'pointer', color: '#60a5fa' }}>
-                        View Extracted Resume Text ({masterDoc.extractedText.split(/\s+/).length} words)
-                      </summary>
-                      <pre
-                        style={{
-                          marginTop: '6px',
-                          padding: '8px',
-                          background: 'rgba(0, 0, 0, 0.3)',
-                          borderRadius: '4px',
-                          maxHeight: '140px',
-                          overflowY: 'auto',
-                          fontSize: '11px',
-                          lineHeight: '1.4',
-                          whiteSpace: 'pre-wrap',
-                          color: '#e2e8f0',
-                        }}
-                      >
-                        {masterDoc.extractedText}
-                      </pre>
-                    </details>
-                  </div>
+                  <details className="ui-details">
+                    <summary>See the text ApplyKit read ({masterDoc.extractedText.split(/\s+/).length} words)</summary>
+                    <div className="ui-pre">{masterDoc.extractedText}</div>
+                  </details>
                 )}
-              </div>
+              </section>
             );
           })()}
 
-          {/* Work Authorization & Compensation Badges */}
-          <div className="profile-details-strip">
-            <div className="detail-item">
-              <span className="detail-label">Work Auth:</span>
-              <span className="detail-val">
-                {fullProfile?.identity?.workAuthorization?.isAuthorizedInCountry ? 'Authorized' : 'Not confirmed'}
-              </span>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Sponsorship:</span>
-              <span className="detail-val">
-                {fullProfile?.identity?.workAuthorization?.requiresSponsorship ? 'Required' : 'Not required'}
-              </span>
-            </div>
-            {fullProfile?.professional?.compensationExpectation?.targetSalaryMin && (
-              <div className="detail-item">
-                <span className="detail-label">Target Salary:</span>
-                <span className="detail-val">
-                  {fullProfile.professional.compensationExpectation.currency || 'USD'} {fullProfile.professional.compensationExpectation.targetSalaryMin.toLocaleString()}
-                </span>
-              </div>
-            )}
-            {fullProfile?.professional?.noticePeriodDays != null && (
-              <div className="detail-item">
-                <span className="detail-label">Notice:</span>
-                <span className="detail-val">
-                  {fullProfile.professional.noticePeriodDays === 0 ? 'Immediate' : `${fullProfile.professional.noticePeriodDays} days`}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Links Row */}
-          {(fullProfile?.links?.linkedin || fullProfile?.links?.github || fullProfile?.links?.portfolio) && (
-            <div className="profile-links-row">
-              {fullProfile.links.linkedin && (
-                <a href={fullProfile.links.linkedin} target="_blank" rel="noreferrer" className="profile-link-badge">
-                  LinkedIn
-                </a>
-              )}
-              {fullProfile.links.github && (
-                <a href={fullProfile.links.github} target="_blank" rel="noreferrer" className="profile-link-badge">
-                  GitHub
-                </a>
-              )}
-              {fullProfile.links.portfolio && (
-                <a href={fullProfile.links.portfolio} target="_blank" rel="noreferrer" className="profile-link-badge">
-                  Portfolio
-                </a>
-              )}
-            </div>
-          )}
-
-          {/* Reusable Saved Answers Section */}
-          <div className="saved-answers-section">
-            <h4 className="data-sovereignty-title">
-              Verified saved answers ({savedAnswersList.length})
-            </h4>
-            <p className="saved-answers-desc">
-              These answers resolve automatically in 0ms without hitting external AI or requiring API keys.
+          <section className="ui-card ui-stack" style={{ gap: 8 }} aria-label="Saved answers">
+            <h3 className="ui-card-title">Saved answers ({savedAnswersList.length})</h3>
+            <p className="ui-subtle">
+              Answers you saved from the question helper. ApplyKit reuses them when a form asks the same thing.
             </p>
-
-            {savedAnswersList.length === 0 ? (
-              <p className="no-saved-answers-text">
-                No saved answers yet. Use Instant Q&A to create and save reusable answers.
-              </p>
-            ) : (
-              <div className="saved-answers-list">
+            {savedAnswersList.length > 0 && (
+              <ul className="ui-list">
                 {savedAnswersList.map((ans) => (
-                  <div key={ans.id} className="saved-answer-card">
-                    <div className="saved-answer-header">
-                      <span className="saved-answer-pattern">
-                        {ans.promptPatterns[0] || ans.canonicalKey}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn-delete-answer"
-                        onClick={() => handleDeleteSavedAnswer(ans.id)}
-                        title="Delete saved answer"
-                      >
-                        ×
+                  <li key={ans.id}>
+                    <div className="ui-spread" style={{ alignItems: 'flex-start' }}>
+                      <span style={{ color: 'var(--text)' }}>{ans.promptPatterns[0] || ans.canonicalKey}</span>
+                      <button type="button" className="ui-link" onClick={() => handleDeleteSavedAnswer(ans.id)}>
+                        Delete
                       </button>
                     </div>
-                    <p className="saved-answer-text">{ans.answerText}</p>
-                  </div>
+                    <p className="ui-subtle">{ans.answerText}</p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </section>
 
-          {/* Data Sovereignty & Factory Reset */}
-          <div className="data-sovereignty-section">
-            <h4 className="data-sovereignty-title">Data Sovereignty & Local Backup</h4>
-            <div className="data-sovereignty-actions">
-              <button
-                type="button"
-                className="btn btn-small btn-secondary"
-                onClick={handleExport}
-              >
-                Export Backup (JSON)
+          <details className="ui-details ui-card">
+            <summary>Import or export your profile</summary>
+            <div className="ui-row">
+              <button type="button" className="ui-btn ui-btn-sm" onClick={handleExport}>
+                Download backup
               </button>
-              <label className="btn btn-small btn-secondary file-upload-label">
-                Import Backup
-                <input
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={handleImport}
-                  style={{ display: 'none' }}
-                />
+              <label className="ui-btn ui-btn-sm">
+                Restore backup
+                <input type="file" accept=".json,application/json" onChange={handleImport} style={{ display: 'none' }} />
               </label>
-              <button
-                type="button"
-                className="btn btn-small btn-danger"
-                onClick={handlePurge}
-                title="Wipes all candidate profiles, evidence graph, and API credentials"
-              >
-                Factory Reset / Wipe All
+              <button type="button" className="ui-btn ui-btn-sm" onClick={handleExportYaml}>
+                Export profile.yaml
               </button>
+              <label className="ui-btn ui-btn-sm">
+                Import profile.yaml
+                <input type="file" accept=".yaml,.yml,text/yaml,text/plain" onChange={handleImportYaml} style={{ display: 'none' }} />
+              </label>
             </div>
-
-            {/* Pipeline YAML Interoperability */}
-            <div className="pipeline-yaml-actions" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e5e7eb' }}>
-              <div style={{ fontSize: '11px', color: '#4b5563', marginBottom: '6px', fontWeight: 600 }}>
-                Job Application Pipeline (profile.yaml)
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-small btn-secondary"
-                  onClick={handleExportYaml}
-                  title="Export profile into job-application-pipeline compatible YAML format"
-                >
-                  Export profile
-                </button>
-                <label className="btn btn-small btn-secondary file-upload-label" style={{ cursor: 'pointer' }}>
-                  Import profile.yaml
-                  <input
-                    type="file"
-                    accept=".yaml,.yml,text/yaml,text/plain"
-                    onChange={handleImportYaml}
-                    style={{ display: 'none' }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
+            <p className="ui-subtle" style={{ marginTop: 8 }}>To delete everything, go to Settings.</p>
+          </details>
         </div>
       )}
     </div>

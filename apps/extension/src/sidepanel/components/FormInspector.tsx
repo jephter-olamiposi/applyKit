@@ -1,24 +1,20 @@
 /**
- * @fileoverview Application Form Inspector for Side Panel UI.
+ * @fileoverview The Apply tab: find the application form on the page and fill it.
  *
- * Implements form inspection and field classification interface (ADR-0003, ADR-0006):
- * - Deterministic DOM inspection of active tab application forms.
- * - Automatic classification of inputs against canonical candidate profile schema.
- * - Anti-Autonomous Submit Gate highlighting that submission buttons are blocked.
- * - Honeypot anti-bot trap flagging to protect candidate submissions.
- * - Value mapping preview directly from CandidateProfile without hallucination.
+ * The candidate sees one summary ("9 fields, 6 we can fill") and one main action. Field
+ * detail, the review-each-field plan, and anti-bot notes are available but folded away.
+ * Submission is never automated (ADR-0006): the candidate always presses Submit.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { NextStep } from './NextStep.js';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type {
   ApplicationForm,
   ApplicationField,
   CandidateProfile,
 } from '@applykit/domain';
 import {
-  getFormUnmappedRequiredFields,
-  isFormReadyForDryRun,
-  resolveProfileValueForField,
+  generateDryRunPlan,
 } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
 import type {
@@ -32,28 +28,26 @@ import type {
   ExecuteOneClickAutoFillResponse,
 } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
-import { InstantQuestionSolver } from './InstantQuestionSolver.js';
 
 interface FormInspectorProps {
   onNavigateToTab?: (tab: TabId) => void;
+  /** Called after a field-by-field plan is created so the review list can load it. */
+  onPlanReady?: () => void;
 }
-
-type FieldFilter = 'all' | 'required' | 'unmapped' | 'honeypots';
 
 /**
  * Form Inspector component displaying detected application fields, ATS metadata,
  * Anti-Autonomous Submit status, and candidate profile value previews.
  */
-export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab }) => {
+export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab, onPlanReady }) => {
   const [forms, setForms] = useState<readonly ApplicationForm[]>([]);
   const [selectedFormIndex, setSelectedFormIndex] = useState<number>(0);
   const [isInspecting, setIsInspecting] = useState(false);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [autoFillNotice, setAutoFillNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasScanned, setHasScanned] = useState(false);
   const [profile, setProfile] = useState<CandidateProfile | null>(null);
-  const [filter, setFilter] = useState<FieldFilter>('all');
-  const [searchTerm, setSearchTerm] = useState('');
   const [isPlanning, setIsPlanning] = useState(false);
 
   // Fetch candidate profile for value resolution preview
@@ -88,13 +82,14 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
         setSelectedFormIndex(0);
       } else {
         setForms([]);
-        setError(res.error || 'No job application form detected on the active webpage.');
+        setError(res.error || 'No application form found on this page.');
       }
     } catch (err) {
       setForms([]);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsInspecting(false);
+      setHasScanned(true);
     }
   };
 
@@ -113,11 +108,9 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
       });
 
       if (res.success && res.plan) {
-        if (onNavigateToTab) {
-          onNavigateToTab('prepare_application');
-        }
+        onPlanReady?.();
       } else {
-        setError(res.error || 'Failed to generate dry run plan.');
+        setError(res.error || 'Could not prepare the field list.');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -147,10 +140,10 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
 
       if (res.success && res.report) {
         setAutoFillNotice(
-          `Filled ${res.report.executedCount} fields. Review, then submit manually.`
+          `Filled ${res.report.executedCount} field${res.report.executedCount === 1 ? '' : 's'}. Check the form, then press Submit yourself.`
         );
       } else {
-        setError(res.error || 'Auto-fill encountered an issue.');
+        setError(res.error || 'Some fields could not be filled.');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -160,463 +153,197 @@ export const FormInspector: React.FC<FormInspectorProps> = ({ onNavigateToTab })
   };
 
   const activeForm = forms[selectedFormIndex] ?? null;
-  const unmappedFields = activeForm ? getFormUnmappedRequiredFields(activeForm) : [];
-  const readyForDryRun = activeForm ? isFormReadyForDryRun(activeForm) : false;
 
-  // Filter and search fields
-  const filteredFields = activeForm
-    ? activeForm.fields.filter((field) => {
-        if (filter === 'required' && !field.isRequired) return false;
-        if (filter === 'unmapped') {
-          const isUnmapped = field.isRequired && (!field.inferredMappingKey || field.confidenceScore < 0.5);
-          if (!isUnmapped) return false;
-        }
-        if (filter === 'honeypots' && !field.isHoneypotSuspect) return false;
-
-        if (searchTerm.trim().length > 0) {
-          const term = searchTerm.toLowerCase();
-          const matchLabel = field.label.toLowerCase().includes(term);
-          const matchKey = (field.inferredMappingKey || '').toLowerCase().includes(term);
-          const matchSelector = field.selector.toLowerCase().includes(term);
-          return matchLabel || matchKey || matchSelector;
-        }
-        return true;
-      })
-    : [];
-
-  const honeypotCount = activeForm
-    ? activeForm.fields.filter((f) => f.isHoneypotSuspect).length
-    : 0;
+  // The preview runs the same planner as "Check each field", so what this list says
+  // will go in a field is exactly what the plan will propose.
+  const previewValues = useMemo(() => {
+    const values = new Map<string, string>();
+    if (!activeForm || !profile) return values;
+    try {
+      for (const action of generateDryRunPlan(activeForm, profile).actions) {
+        if (action.fieldId) values.set(action.fieldId, action.candidateValueUsed);
+      }
+    } catch {
+      // A preview is a convenience; the real plan reports its own errors.
+    }
+    return values;
+  }, [activeForm, profile]);
+  const fillable = previewValues.size;
+  // "Answer these yourself" lists required fields the plan will not fill. It used to go
+  // by the field's mapping confidence alone, so a field the planner fills from the
+  // profile ("From where do you intend to work?") was listed as both.
+  const unmappedFields = activeForm ? activeForm.fields.filter((f) => f.isRequired && !previewValues.has(f.id)) : [];
+  const honeypotCount = activeForm ? activeForm.fields.filter((f) => f.isHoneypotSuspect).length : 0;
+  const requiredCount = activeForm ? activeForm.fields.filter((f) => f.isRequired).length : 0;
 
   return (
-    <div className="form-inspector-container">
-      {/* Action Header */}
-      <div className="inspector-header">
-        <div>
-          <h2 className="section-title">Application Form Inspector</h2>
-          <p className="section-subtitle">
-            Inspect active page inputs, verify candidate mappings, and enforce submission safety.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn-primary btn-inspect"
-          disabled={isInspecting}
-          onClick={handleInspect}
-        >
-          {isInspecting ? 'Inspecting DOM...' : 'Inspect Page Form'}
-        </button>
+    <section className="ui-card ui-stack" style={{ gap: 10 }} aria-label="Application form">
+      <div className="ui-spread">
+        <h2 className="ui-card-title">Application form</h2>
+        {activeForm && (
+          <button type="button" className="ui-link" onClick={handleInspect} disabled={isInspecting}>
+            {isInspecting ? 'Scanning...' : 'Scan again'}
+          </button>
+        )}
       </div>
 
-      {error && (
-        <div className="alert-error" role="alert">
-          <p className="alert-title">Inspection Notice</p>
-          <p className="alert-message">{error}</p>
-        </div>
-      )}
-
-      {autoFillNotice && (
-        <div className="alert-autofill-success" role="status">
-          <p className="alert-title">Safe field fill</p>
-          <p className="alert-message">{autoFillNotice}</p>
-        </div>
-      )}
-
-      {activeForm ? (
-        <div className="form-details-wrapper">
-          {/* 1-Click Auto-Fill Hero Banner */}
-          <div className="one-click-autofill-banner">
-            <div className="autofill-banner-text">
-              <span className="autofill-banner-title">Safe field fill</span>
-              <span className="autofill-banner-sub">
-                Answers custom questions with AI, matches your verified profile, and fills all safe inputs sequentially. Strictly halts before submit.
-              </span>
-            </div>
-            <button
-              type="button"
-              className="btn-one-click-autofill"
-              disabled={isAutoFilling || activeForm.fields.length === 0}
-              onClick={handleOneClickAutoFill}
-            >
-              {isAutoFilling ? 'Filling safe fields...' : 'Fill safe fields'}
-            </button>
-          </div>
-
-          {/* Instant Question Solver */}
-          <InstantQuestionSolver className="inspector-instant-solver" />
-
-          {/* Form Selector (if multiple forms on page) */}
-          {forms.length > 1 && (
-            <div className="multi-form-tabs">
-              <span className="multi-form-label">Multiple Forms Detected:</span>
-              <div className="form-chip-group">
-                {forms.map((form, idx) => (
-                  <button
-                    key={form.id}
-                    type="button"
-                    className={`form-chip ${idx === selectedFormIndex ? 'form-chip-active' : ''}`}
-                    onClick={() => setSelectedFormIndex(idx)}
-                  >
-                    Form #{idx + 1} ({form.detectedAts})
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Form Metadata Banner */}
-          <div className="form-meta-card">
-            <div className="meta-row">
-              <div className="meta-col">
-                <span className="meta-label">ATS Platform</span>
-                <span className={`meta-badge ats-badge ats-badge-${activeForm.detectedAts}`}>
-                  {activeForm.detectedAts.toUpperCase()}
-                </span>
-              </div>
-              <div className="meta-col">
-                <span className="meta-label">Total Inputs</span>
-                <span className="meta-value">{activeForm.fields.length}</span>
-              </div>
-              <div className="meta-col">
-                <span className="meta-label">Required</span>
-                <span className="meta-value">
-                  {activeForm.fields.filter((f) => f.isRequired).length}
-                </span>
-              </div>
-              <div className="meta-col">
-                <span className="meta-label">Status</span>
-                <span className={`meta-badge ${readyForDryRun ? 'status-ready' : 'status-pending'}`}>
-                  {readyForDryRun ? 'Ready for Dry Run' : `${unmappedFields.length} Unmapped`}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Authentication Barrier Warning (e.g. Workday Login Gate) */}
-          {activeForm.authBarrier?.isBlocked && (
-            <div className="auth-barrier-card">
-              <div className="auth-barrier-header">
-                <span className="auth-barrier-icon">&#128274;</span>
-                <h4 className="auth-barrier-title">Authentication Barrier Detected</h4>
-              </div>
-              <p className="auth-barrier-text">{activeForm.authBarrier.message}</p>
-              {activeForm.authBarrier.signInButtonSelector && (
-                <div className="auth-barrier-action">
-                  <span className="auth-barrier-label">Sign-In Control:</span>
-                  <code>{activeForm.authBarrier.signInButtonSelector}</code>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Multi-Step Wizard Progression Banner */}
-          {activeForm.stepProgression?.isMultiStep && (
-            <div className="wizard-progression-card">
-              <div className="wizard-progression-header">
-                <span className="wizard-step-badge">
-                  Step {activeForm.stepProgression.currentStepIndex} of {activeForm.stepProgression.totalSteps}
-                </span>
-                {activeForm.stepProgression.stepName && (
-                  <span className="wizard-step-name">{activeForm.stepProgression.stepName}</span>
-                )}
-                {activeForm.stepProgression.isFinalStep ? (
-                  <span className="wizard-final-pill">Final Review Step</span>
-                ) : (
-                  <span className="wizard-inter-pill">Step Navigation</span>
-                )}
-              </div>
-              {activeForm.stepProgression.nextStepButtonSelector && (
-                <div className="wizard-next-step">
-                  <span className="wizard-next-label">Next Step Progression:</span>
-                  <code>{activeForm.stepProgression.nextStepButtonSelector}</code>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Active ATS Validation Errors */}
-          {activeForm.validationErrors && activeForm.validationErrors.length > 0 && (
-            <div className="ats-validation-errors-card">
-              <h4 className="validation-errors-title">
-                {activeForm.validationErrors.length} ATS Validation Notice{activeForm.validationErrors.length > 1 ? 's' : ''}
-              </h4>
-              <ul className="validation-errors-list">
-                {activeForm.validationErrors.map((err, idx) => (
-                  <li key={idx} className="validation-error-item">
-                    {err.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Action Trigger: 1-Click Auto-Fill or Dry Run Plan */}
-          <div className="plan-trigger-card">
-            <div className="plan-trigger-buttons">
-              <button
-                type="button"
-                className="btn-one-click-hero"
-                disabled={isAutoFilling || activeForm.fields.length === 0}
-                onClick={handleOneClickAutoFill}
-              >
-                {isAutoFilling ? 'Filling safe fields...' : 'Fill safe fields'}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary btn-generate-plan"
-                disabled={isPlanning || isAutoFilling || activeForm.fields.length === 0}
-                onClick={handleGeneratePlan}
-              >
-                {isPlanning ? 'Formulating Plan...' : 'Review Dry Run Plan First'}
-              </button>
-            </div>
-            <p className="plan-trigger-hint">
-              Safe fields are filled in sequence and the process stops before submission for your review.
-            </p>
-          </div>
-
-          {/* Anti-Autonomous Submit Gate Card (Invariant: ADR-0006) */}
-          <div className="submit-gate-card">
-            <div className="gate-icon">&#128737;</div>
-            <div className="gate-content">
-              <div className="gate-header">
-                <h3 className="gate-title">Anti-Autonomous Submit Gate Active</h3>
-                <span className="gate-status-pill">ADR-0006 Compliant</span>
-              </div>
-              <p className="gate-description">
-                ApplyKit is programmatically forbidden from clicking application submit buttons.
-                Form automation stops after filling safe inputs; you review and submit manually.
-              </p>
-              {activeForm.submitButtonSelector ? (
-                <div className="gate-target">
-                  <span className="gate-target-label">Protected Submit Control:</span>
-                  <code className="gate-target-selector">{activeForm.submitButtonSelector}</code>
-                </div>
-              ) : (
-                <p className="gate-no-target">No submit button identified on this form container.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Honeypot Alert Warning */}
-          {honeypotCount > 0 && (
-            <div className="honeypot-alert-card">
-              <div className="honeypot-alert-header">
-                <span className="honeypot-alert-icon">&#9888;</span>
-                <h4 className="honeypot-alert-title">
-                  {honeypotCount} Honeypot Trap{honeypotCount > 1 ? 's' : ''} Flagged
-                </h4>
-              </div>
-              <p className="honeypot-alert-text">
-                Hidden anti-bot form inputs were detected. These fields will be strictly skipped during
-                form filling to avoid triggering automated application rejection.
-              </p>
-            </div>
-          )}
-
-          {/* Unmapped Required Fields Banner */}
-          {unmappedFields.length > 0 && (
-            <div className="unmapped-warning-card">
-              <h4 className="unmapped-warning-title">
-                {unmappedFields.length} Mandatory Field{unmappedFields.length > 1 ? 's' : ''} Need Attention
-              </h4>
-              <p className="unmapped-warning-text">
-                The following required fields have low confidence or no candidate profile data:
-              </p>
-              <ul className="unmapped-list">
-                {unmappedFields.map((f) => (
-                  <li key={f.id} className="unmapped-item">
-                    <strong>{f.label}</strong> (<code>{f.selector}</code>)
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Field Filters & Search */}
-          <div className="fields-control-bar">
-            <div className="filter-chips">
-              <button
-                type="button"
-                className={`filter-btn ${filter === 'all' ? 'filter-btn-active' : ''}`}
-                onClick={() => setFilter('all')}
-              >
-                All ({activeForm.fields.length})
-              </button>
-              <button
-                type="button"
-                className={`filter-btn ${filter === 'required' ? 'filter-btn-active' : ''}`}
-                onClick={() => setFilter('required')}
-              >
-                Required ({activeForm.fields.filter((f) => f.isRequired).length})
-              </button>
-              <button
-                type="button"
-                className={`filter-btn ${filter === 'unmapped' ? 'filter-btn-active' : ''}`}
-                onClick={() => setFilter('unmapped')}
-              >
-                Unmapped ({unmappedFields.length})
-              </button>
-              {honeypotCount > 0 && (
-                <button
-                  type="button"
-                  className={`filter-btn ${filter === 'honeypots' ? 'filter-btn-active' : ''}`}
-                  onClick={() => setFilter('honeypots')}
-                >
-                  Honeypots ({honeypotCount})
-                </button>
-              )}
-            </div>
-
-            <input
-              type="text"
-              placeholder="Search fields or selectors..."
-              className="fields-search-input"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          {/* Fields List */}
-          <div className="fields-list-container">
-            {filteredFields.length === 0 ? (
-              <div className="empty-fields">No matching fields found.</div>
-            ) : (
-              filteredFields.map((field) => (
-                <FieldInspectionCard
-                  key={field.id}
-                  field={field}
-                  profile={profile}
-                />
-              ))
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="form-empty-state">
-          <div className="empty-state-icon">&#128221;</div>
-          <h3 className="empty-state-title">Ready to Inspect Application</h3>
-          <p className="empty-state-desc">
-            Open an ATS job application page (Greenhouse, Lever, Workday, Ashby, etc.) in your browser
-            and click <strong>&quot;Inspect Page Form&quot;</strong> above.
+      {!activeForm && (
+        <>
+          <p className="ui-text">
+            Open the job's application form, then scan it. ApplyKit fills what it knows from your profile and leaves the
+            rest to you. It never presses Submit.
           </p>
-          <div className="empty-state-bullets">
-            <div className="bullet-point">
-              <span className="bullet-check">&#10003;</span>
-              <span>Classifies inputs (name, email, phone, resume, links, work authorization)</span>
-            </div>
-            <div className="bullet-point">
-              <span className="bullet-check">&#10003;</span>
-              <span>Identifies honeypot traps to prevent anti-bot disqualification</span>
-            </div>
-            <div className="bullet-point">
-              <span className="bullet-check">&#10003;</span>
-              <span>Locks down submit controls to guarantee manual review</span>
-            </div>
-          </div>
-
-          {/* Pipeline Forward Progression Card */}
-          <div className="pipeline-next-step-card">
-            <div className="next-step-info">
-              <span className="next-step-title">Form Filled &amp; Verified?</span>
-              <span className="next-step-desc">
-                Review your answers on the page, manually click send/submit, and track this application.
-              </span>
-            </div>
-            <button
-              type="button"
-              className="btn-primary btn-next-step"
-              onClick={() => onNavigateToTab?.('track')}
-            >
-              Next Step: Application Tracker &rarr;
-            </button>
-          </div>
-        </div>
+          <button type="button" className="ui-btn ui-btn-primary ui-btn-block" onClick={handleInspect} disabled={isInspecting}>
+            {isInspecting ? 'Scanning the page...' : 'Scan this page for a form'}
+          </button>
+        </>
       )}
-    </div>
+
+      {error && <div className="ui-note ui-note-bad" role="alert">{error}</div>}
+      {autoFillNotice && <div className="ui-note ui-note-good" role="status">{autoFillNotice}</div>}
+
+      {activeForm && (
+        <>
+          {forms.length > 1 && (
+            <div className="ui-row">
+              <span className="ui-subtle">Forms on this page:</span>
+              {forms.map((form, idx) => (
+                <button
+                  key={form.id}
+                  type="button"
+                  className={`ui-btn ui-btn-sm ${selectedFormIndex === idx ? 'ui-btn-primary' : ''}`}
+                  onClick={() => setSelectedFormIndex(idx)}
+                >
+                  {idx + 1}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <p className="ui-text">
+            {activeForm.fields.length} fields, {requiredCount} required. ApplyKit can fill <strong>{fillable}</strong> from your
+            profile.
+            {activeForm.stepProgression?.stepName ? ` You're on the "${activeForm.stepProgression.stepName}" step.` : ''}
+          </p>
+
+          {activeForm.authBarrier && (
+            <div className="ui-note ui-note-warn">Sign in on the page first. {activeForm.authBarrier.message}</div>
+          )}
+
+          {activeForm.validationErrors && activeForm.validationErrors.length > 0 && (
+            <div className="ui-note ui-note-bad">
+              The page is showing errors:
+              <ul style={{ margin: '4px 0 0 16px' }}>
+                {activeForm.validationErrors.map((err, idx) => (
+                  <li key={idx}>{err.message}</li>
+                ))}
+              </ul>
+              {unmappedFields.some((f) => f.fieldType === 'textarea') && (
+                <p style={{ margin: '6px 0 0' }}>
+                  For open questions, press "Check each field before filling", then "Draft answers to open questions".
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="ui-btn ui-btn-primary ui-btn-block"
+            onClick={handleOneClickAutoFill}
+            disabled={isAutoFilling}
+          >
+            {isAutoFilling ? 'Filling the form...' : 'Fill the form'}
+          </button>
+          <button type="button" className="ui-btn ui-btn-block" onClick={handleGeneratePlan} disabled={isPlanning}>
+            {isPlanning ? 'Preparing...' : 'Check each field before filling'}
+          </button>
+
+          {unmappedFields.length > 0 && (
+            <div className="ui-note ui-note-warn">
+              {unmappedFields.length === 1 ? 'Answer this one yourself:' : `Answer these ${unmappedFields.length} yourself:`}
+              <ul className="ui-plain-list" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {unmappedFields.map((f) => (
+                  <li key={f.id}>{(f.label || 'A field with no label').replace(/\s*\*\s*$/, '')}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {honeypotCount > 0 && (
+            <p className="ui-subtle">
+              {honeypotCount} hidden field{honeypotCount === 1 ? '' : 's'} on this form look like bot traps. ApplyKit leaves them
+              empty.
+            </p>
+          )}
+
+          <details className="ui-details">
+            <summary>See all {activeForm.fields.length} fields</summary>
+            <ul className="ui-list">
+              {activeForm.fields.map((field) => (
+                <FieldInspectionCard key={field.id} field={field} plannedValue={previewValues.get(field.id)} />
+              ))}
+            </ul>
+          </details>
+
+          {onNavigateToTab && autoFillNotice && (
+            <NextStep
+              title="Check the form, press Submit, then log it"
+              hint="ApplyKit never presses Submit. Once you have, mark it in the Tracker so you can follow up."
+              actionLabel="Open the Tracker"
+              onAction={() => onNavigateToTab('track')}
+            />
+          )}
+          {!autoFillNotice && (
+            <p className="ui-subtle">When the form looks right, press Submit on the page yourself. Then log it in the Tracker.</p>
+          )}
+        </>
+      )}
+      {hasScanned && !activeForm && !isInspecting && (
+        <NextStep
+          title="Can't see a form yet?"
+          hint="Press the Apply button on the job page so the form opens, wait a moment, then scan again. If the form opened in another tab, switch to it first."
+          actionLabel="Scan again"
+          onAction={handleInspect}
+          {...(onNavigateToTab ? { secondary: { label: 'Back to your resume', onAction: () => onNavigateToTab('tailor_resume') } } : {})}
+        />
+      )}
+    </section>
   );
 };
 
 interface FieldInspectionCardProps {
   field: ApplicationField;
-  profile: CandidateProfile | null;
+  /** What the planner would put in this field, if anything. */
+  plannedValue?: string;
 }
 
 /**
- * Individual field inspection card showing selector, mapping, confidence, and preview value.
+ * One row in the field list: the question as the page labels it and what will go in it.
  */
-const FieldInspectionCard: React.FC<FieldInspectionCardProps> = ({ field, profile }) => {
-  const profileValue = profile && field.inferredMappingKey
-    ? resolveProfileValueForField(profile, field.inferredMappingKey)
-    : undefined;
-
-  const confidencePct = Math.round((field.confidenceScore || 0) * 100);
+const FieldInspectionCard: React.FC<FieldInspectionCardProps> = ({ field, plannedValue }) => {
+  const profileValue = plannedValue;
+  const status = field.isHoneypotSuspect
+    ? { label: 'Left empty', cls: '' }
+    : profileValue
+    ? { label: 'Will fill', cls: 'ui-chip-good' }
+    : { label: field.isRequired ? 'You answer' : 'Optional', cls: field.isRequired ? 'ui-chip-warn' : '' };
 
   return (
-    <div className={`field-card ${field.isHoneypotSuspect ? 'field-card-honeypot' : ''}`}>
-      <div className="field-card-header">
-        <div className="field-label-group">
-          <span className="field-label-text">{field.label || '(Unnamed Input)'}</span>
-          {field.isRequired && <span className="field-required-badge">Required</span>}
-          {field.isHoneypotSuspect && (
-            <span className="field-honeypot-badge">&#9888; Honeypot Trap</span>
-          )}
-        </div>
-        <div className="field-type-pill">{field.fieldType}</div>
+    <li>
+      <div className="ui-spread" style={{ alignItems: 'flex-start' }}>
+        <span style={{ color: 'var(--text)' }}>
+          {field.label || 'Unnamed field'}
+          {field.isRequired && <span className="ui-subtle"> (required)</span>}
+        </span>
+        <span className={`ui-chip ${status.cls}`}>{status.label}</span>
       </div>
-
-      <div className="field-selector-row">
-        <span className="selector-label">Selector:</span>
-        <code className="field-selector-code">{field.selector}</code>
-      </div>
-
-      <div className="field-mapping-row">
-        <div className="mapping-col">
-          <span className="mapping-label">Mapped Attribute</span>
-          <span className="mapping-value">
-            {field.inferredMappingKey || 'unclassified'}
-          </span>
-        </div>
-        <div className="mapping-col">
-          <span className="mapping-label">Confidence</span>
-          <span
-            className={`confidence-pill ${
-              confidencePct >= 80 ? 'conf-high' : confidencePct >= 50 ? 'conf-mid' : 'conf-low'
-            }`}
-          >
-            {confidencePct}%
-          </span>
-        </div>
-      </div>
-
-      {/* Value Preview */}
-      <div className="field-value-preview">
-        <span className="value-preview-label">Candidate Value Preview:</span>
-        {field.isHoneypotSuspect ? (
-          <span className="value-skipped">(Will be skipped — Anti-Bot Honeypot)</span>
-        ) : profileValue ? (
-          <span className="value-preview-text">{profileValue}</span>
-        ) : (
-          <span className="value-empty">(No profile data populated)</span>
-        )}
-      </div>
-
-      {/* Options preview for dropdowns / radio groups */}
-      {field.options && field.options.length > 0 && (
-        <div className="field-options-container">
-          <span className="options-title">Available Options ({field.options.length}):</span>
-          <div className="options-chips">
-            {field.options.slice(0, 6).map((opt) => (
-              <span key={opt.value} className="option-chip" title={`Value: ${opt.value}`}>
-                {opt.label}
-              </span>
-            ))}
-            {field.options.length > 6 && (
-              <span className="option-chip-more">+{field.options.length - 6} more</span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+      {field.isHoneypotSuspect ? (
+        <p className="ui-subtle">Hidden from people, so probably a bot trap.</p>
+      ) : profileValue ? (
+        <p className="ui-subtle">{profileValue}</p>
+      ) : field.options && field.options.length > 0 ? (
+        <p className="ui-subtle">Choices: {field.options.slice(0, 5).map((opt) => opt.label).join(', ')}{field.options.length > 5 ? ', ...' : ''}</p>
+      ) : null}
+    </li>
   );
 };

@@ -9,8 +9,8 @@
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { EvidenceId } from '../types/ids.js';
-import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
 import { getFullName, getPreferredOrLegalName } from '../candidate/identity.js';
+import { calculateVerifiedExperienceYears } from './resume-rules.js';
 import type {
   FactCheckReport,
   VerifiedStatement,
@@ -29,7 +29,21 @@ const BOILERPLATE_PATTERNS: readonly RegExp[] = [
   /^results-driven\b/i,
   /^committed\s+to\s+delivering\b/i,
   /^best\s+regards\b/i,
+  /^best,?$/i,
+  /^thanks\b/i,
+  /^i'?d\s+(?:like|love)\s+to\s+apply\b/i,
+  /^i'?d\s+be\s+glad\s+to\b/i,
+  /^i\s+would\s+like\s+to\s+apply\b/i,
+  /^looking\s+forward\b/i,
 ];
+
+/** Connecting words that carry no factual claim in an introduction sentence. */
+const INTRO_GLUE = new Set([
+  'i', 'im', 'i\'m', 'ive', 'and', 'the', 'last', 'years', 'year', 'spent', 'building', 'built', 'mostly', 'in', 'with',
+  'experience', 'systems', 'work', 'know', 'best', 'which', 'why', 'this', 'role', 'stood', 'out', 'is', 'a', 'an',
+  'of', 'over', 'about', 'nearly', 'almost', 'engineer', 'software', 'payments', 'healthcare', 'commerce', 'e',
+  'working', 'day', 'to', 'my', 'most',
+]);
 
 /**
  * Splits document text into clean, individual sentence units.
@@ -177,6 +191,39 @@ export function factCheckTailoredDocument(
 
     substantiveCount++;
     const sentenceTokens = tokenize(sentence);
+
+    // Introductions ("I'm a backend engineer and I've spent the last 7 years building
+    // payments systems, mostly in Go") are made only of profile facts. Verify them against
+    // the profile directly: the years must match the dated work history, and every other
+    // word must be the candidate's title, a listed skill, or connecting language.
+    const yearsClaim = sentence.match(/\b(\d{1,2})\s+years?\b/i);
+    if (yearsClaim || /^I'?m an?\b/i.test(sentence) || /work I know best/i.test(sentence)) {
+      const vocabulary = new Set<string>(INTRO_GLUE);
+      const addWords = (value: string | undefined) => {
+        for (const word of (value ?? '').toLowerCase().split(/[^a-z0-9+#.]+/)) if (word) vocabulary.add(word.replace(/\.$/, ''));
+      };
+      addWords(profile.professional.headline);
+      addWords(profile.professional.currentTitle);
+      for (const exp of profile.experiences) addWords(exp.title);
+      for (const skill of profile.skills) addWords(skill.name);
+      const words = sentence.toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9+#.]+/).map((w) => w.replace(/\.$/, '')).filter(Boolean);
+      const unknown = words.filter((word) => !vocabulary.has(word) && !/^\d+$/.test(word));
+      const actualYears = Math.floor(calculateVerifiedExperienceYears(profile.experiences));
+      const yearsOk = !yearsClaim || Math.abs(Number(yearsClaim[1]) - actualYears) <= 1;
+      if (yearsOk && unknown.length === 0) {
+        verifiedStatements.push({ statement: sentence, sourceSnippet: 'Profile facts: title, dated roles, and skills', confidenceScore: 0.9 });
+        continue;
+      }
+      if (!yearsOk) {
+        unbackedStatements.push({
+          statement: sentence,
+          reason: `Says ${yearsClaim![1]} years, but your dated roles add up to about ${actualYears}.`,
+          severity: 'critical',
+        });
+        recommendations.push(`Change the years of experience to ${actualYears}.`);
+        continue;
+      }
+    }
     const sentenceMetrics = extractMetrics(sentence);
 
     // Metric provenance audit: flag any numbers or percentages not verified in evidence pool
@@ -235,11 +282,11 @@ export function factCheckTailoredDocument(
       } else {
         unbackedStatements.push({
           statement: sentence,
-          reason: 'Statement could not be corroborated with verified candidate achievements or documents.',
+          reason: 'Nothing in your resume backs this sentence up.',
           severity: 'warning',
         });
         recommendations.push(
-          `Review statement: "${sentence.slice(0, 60)}..." to ensure it reflects factual experience.`
+          `Check this sentence is true, or remove it: "${sentence.slice(0, 60)}..."`
         );
       }
     }

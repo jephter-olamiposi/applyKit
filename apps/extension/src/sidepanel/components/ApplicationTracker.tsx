@@ -1,13 +1,14 @@
 /**
  * @fileoverview Application Tracker and Audit Trail Viewer Component.
  *
- * Provides a local-first management dashboard for all job application journeys (ADR-0001):
+ * The Tracker tab: every application, its status, and what was filled, stored locally (ADR-0001):
  * 1. Metrics overview: tracking application volumes, interview progression, and response rates.
  * 2. Status management: candidate confirms submissions and manages post-submission lifecycle.
  * 3. Granular audit trail: inspects executed field fills, source evidence grounding, and transitions.
  * 4. Portable export: one-click CSV and JSON export with formula injection defense.
  */
 
+import { NextStep } from './NextStep.js';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ApplicationRecord, ApplicationState, ApplicationId } from '@applykit/domain';
 import { detectInterviewInvite } from '@applykit/domain';
@@ -33,18 +34,26 @@ const INTERVIEW_STAGES = [
 ] as const;
 
 /**
+ * Match score as a whole percent. Records store 0..1, but records logged before
+ * 2026-10-25 stored 0..100 and showed as "5000% Match", so those are read as-is.
+ */
+function matchPercent(score: number): number {
+  return Math.min(100, Math.round(score > 1 ? score : score * 100));
+}
+
+/**
  * Maps application states to human-readable labels and CSS modifier classes.
  */
 function getStatusBadgeProps(status: ApplicationState): { label: string; className: string } {
   switch (status) {
     case 'awaiting_user_review':
-      return { label: 'Awaiting Review', className: 'status-badge-review' };
+      return { label: 'To submit', className: 'status-badge-review' };
     case 'submitted':
-      return { label: 'Submitted', className: 'status-badge-submitted' };
+      return { label: 'Applied', className: 'status-badge-submitted' };
     case 'interviewing':
       return { label: 'Interviewing', className: 'status-badge-interviewing' };
     case 'offered':
-      return { label: 'Offer Received', className: 'status-badge-offered' };
+      return { label: 'Offer', className: 'status-badge-offered' };
     case 'rejected':
       return { label: 'Rejected', className: 'status-badge-rejected' };
     case 'archived':
@@ -52,15 +61,15 @@ function getStatusBadgeProps(status: ApplicationState): { label: string; classNa
     case 'ready_to_fill':
     case 'dry_run_review':
     case 'executing_actions':
-      return { label: 'In Progress', className: 'status-badge-progress' };
+      return { label: 'Filling', className: 'status-badge-progress' };
     case 'detected_job':
     case 'extracting_job':
     case 'matching_profile':
-      return { label: 'Draft', className: 'status-badge-draft' };
+      return { label: 'Saved', className: 'status-badge-draft' };
     case 'failed':
-      return { label: 'Failed', className: 'status-badge-failed' };
+      return { label: 'Did not finish', className: 'status-badge-failed' };
     default:
-      return { label: 'Idle', className: 'status-badge-idle' };
+      return { label: 'Saved', className: 'status-badge-idle' };
   }
 }
 
@@ -68,7 +77,7 @@ function getStatusBadgeProps(status: ApplicationState): { label: string; classNa
  * Formats an ISO date string into a localized, human-friendly date.
  */
 function formatDate(isoString?: string): string {
-  if (!isoString) return '—';
+  if (!isoString) return '';
   try {
     const d = new Date(isoString);
     return d.toLocaleDateString(undefined, {
@@ -85,7 +94,7 @@ function formatDate(isoString?: string): string {
  * Formats an ISO date string into a precise timestamp with time.
  */
 function formatTimestamp(isoString?: string): string {
-  if (!isoString) return '—';
+  if (!isoString) return '';
   try {
     const d = new Date(isoString);
     return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
@@ -94,7 +103,12 @@ function formatTimestamp(isoString?: string): string {
   }
 }
 
-export const ApplicationTracker: React.FC = () => {
+export interface ApplicationTrackerProps {
+  /** Moves the panel to another screen, for the "next step" card. */
+  readonly onNavigateToTab?: (tab: string) => void;
+}
+
+export const ApplicationTracker: React.FC<ApplicationTrackerProps> = ({ onNavigateToTab }) => {
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -113,7 +127,7 @@ export const ApplicationTracker: React.FC = () => {
   const [exporting, setExporting] = useState<'csv' | 'json' | 'tracker-csv' | 'tracker-md' | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Interview Prep & Email Scanner State (Phase 24, Phase 25)
+  // Interview Prep & Email Scanner State
   const [prepModalApp, setPrepModalApp] = useState<ApplicationRecord | null>(null);
   const [showEmailScanner, setShowEmailScanner] = useState(false);
   const [emailInputText, setEmailInputText] = useState('');
@@ -180,6 +194,16 @@ export const ApplicationTracker: React.FC = () => {
     [applications, selectedAppId]
   );
 
+  // Escape closes the details drawer (the interview prep modal handles its own key).
+  useEffect(() => {
+    if (!selectedAppId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !prepModalApp) setSelectedAppId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedAppId, prepModalApp]);
+
   // Synchronize drawer input states when selection changes
   useEffect(() => {
     if (selectedApp) {
@@ -232,24 +256,28 @@ export const ApplicationTracker: React.FC = () => {
     });
   }, [applications, statusFilter, searchTerm]);
 
-  // 5-Column Kanban Pipeline Data (Phase 20)
+  // Kanban columns, one per stage the summary line counts.
   const kanbanColumns = useMemo(() => {
     const saved = filteredApps.filter((a) =>
       ['idle', 'detected_job', 'extracting_job', 'matching_profile', 'ready_to_fill'].includes(a.currentStatus)
     );
-    const applied = filteredApps.filter((a) =>
-      ['dry_run_review', 'executing_actions', 'awaiting_user_review', 'submitted'].includes(a.currentStatus)
+    // Filled but not yet submitted gets its own column; it used to sit under "Applied"
+    // while the summary line above the board counted it as not applied.
+    const toSubmit = filteredApps.filter((a) =>
+      ['dry_run_review', 'executing_actions', 'awaiting_user_review'].includes(a.currentStatus)
     );
+    const applied = filteredApps.filter((a) => a.currentStatus === 'submitted');
     const interviewing = filteredApps.filter((a) => a.currentStatus === 'interviewing');
     const offered = filteredApps.filter((a) => a.currentStatus === 'offered');
     const closed = filteredApps.filter((a) => ['rejected', 'archived', 'failed'].includes(a.currentStatus));
 
     return [
-      { id: 'saved', title: 'Saved / Draft', apps: saved, color: '#64748b' },
-      { id: 'applied', title: 'Applied', apps: applied, color: '#3b82f6' },
-      { id: 'interviewing', title: 'Interviewing', apps: interviewing, color: '#8b5cf6' },
-      { id: 'offered', title: 'Offer Extended', apps: offered, color: '#10b981' },
-      { id: 'closed', title: 'Archived / Rejected', apps: closed, color: '#ef4444' },
+      { id: 'saved', title: 'Saved', apps: saved, color: 'var(--muted)' },
+      { id: 'to_submit', title: 'To submit', apps: toSubmit, color: 'var(--warning-text)' },
+      { id: 'applied', title: 'Applied', apps: applied, color: 'var(--accent)' },
+      { id: 'interviewing', title: 'Interviewing', apps: interviewing, color: 'var(--accent)' },
+      { id: 'offered', title: 'Offer', apps: offered, color: 'var(--success)' },
+      { id: 'closed', title: 'Closed', apps: closed, color: 'var(--danger)' },
     ];
   }, [filteredApps]);
 
@@ -394,229 +422,93 @@ export const ApplicationTracker: React.FC = () => {
           </button>
         </div>
       )}
-      {/* Header & Metrics Strip */}
-      <div className="tracker-header">
-        <div className="tracker-title-row">
-          <div>
-            <h2 className="tracker-title">Application Tracker</h2>
-            <p className="tracker-subtitle">
-              Local audit history and post-submission pipeline (ADR-0001, ADR-0006)
-            </p>
-          </div>
-          <div className="tracker-export-group">
-            <button
-              type="button"
-              className="export-btn export-btn-csv"
-              onClick={() => handleExport('tracker-csv')}
-              disabled={exporting !== null || applications.length === 0}
-              title="Export canonical 8-column pipeline tracker CSV (employer, role, status, date, url, source, note, key)"
-            >
-              {exporting === 'tracker-csv' ? 'Exporting...' : 'Tracker CSV'}
-            </button>
-            <button
-              type="button"
-              className="export-btn"
-              onClick={() => handleExport('tracker-md')}
-              disabled={exporting !== null || applications.length === 0}
-              title="Export pipeline tracker to Markdown table"
-            >
-              {exporting === 'tracker-md' ? 'Exporting...' : 'Summary MD'}
-            </button>
-            <button
-              type="button"
-              className="export-btn export-btn-csv"
-              onClick={() => handleExport('csv')}
-              disabled={exporting !== null || applications.length === 0}
-              title="Export complete audit trail to sanitized CSV"
-            >
-              {exporting === 'csv' ? 'Exporting...' : 'Audit CSV'}
-            </button>
-            <button
-              type="button"
-              className="export-btn export-btn-json"
-              onClick={() => handleExport('json')}
-              disabled={exporting !== null || applications.length === 0}
-              title="Export audit log to structured JSON"
-            >
-              {exporting === 'json' ? 'Exporting...' : 'Export JSON'}
-            </button>
-          </div>
-        </div>
-
-        {/* Aggregate KPI Badges */}
-        <div className="tracker-metrics-grid">
-          <div className="metric-card">
-            <span className="metric-label">Tracked</span>
-            <span className="metric-value">{metrics.total}</span>
-          </div>
-          <div className="metric-card metric-card-warning">
-            <span className="metric-label">Awaiting Review</span>
-            <span className="metric-value">{metrics.awaitingReview}</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-label">Submitted</span>
-            <span className="metric-value">{metrics.submitted}</span>
-          </div>
-          <div className="metric-card metric-card-info">
-            <span className="metric-label">Interviewing</span>
-            <span className="metric-value">{metrics.interviewing}</span>
-          </div>
-          <div className="metric-card metric-card-success">
-            <span className="metric-label">Offers</span>
-            <span className="metric-value">{metrics.offered}</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-label">Response Rate</span>
-            <span className="metric-value">{metrics.responseRate}%</span>
-          </div>
-        </div>
-      </div>
-
-      {/* View Mode Switcher: Kanban vs Audit Table (Phase 20) */}
-      <div className="tracker-view-mode-bar">
-        <div className="tracker-view-tabs" role="tablist" aria-label="Tracker View Mode">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === 'kanban'}
-            className={`tracker-view-tab ${viewMode === 'kanban' ? 'tracker-view-tab-active' : ''}`}
-            onClick={() => setViewMode('kanban')}
-          >
-            Application pipeline
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewMode === 'table'}
-            className={`tracker-view-tab ${viewMode === 'table' ? 'tracker-view-tab-active' : ''}`}
-            onClick={() => setViewMode('table')}
-          >
-            Audit Table
-          </button>
-          <button
-            type="button"
-            className={`tracker-view-tab ${showEmailScanner ? 'tracker-view-tab-active' : ''}`}
-            onClick={() => setShowEmailScanner((prev) => !prev)}
-            title="Scan recruiter email or interview invitation"
-          >
-            Scan Invite
+      <section className="ui-card ui-stack" style={{ gap: 10 }} aria-label="Your applications">
+        <div className="ui-spread">
+          <h2 className="ui-card-title">Your applications</h2>
+          <button type="button" className="ui-link" onClick={() => setShowEmailScanner((prev) => !prev)}>
+            {showEmailScanner ? 'Close' : 'Got a reply from a recruiter?'}
           </button>
         </div>
-      </div>
-
-      {/* Recruiter Email & Interview Invitation Scanner (Phase 24) */}
-      {showEmailScanner && (
-        <div className="email-scanner-panel">
-          <div className="email-scanner-head">
-            <h4 className="email-scanner-title">Recruiter email and interview invite detector</h4>
-            <button
-              type="button"
-              className="tracker-error-dismiss"
-              aria-label="Close invite scanner"
-              onClick={() => setShowEmailScanner(false)}
-            >
-              &times;
-            </button>
-          </div>
-          <p className="email-scanner-desc">
-            Paste a recruiter email or invitation. ApplyKit looks for a scheduling link and moves
-            the matching application to Interviewing.
+        {applications.length > 0 && (
+          <p className="ui-text">
+            {metrics.submitted} applied · {metrics.awaitingReview} waiting for you to submit · {metrics.interviewing} interviewing ·{' '}
+            {metrics.offered} offer{metrics.offered === 1 ? '' : 's'}
+            {metrics.submitted > 0 ? ` · ${metrics.responseRate}% heard back` : ''}
           </p>
-          <textarea
-            className="email-scanner-input"
-            rows={3}
-            aria-label="Recruiter email text"
-            placeholder="Paste the email text here, including any scheduling link."
-            value={emailInputText}
-            onChange={(e) => setEmailInputText(e.target.value)}
-          />
-          <div className="email-scanner-actions">
-            <button
-              type="button"
-              className="email-scanner-btn"
-              onClick={handleScanEmail}
-              disabled={!emailInputText.trim()}
-            >
-              Detect invite
-            </button>
-            {emailScanResult && <span className="email-scanner-result">{emailScanResult}</span>}
+        )}
+
+        {showEmailScanner && (
+          <div className="ui-stack" style={{ gap: 6 }}>
+            <p className="ui-subtle">
+              Paste the email. If it's an interview invite, ApplyKit moves that application to Interviewing.
+            </p>
+            <textarea
+              className="ui-textarea"
+              rows={3}
+              aria-label="Recruiter email text"
+              placeholder="Paste the email text, including any scheduling link"
+              value={emailInputText}
+              onChange={(e) => setEmailInputText(e.target.value)}
+            />
+            <div className="ui-row">
+              <button type="button" className="ui-btn ui-btn-sm ui-btn-primary" onClick={handleScanEmail} disabled={!emailInputText.trim()}>
+                Check this email
+              </button>
+              {emailScanResult && <span className="ui-subtle">{emailScanResult}</span>}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Filter and Search Bar */}
-      <div className="tracker-filter-bar">
-        <div className="tracker-search-wrap">
-          <input
-            type="text"
-            className="tracker-search-input"
-            placeholder="Search company or role title..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              className="tracker-search-clear"
-              onClick={() => setSearchTerm('')}
+        {applications.length > 0 && (
+          <div className="ui-row">
+            {applications.length > 4 && (
+              <input
+                type="search"
+                className="ui-input"
+                style={{ flex: 1, minWidth: 140 }}
+                placeholder="Search company or role"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            )}
+            <select
+              className="ui-select"
+              style={{ width: 'auto' }}
+              aria-label="Show"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
             >
-              &times;
-            </button>
-          )}
-        </div>
-
-        <div className="tracker-filter-pills">
-          <button
-            type="button"
-            className={`filter-pill ${statusFilter === 'all' ? 'filter-pill-active' : ''}`}
-            onClick={() => setStatusFilter('all')}
-          >
-            All ({applications.length})
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${statusFilter === 'review' ? 'filter-pill-active' : ''}`}
-            onClick={() => setStatusFilter('review')}
-          >
-            Review ({metrics.awaitingReview})
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${statusFilter === 'submitted' ? 'filter-pill-active' : ''}`}
-            onClick={() => setStatusFilter('submitted')}
-          >
-            Submitted ({metrics.submitted})
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${statusFilter === 'interviewing' ? 'filter-pill-active' : ''}`}
-            onClick={() => setStatusFilter('interviewing')}
-          >
-            Interviewing ({metrics.interviewing})
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${statusFilter === 'offered' ? 'filter-pill-active' : ''}`}
-            onClick={() => setStatusFilter('offered')}
-          >
-            Offers ({metrics.offered})
-          </button>
-        </div>
-      </div>
+              <option value="all">All ({applications.length})</option>
+              <option value="review">To submit ({metrics.awaitingReview})</option>
+              <option value="submitted">Applied ({metrics.submitted})</option>
+              <option value="interviewing">Interviewing ({metrics.interviewing})</option>
+              <option value="offered">Offers ({metrics.offered})</option>
+            </select>
+            <div className="ui-segmented" role="group" aria-label="View" style={{ marginBottom: 0 }}>
+              <button type="button" aria-pressed={viewMode === 'kanban'} onClick={() => setViewMode('kanban')}>
+                Board
+              </button>
+              <button type="button" aria-pressed={viewMode === 'table'} onClick={() => setViewMode('table')}>
+                List
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Main List & Details Layout */}
       {loading ? (
         <div className="tracker-empty-state">
           <div className="spinner-sm" />
-          <p>Loading application history...</p>
+          <p>Loading your applications...</p>
         </div>
       ) : filteredApps.length === 0 ? (
         <div className="tracker-empty-state">
-          <p className="empty-title">No applications found</p>
+          <p className="empty-title">{applications.length === 0 ? 'Nothing here yet' : 'No matches'}</p>
           <p className="empty-desc">
             {applications.length === 0
-              ? 'Execute a form filling plan or extract a job posting to begin tracking your applications.'
-              : 'No applications matched your search or status filter.'}
+              ? 'Applications show up here once you fill a form with ApplyKit. Submitting is detected automatically.'
+              : 'Nothing matches that search or filter.'}
           </p>
         </div>
       ) : viewMode === 'kanban' ? (
@@ -634,7 +526,7 @@ export const ApplicationTracker: React.FC = () => {
               <div className="kanban-column-cards">
                 {col.apps.length === 0 ? (
                   <div className="kanban-empty-col">
-                    <span>No applications in this stage</span>
+                    <span>None</span>
                   </div>
                 ) : (
                   col.apps.map((app) => {
@@ -656,7 +548,7 @@ export const ApplicationTracker: React.FC = () => {
                         <div className="kanban-card-chips">
                           {app.matchedRequirementsScore > 0 && (
                             <span className="kanban-chip chip-match">
-                              {Math.round(app.matchedRequirementsScore * 100)}% Match
+                              {matchPercent(app.matchedRequirementsScore)}% Match
                             </span>
                           )}
                           {app.recruiterName && (
@@ -781,7 +673,7 @@ export const ApplicationTracker: React.FC = () => {
                   )}
                   {app.matchedRequirementsScore > 0 && (
                     <span className="meta-item match-score-pill">
-                      {Math.round(app.matchedRequirementsScore * 100)}% Match
+                      {matchPercent(app.matchedRequirementsScore)}% Match
                     </span>
                   )}
                 </div>
@@ -812,7 +704,13 @@ export const ApplicationTracker: React.FC = () => {
       {/* Selected Application Audit Detail Modal / Drawer */}
       {selectedApp && (
         <div className="audit-drawer-backdrop" onClick={() => setSelectedAppId(null)}>
-          <div className="audit-drawer" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="audit-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${selectedApp.companyName} application`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="audit-drawer-header">
               <div>
                 <h3 className="drawer-title">{selectedApp.companyName}</h3>
@@ -821,6 +719,7 @@ export const ApplicationTracker: React.FC = () => {
               <button
                 type="button"
                 className="drawer-close-btn"
+                aria-label="Close"
                 onClick={() => setSelectedAppId(null)}
               >
                 &times;
@@ -832,10 +731,10 @@ export const ApplicationTracker: React.FC = () => {
               {selectedApp.currentStatus === 'awaiting_user_review' && (
                 <div className="audit-review-callout">
                   <div className="callout-header">
-                    <strong>Awaiting manual submission (ADR-0006 hard gate)</strong>
+                    <strong>Waiting for you to submit</strong>
                   </div>
                   <p className="callout-text">
-                    ApplyKit has safely filled your verified information into the form and paused before the submission button. After reviewing the active page in your browser and clicking submit, confirm below to update your tracking status.
+                    ApplyKit filled the form and stopped before Submit. Once you've submitted it on the page, mark it here.
                   </p>
                   <button
                     type="button"
@@ -845,16 +744,16 @@ export const ApplicationTracker: React.FC = () => {
                       handleTransitionStatus(
                         selectedApp.id,
                         'submitted',
-                        'Candidate manually verified and confirmed application submission on host page.'
+                        'You submitted it on the page.'
                       )
                     }
                   >
-                    {statusUpdating ? 'Updating...' : 'Confirm manual submission'}
+                    {statusUpdating ? 'Saving...' : 'I submitted it'}
                   </button>
                 </div>
               )}
 
-              {/* Role Interview Prep Kit Launcher (Phase 25) */}
+              {/* Role Interview Prep Kit Launcher */}
               <div className="drawer-section">
                 <button
                   type="button"
@@ -867,7 +766,7 @@ export const ApplicationTracker: React.FC = () => {
 
               {/* Status Management Bar */}
               <div className="drawer-section">
-                <h4 className="section-title">Status & Lifecycle Management</h4>
+                <h4 className="section-title">Where it stands</h4>
                 <div className="status-button-group">
                   {selectedApp.currentStatus !== 'submitted' &&
                     selectedApp.currentStatus !== 'awaiting_user_review' && (
@@ -876,10 +775,10 @@ export const ApplicationTracker: React.FC = () => {
                         className="status-btn"
                         disabled={statusUpdating}
                         onClick={() =>
-                          handleTransitionStatus(selectedApp.id, 'submitted', 'Marked as submitted')
+                          handleTransitionStatus(selectedApp.id, 'submitted', 'You marked it submitted.')
                         }
                       >
-                        Mark Submitted
+                        Submitted
                       </button>
                     )}
 
@@ -891,12 +790,12 @@ export const ApplicationTracker: React.FC = () => {
                       handleTransitionStatus(
                         selectedApp.id,
                         'interviewing',
-                        `Advanced to ${selectedStage || 'Interviewing'} stage`,
+                        `Interviewing${selectedStage ? `: ${selectedStage}` : ''}.`,
                         { interviewStage: selectedStage }
                       )
                     }
                   >
-                    Move to Interviewing
+                    Interviewing
                   </button>
 
                   <button
@@ -907,11 +806,11 @@ export const ApplicationTracker: React.FC = () => {
                       handleTransitionStatus(
                         selectedApp.id,
                         'offered',
-                        'Offer received from employer'
+                        'You got an offer.'
                       )
                     }
                   >
-                    Offer Received
+                    Got an offer
                   </button>
 
                   <button
@@ -922,11 +821,11 @@ export const ApplicationTracker: React.FC = () => {
                       handleTransitionStatus(
                         selectedApp.id,
                         'rejected',
-                        'Application declined or rejected'
+                        'They said no.'
                       )
                     }
                   >
-                    Mark Rejected
+                    Rejected
                   </button>
 
                   <button
@@ -937,7 +836,7 @@ export const ApplicationTracker: React.FC = () => {
                       handleTransitionStatus(
                         selectedApp.id,
                         'archived',
-                        'Archived by candidate'
+                        'You archived it.'
                       )
                     }
                   >
@@ -946,12 +845,12 @@ export const ApplicationTracker: React.FC = () => {
                 </div>
               </div>
 
-              {/* Recruiter & Compensation Details (Phase 20 CRM) */}
+              {/* Recruiter & Compensation Details */}
               <div className="drawer-section">
-                <h4 className="section-title">Recruiter & Target Compensation</h4>
+                <h4 className="section-title">Recruiter and pay</h4>
                 <div className="stage-schedule-grid">
                   <div className="form-group">
-                    <label className="form-label">Recruiter / Contact Name</label>
+                    <label className="form-label">Recruiter name</label>
                     <input
                       type="text"
                       className="form-input"
@@ -962,7 +861,7 @@ export const ApplicationTracker: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Recruiter Contact Email</label>
+                    <label className="form-label">Recruiter email</label>
                     <input
                       type="email"
                       className="form-input"
@@ -974,7 +873,7 @@ export const ApplicationTracker: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Target / Negotiated Compensation</label>
+                  <label className="form-label">Pay discussed</label>
                   <input
                     type="text"
                     className="form-input"
@@ -987,10 +886,10 @@ export const ApplicationTracker: React.FC = () => {
 
               {/* Interview Stage & Follow-Up Reminders */}
               <div className="drawer-section">
-                <h4 className="section-title">Interview Stage & Next Follow-Up</h4>
+                <h4 className="section-title">Interviews and follow-up</h4>
                 <div className="stage-schedule-grid">
                   <div className="form-group">
-                    <label className="form-label">Current Interview Stage</label>
+                    <label className="form-label">Interview stage</label>
                     <select
                       className="form-select"
                       value={selectedStage}
@@ -1005,7 +904,7 @@ export const ApplicationTracker: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Follow-Up / Check-In Date</label>
+                    <label className="form-label">Follow up on</label>
                     <input
                       type="date"
                       className="form-input"
@@ -1016,11 +915,11 @@ export const ApplicationTracker: React.FC = () => {
                 </div>
 
                 <div className="form-group notes-group">
-                  <label className="form-label">Candidate Application Notes</label>
+                  <label className="form-label">Notes</label>
                   <textarea
                     className="form-textarea"
                     rows={3}
-                    placeholder="Interview questions asked, interviewer names, compensation notes..."
+                    placeholder="Who you spoke to, what they asked, what's next"
                     value={activeNotes}
                     onChange={(e) => setActiveNotes(e.target.value)}
                   />
@@ -1031,7 +930,7 @@ export const ApplicationTracker: React.FC = () => {
                       onClick={handleSaveNotesAndSchedule}
                       disabled={statusUpdating}
                     >
-                      Save Pipeline Details & Notes
+                      {statusUpdating ? 'Saving...' : 'Save'}
                     </button>
                   </div>
                 </div>
@@ -1040,17 +939,17 @@ export const ApplicationTracker: React.FC = () => {
               {/* Executed Form Actions Log */}
               <div className="drawer-section">
                 <h4 className="section-title">
-                  Executed Field Actions Audit Log ({selectedApp.dryRunLog?.length || 0})
+                  What ApplyKit filled ({selectedApp.dryRunLog?.length || 0})
                 </h4>
                 {selectedApp.dryRunLog && selectedApp.dryRunLog.length > 0 ? (
                   <div className="audit-table-wrap">
                     <table className="audit-table">
                       <thead>
                         <tr>
-                          <th>Field / Selector</th>
-                          <th>Value Inserted</th>
-                          <th>Risk</th>
-                          <th>Grounding Citation</th>
+                          <th>Field</th>
+                          <th>Answer</th>
+                          <th>Check</th>
+                          <th>From</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1058,21 +957,20 @@ export const ApplicationTracker: React.FC = () => {
                           <tr key={act.id}>
                             <td>
                               <span className="audit-field-desc">
-                                {act.action.description || act.action.selector}
+                                {act.fieldLabel || act.action.description || act.action.selector}
                               </span>
-                              <code className="audit-field-code">{act.action.selector}</code>
                             </td>
                             <td>
                               <span className="audit-field-value">{act.candidateValueUsed}</span>
                             </td>
                             <td>
                               <span className={`risk-pill risk-${act.riskLevel}`}>
-                                {act.riskLevel}
+                                {act.riskLevel === 'high' ? 'Legal' : act.riskLevel === 'medium' ? 'Review' : 'Simple'}
                               </span>
                             </td>
                             <td>
                               <span className="audit-field-grounding">
-                                {act.sourceEvidenceTitle || 'Verified Profile'}
+                                {act.sourceEvidenceTitle?.startsWith('AI Proposal') ? 'Drafted from your resume' : 'Your profile'}
                               </span>
                             </td>
                           </tr>
@@ -1082,7 +980,7 @@ export const ApplicationTracker: React.FC = () => {
                   </div>
                 ) : (
                   <p className="empty-audit-notice">
-                    No field actions recorded for this application.
+                    Nothing was filled by ApplyKit for this one.
                   </p>
                 )}
               </div>
@@ -1090,7 +988,7 @@ export const ApplicationTracker: React.FC = () => {
               {/* Immutable State Machine History Timeline */}
               <div className="drawer-section">
                 <h4 className="section-title">
-                  State Machine Transition Timeline ({selectedApp.statusHistory?.length || 0})
+                  History
                 </h4>
                 <div className="timeline-container">
                   {selectedApp.statusHistory?.map((tr, index) => (
@@ -1099,7 +997,7 @@ export const ApplicationTracker: React.FC = () => {
                       <div className="timeline-content">
                         <div className="timeline-header">
                           <span className="timeline-state">
-                            {tr.from} &rarr; <strong>{tr.to}</strong>
+                            <strong>{getStatusBadgeProps(tr.to).label}</strong>
                           </span>
                           <span className="timeline-time">{formatTimestamp(tr.timestamp)}</span>
                         </div>
@@ -1119,6 +1017,38 @@ export const ApplicationTracker: React.FC = () => {
           application={prepModalApp}
           onClose={() => setPrepModalApp(null)}
         />
+      )}
+      {onNavigateToTab && !loading && (
+        <NextStep
+          title={applications.length > 0 ? 'Apply to the next one' : 'Find a job to apply to'}
+          hint={
+            applications.some((a) => a.currentStatus === 'awaiting_user_review')
+              ? 'Open an application waiting for you and press "I submitted it" once it is sent.'
+              : 'Open a job posting in this tab and read it, or look through jobs from the companies you follow.'
+          }
+          actionLabel="Find jobs"
+          onAction={() => onNavigateToTab('sourced_feed')}
+          secondary={{ label: 'Read the job on this page', onAction: () => onNavigateToTab('overview') }}
+        />
+      )}
+      {applications.length > 0 && (
+        <details className="ui-details ui-card">
+          <summary>Export</summary>
+          <div className="ui-row">
+            <button type="button" className="ui-btn ui-btn-sm" onClick={() => handleExport('tracker-csv')} disabled={exporting !== null}>
+              {exporting === 'tracker-csv' ? 'Exporting...' : 'Spreadsheet (CSV)'}
+            </button>
+            <button type="button" className="ui-btn ui-btn-sm" onClick={() => handleExport('tracker-md')} disabled={exporting !== null}>
+              {exporting === 'tracker-md' ? 'Exporting...' : 'Summary (Markdown)'}
+            </button>
+            <button type="button" className="ui-btn ui-btn-sm" onClick={() => handleExport('csv')} disabled={exporting !== null}>
+              {exporting === 'csv' ? 'Exporting...' : 'Everything filled (CSV)'}
+            </button>
+            <button type="button" className="ui-btn ui-btn-sm" onClick={() => handleExport('json')} disabled={exporting !== null}>
+              {exporting === 'json' ? 'Exporting...' : 'Full history (JSON)'}
+            </button>
+          </div>
+        </details>
       )}
     </div>
   );

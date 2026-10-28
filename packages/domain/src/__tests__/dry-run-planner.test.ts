@@ -42,6 +42,7 @@ describe('Form Engine — Deterministic Browser Action Protocol & Dry Run Planne
         isAuthorizedInCountry: true,
         requiresSponsorship: false,
         authorizedCountries: ['US'],
+        confirmedByCandidate: true,
       },
       demographics: {
         gender: 'Non-binary',

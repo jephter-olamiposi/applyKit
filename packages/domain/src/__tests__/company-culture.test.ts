@@ -9,14 +9,12 @@ import { describe, it, expect } from 'vitest';
 import {
   extractCompanyCulture,
   evaluateCompanyCultureAlignment,
-  type CompanyCultureProfile,
 } from '../job/company-culture.js';
 import {
   createEmptyProfile,
   createProfileId,
   buildEvidenceGraph,
   createEvidenceId,
-  createClaimId,
   createSkillId,
   createExperienceId,
   createJobPostingId,
@@ -205,7 +203,7 @@ describe('Targeted Company Mission & Cultural Alignment Engine (Phase 21, ADR-00
       });
 
       expect(letter.bodyParagraphs.length).toBeGreaterThanOrEqual(1);
-      const missionPara = letter.bodyParagraphs.find((p) => p.theme.includes('Organizational Alignment'));
+      const missionPara = letter.bodyParagraphs.find((p) => p.theme.includes('Why this company'));
       expect(missionPara).toBeDefined();
       expect(missionPara?.paragraphText).toContain('Canonical');
       expect(missionPara?.paragraphText).toContain(alignment.whyUsPitch);

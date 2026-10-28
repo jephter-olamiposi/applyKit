@@ -87,7 +87,7 @@ describe('ATS Feed Harvester & Opportunity Normalizer Suite', () => {
           location: 'Remote',
           publishedAt: '2026-09-22T12:00:00Z',
           department: 'Core Product',
-          compensation: { compensationSummary: '$180,000 - $220,000 USD' },
+          compensation: { compensationTierSummary: '$180,000 - $220,000 USD' },
           descriptionPlain: 'Build high-performance collaboration engines in TypeScript and Rust.',
         },
       ],

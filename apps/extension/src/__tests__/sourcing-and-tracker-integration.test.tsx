@@ -5,7 +5,7 @@
  * @vitest-environment happy-dom
  */
 
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import {
@@ -111,7 +111,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     });
 
     // Check title and platforms
-    expect(container.textContent).toContain('Search job boards');
+    expect(container.textContent).toContain('Search Google for openings');
     expect(container.textContent).toContain('Ashby');
     expect(container.textContent).toContain('Greenhouse');
     expect(container.textContent).toContain('Lever');
@@ -130,7 +130,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     expect(writeTextMock.mock.calls[0]?.[0]).toContain('site:jobs.ashbyhq.com');
   });
 
-  it('renders 5-Gate Eligibility card and displays verdict in Match Analysis', async () => {
+  it('shows the eligibility verdict and fit score in Match Analysis', async () => {
     const profile = buildTestCandidateProfile();
 
     mockedSend.mockImplementation(async (msg: any): Promise<any> => {
@@ -202,12 +202,12 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
-    expect(container.textContent).toContain('Eligibility: OPEN');
-    expect(container.textContent).toContain('5-Gate Status');
-    expect(container.textContent).toContain('85%');
+    expect(container.textContent).toContain('You can apply from where you are.');
+    expect(container.textContent).toContain('What we checked');
+    expect(container.textContent).toContain('85% match');
   });
 
-  it('renders direct unauthenticated ATS API endpoint probes in AtsSourcingEngine', async () => {
+  it('lists direct company job board links in AtsSourcingEngine', async () => {
     const profile = buildTestCandidateProfile();
 
     await act(async () => {
@@ -215,7 +215,7 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
     });
 
     const probesToggle = Array.from(container.querySelectorAll('span')).find(
-      (s) => s.textContent?.includes('ATS board endpoints')
+      (s) => s.textContent?.includes("Open a company's job list directly")
     );
     expect(probesToggle).toBeDefined();
 
@@ -281,13 +281,13 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
-    expect(container.textContent).toContain('Application Tracker');
-    expect(container.textContent).toContain('Tracker CSV');
-    expect(container.textContent).toContain('Summary MD');
+    expect(container.textContent).toContain('Your applications');
+    expect(container.textContent).toContain('Spreadsheet (CSV)');
+    expect(container.textContent).toContain('Summary (Markdown)');
 
-    // Click Tracker CSV button
+    // Spreadsheet export
     const csvBtn = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.includes('Tracker CSV')
+      (b) => b.textContent?.includes('Spreadsheet (CSV)')
     );
     expect(csvBtn).toBeDefined();
 
@@ -297,9 +297,9 @@ describe('Sourcing Engine & Pipeline Verification UI Suite (SKILL.md Phase 1 & 2
 
     expect(requestedFormat).toBe('tracker-csv');
 
-    // Click Summary MD button
+    // Markdown summary export
     const mdBtn = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent?.includes('Summary MD')
+      (b) => b.textContent?.includes('Summary (Markdown)')
     );
     expect(mdBtn).toBeDefined();
 

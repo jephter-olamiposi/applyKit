@@ -42,6 +42,7 @@ export {
   cleanLabelText,
 };
 
+import { isWidgetInternalInput, readMaxLength, readTaggedOptions } from './page-widget-options.js';
 /**
  * Detects the ATS platform architecture from page URL and DOM markers.
  */
@@ -68,7 +69,7 @@ export function detectAtsPlatform(doc: Document, url: string): AtsPlatform {
   }
 
   // Check DOM markers if custom domain is used
-  if (doc.querySelector('#grnhse_app, form#application_form, form#job-apply-form, [data-greenhouse], input#gh_src')) {
+  if (doc.querySelector('#grnhse_app, form#application_form, form#application-form.application--form, form#job-apply-form, [data-greenhouse], input#gh_src')) {
     return 'greenhouse';
   }
   if (doc.querySelector('.lever-form, [data-qa="lever-application"], .postings-btn-wrapper')) {
@@ -170,6 +171,7 @@ export function crawlFormContainer(
   );
 
   for (const el of Array.from(interactiveElements)) {
+    if (isWidgetInternalInput(el)) continue;
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || '').toLowerCase();
     const name = el.getAttribute('name') || undefined;
@@ -192,6 +194,7 @@ export function crawlFormContainer(
       options = extractNativeSelectOptions(el as HTMLSelectElement);
     } else if (el.getAttribute('role') === 'combobox') {
       fieldType = 'select';
+      options = readTaggedOptions(el);
     } else if (type === 'checkbox') {
       fieldType = 'checkbox';
     } else if (type === 'file') {
@@ -240,6 +243,7 @@ export function crawlFormContainer(
       confidenceScore: classification.confidence,
       inferredMappingKey: classification.inferredProfilePath,
       isHoneypotSuspect: isSuspectHoneypot,
+      ...readMaxLength(el),
     });
   }
 
@@ -287,6 +291,14 @@ export function crawlFormContainer(
  * @returns Discovered virtual ApplicationForms.
  */
 export function inspectPageForms(doc: Document): readonly ApplicationForm[] {
+  // The page title ("Job Application for Backend Engineer at Monzo") tells the service
+  // worker which saved job the form is for when the address does not.
+  const pageTitle = (doc.title || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const forms = discoverPageForms(doc);
+  return pageTitle ? forms.map((form) => ({ ...form, pageTitle })) : forms;
+}
+
+function discoverPageForms(doc: Document): readonly ApplicationForm[] {
   // First, execute specialized ATS form adapter inspection
   const adapterForms = inspectPageWithAtsAdapters(doc);
   if (adapterForms.length > 0) {

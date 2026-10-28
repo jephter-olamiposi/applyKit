@@ -6,6 +6,8 @@
  * education, and skills without sending untrusted candidate text to external LLMs.
  */
 
+import { findPlaces, isEmptyPlaceSet } from '../job/geo-regions.js';
+
 /**
  * Structured intermediate representation of a parsed resume document.
  */
@@ -105,16 +107,73 @@ const SECTION_PATTERNS: ReadonlyArray<{ type: ResumeSectionType; regex: RegExp }
   },
 ];
 
-/** Common technical keywords for heuristic detection in bullet highlights. */
-const COMMON_TECH_TERMS = [
-  'TypeScript', 'JavaScript', 'Python', 'Go', 'Golang', 'Rust', 'Java', 'C\\+\\+', 'C#',
-  'React', 'Next\\.js', 'Vue', 'Angular', 'Node\\.js', 'Express', 'NestJS', 'GraphQL', 'REST',
-  'PostgreSQL', 'Postgres', 'MySQL', 'MongoDB', 'Redis', 'Cassandra', 'SQLite',
-  'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Terraform', 'CI/CD', 'Git',
-  'Kafka', 'RabbitMQ', 'Tailwind', 'Vite', 'Webpack', 'Vitest', 'Jest',
+/**
+ * Technologies recognized in experience and project text, keyed by canonical spelling.
+ *
+ * Each pattern is anchored on word boundaries and written so that a longer name is never
+ * credited as a shorter one: "React Native" must not produce "React", and the English
+ * verb "go" must not produce the Go language. Inventing a skill the candidate never
+ * listed would break the evidence-backed claims invariant.
+ */
+const TECHNOLOGY_PATTERNS: ReadonlyArray<{ name: string; pattern: RegExp }> = [
+  { name: 'TypeScript', pattern: /\btypescript\b/i },
+  { name: 'JavaScript', pattern: /\bjavascript\b/i },
+  { name: 'Python', pattern: /\bpython\b/i },
+  { name: 'Go', pattern: /\bGo\b(?![-\s](?:to|live|ahead|back|through|over|out|beyond)\b)|\b[Gg]olang\b/ },
+  { name: 'Rust', pattern: /\bRust\b/ },
+  { name: 'Java', pattern: /\bJava\b(?!\s*Script)/ },
+  { name: 'Kotlin', pattern: /\bkotlin\b/i },
+  { name: 'Swift', pattern: /\bSwift\b/ },
+  { name: 'Dart', pattern: /\bDart\b/ },
+  { name: 'Flutter', pattern: /\bflutter\b/i },
+  { name: 'C++', pattern: /(?:^|[^\w])C\+\+(?!\w)/ },
+  { name: 'C#', pattern: /(?:^|[^\w])C#(?!\w)/ },
+  { name: 'PHP', pattern: /\bPHP\b/ },
+  { name: 'Ruby', pattern: /\bRuby\b/ },
+  { name: 'React Native', pattern: /\breact[\s-]native\b/i },
+  { name: 'React', pattern: /\breact(?:\.js|js)?\b(?![\s-]native)/i },
+  { name: 'Next.js', pattern: /\bnext\.js\b|\bnextjs\b/i },
+  { name: 'Vue', pattern: /\bvue(?:\.js)?\b/i },
+  { name: 'Angular', pattern: /\bangular\b/i },
+  { name: 'Node.js', pattern: /\bnode(?:\.js|js)\b/i },
+  { name: 'Express', pattern: /\bExpress(?:\.js)?\b/ },
+  { name: 'NestJS', pattern: /\bnest(?:js|\.js)\b/i },
+  { name: 'Django', pattern: /\bdjango\b/i },
+  { name: 'FastAPI', pattern: /\bfastapi\b/i },
+  { name: 'Spring', pattern: /\bSpring(?: Boot)?\b/ },
+  { name: 'Laravel', pattern: /\blaravel\b/i },
+  { name: 'Tauri', pattern: /\btauri\b/i },
+  { name: 'Electron', pattern: /\bElectron\b/ },
+  { name: 'GraphQL', pattern: /\bgraphql\b/i },
+  { name: 'gRPC', pattern: /\bgrpc\b/i },
+  { name: 'REST', pattern: /\bREST(?:ful)?\b/ },
+  { name: 'WebSockets', pattern: /\bweb\s?sockets?\b/i },
+  { name: 'PostgreSQL', pattern: /\bpostgres(?:ql)?\b/i },
+  { name: 'MySQL', pattern: /\bmysql\b/i },
+  { name: 'MongoDB', pattern: /\bmongo(?:db)?\b/i },
+  { name: 'Redis', pattern: /\bredis\b/i },
+  { name: 'Cassandra', pattern: /\bcassandra\b/i },
+  { name: 'SQLite', pattern: /\bsqlite\b/i },
+  { name: 'Elasticsearch', pattern: /\belasticsearch\b/i },
+  { name: 'AWS', pattern: /\bAWS\b|\bamazon web services\b/i },
+  { name: 'Azure', pattern: /\bazure\b/i },
+  { name: 'GCP', pattern: /\bGCP\b|\bgoogle cloud\b/i },
+  { name: 'Docker', pattern: /\bdocker\b/i },
+  { name: 'Kubernetes', pattern: /\bkubernetes\b|\bk8s\b/i },
+  { name: 'Terraform', pattern: /\bterraform\b/i },
+  { name: 'CI/CD', pattern: /\bCI\/CD\b/i },
+  { name: 'Git', pattern: /\bGit\b/ },
+  { name: 'Kafka', pattern: /\bkafka\b/i },
+  { name: 'RabbitMQ', pattern: /\brabbitmq\b/i },
+  { name: 'NATS', pattern: /\bNATS\b/ },
+  { name: 'Tailwind', pattern: /\btailwind\b/i },
+  { name: 'Vite', pattern: /\bVite\b/ },
+  { name: 'Webpack', pattern: /\bwebpack\b/i },
+  { name: 'Vitest', pattern: /\bvitest\b/i },
+  { name: 'Jest', pattern: /\bJest\b/ },
+  { name: 'Heroku', pattern: /\bheroku\b/i },
+  { name: 'Linux', pattern: /\blinux\b/i },
 ];
-
-const TECH_REGEX = new RegExp(`\\b(${COMMON_TECH_TERMS.join('|')})\\b`, 'gi');
 
 /**
  * Normalizes calendar month names to two-digit strings.
@@ -159,25 +218,8 @@ function parseDateRange(dateText: string): { startDate: string; endDate?: string
 /**
  * Extracts recognized technology tags from text using predefined keyword matching.
  */
-function extractTechnologies(text: string): string[] {
-  const matches = text.match(TECH_REGEX);
-  if (!matches) return [];
-  const normalized = new Set<string>();
-  for (const m of matches) {
-    // Preserve canonical casing for known technologies
-    const lower = m.toLowerCase();
-    if (lower === 'typescript') normalized.add('TypeScript');
-    else if (lower === 'javascript') normalized.add('JavaScript');
-    else if (lower === 'postgresql' || lower === 'postgres') normalized.add('PostgreSQL');
-    else if (lower === 'react') normalized.add('React');
-    else if (lower === 'node.js') normalized.add('Node.js');
-    else if (lower === 'docker') normalized.add('Docker');
-    else if (lower === 'aws') normalized.add('AWS');
-    else if (lower === 'python') normalized.add('Python');
-    else if (lower === 'rust') normalized.add('Rust');
-    else normalized.add(m.trim());
-  }
-  return Array.from(normalized);
+export function extractTechnologies(text: string): string[] {
+  return TECHNOLOGY_PATTERNS.filter(({ pattern }) => pattern.test(text)).map(({ name }) => name);
 }
 
 /**
@@ -186,6 +228,9 @@ function extractTechnologies(text: string): string[] {
 function identifySectionHeading(line: string): ResumeSectionType | null {
   const trimmed = line.trim();
   if (!trimmed || trimmed.length > 80) return null;
+  // Headings start with a capital (or "#") and do not end a sentence. Without this, the
+  // tail of a wrapped bullet ("projects.") switched the parser into the Projects section.
+  if (/^[a-z]/.test(trimmed) || /\.$/.test(trimmed)) return null;
 
   for (const { type, regex } of SECTION_PATTERNS) {
     if (regex.test(trimmed)) {
@@ -226,7 +271,7 @@ function looksLikePersonName(value: string): boolean {
  * @returns Parsed resume structure partitioned into canonical sections.
  */
 export function parsePlainTextResume(rawText: string): ParsedResumeDocument {
-  const lines = rawText.split(/\r?\n/);
+  const lines = joinWrappedBulletLines(rawText.split(/\r?\n/));
 
   const sections: Record<ResumeSectionType, string[]> = {
     header: [],
@@ -402,7 +447,7 @@ function isCompanyMarketingBlurb(line: string, companyName?: string): boolean {
     if (norm.includes(phrase)) return true;
   }
 
-  if (companyName && companyName !== 'Company') {
+  if (companyName) {
     const compLower = companyName.toLowerCase();
     if (
       norm.startsWith(`${compLower} is `) ||
@@ -417,6 +462,175 @@ function isCompanyMarketingBlurb(line: string, companyName?: string): boolean {
   return false;
 }
 
+
+const MONTH_PATTERN = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?';
+const DATE_RANGE_REGEX = new RegExp(
+  `(?:${MONTH_PATTERN}\\s+)?(?:19|20)\\d\\d\\s*(?:[-–—]|to)\\s*(?:(?:${MONTH_PATTERN}\\s+)?(?:19|20)\\d\\d|present|current|now)`,
+  'i'
+);
+
+/** True when a header segment holds nothing but a date or date range. */
+function isPureDateText(text: string): boolean {
+  const residue = text
+    .replace(new RegExp(MONTH_PATTERN, 'gi'), '')
+    .replace(/(?:19|20)\d\d|present|current|now|to|[-–—\s,./()]/gi, '');
+  return /(?:19|20)\d\d/.test(text) && residue.length === 0;
+}
+
+const ROLE_TITLE_REGEX = /\b(engineer|developer|programmer|architect|lead|manager|specialist|director|designer|analyst|consultant|founder|co-founder|cto|ceo|vp|fellow|intern|officer|head|scientist|administrator|technician|associate|assistant|coordinator|researcher|contractor|freelancer|sre|devops)\b/i;
+
+const LOCATION_HINT_REGEX = /^(?:remote|hybrid|on[- ]?site|onsite|worldwide|anywhere)\b|\b(?:remote|hybrid)$/i;
+
+/**
+ * Splits an experience heading into role, employer, and location without inventing any
+ * of them. Resumes write the same facts in many orders ("Title, Company (City)",
+ * "Company | Title", "Title at Company", "Title - Company - Remote"), so each piece is
+ * classified by its content rather than its position. A piece that cannot be classified
+ * is left empty for the candidate to review instead of being filled with a placeholder.
+ */
+export function parseRoleHeader(segments: readonly string[]): {
+  title: string;
+  company: string;
+  location?: string;
+  dateText?: string;
+  /** A stack tag on the heading ("Software Engineer — CoreServe — Rust"). */
+  stack?: string;
+} {
+  const pieces: string[] = [];
+  let location: string | undefined;
+  let dateText: string | undefined;
+
+  for (const raw of segments) {
+    let text = raw.trim();
+    const range = text.match(DATE_RANGE_REGEX);
+    if (range) {
+      dateText = dateText ?? range[0].trim();
+      text = `${text.slice(0, range.index)} ${text.slice((range.index ?? 0) + range[0].length)}`.replace(/[\s•·,|—–-]+$/, '').trim();
+    }
+    const paren = text.match(/\(([^)]+)\)\s*$/);
+    if (paren && paren[1]) {
+      if (/\b(19|20)\d\d\b/.test(paren[1])) {
+        dateText = dateText ?? paren[1].trim();
+      } else if (!location) {
+        location = paren[1].trim();
+      }
+      text = text.slice(0, paren.index).trim();
+    }
+    const atMatch = text.match(/^(.*?)\s+(?:at|@)\s+(.+)$/i);
+    if (atMatch && atMatch[1] && atMatch[2] && ROLE_TITLE_REGEX.test(atMatch[1])) {
+      pieces.push(atMatch[1].trim(), atMatch[2].trim());
+      continue;
+    }
+    for (const dashPart of text.split(/\s+[—–-]\s+|\s*[•·]\s*/)) {
+      const part = dashPart.trim();
+      if (!part) continue;
+      const comma = part.match(/^(.+?),\s+(.+)$/);
+      if (comma && comma[1] && comma[2] && ROLE_TITLE_REGEX.test(comma[1]) && !ROLE_TITLE_REGEX.test(comma[2])) {
+        pieces.push(comma[1].trim(), comma[2].trim());
+      } else {
+        pieces.push(part);
+      }
+    }
+  }
+
+  let title = '';
+  let company = '';
+  let stack: string | undefined;
+  for (const piece of pieces) {
+    if (/\b(19|20)\d\d\b/.test(piece) || /\b(present|current)\b/i.test(piece) && piece.length < 30) {
+      dateText = dateText ?? piece;
+      continue;
+    }
+    if (LOCATION_HINT_REGEX.test(piece)) {
+      location = location ?? piece;
+      continue;
+    }
+    if (!title && ROLE_TITLE_REGEX.test(piece)) {
+      title = piece;
+      continue;
+    }
+    if (!company) {
+      company = piece;
+      continue;
+    }
+    if (!title) {
+      title = piece;
+      continue;
+    }
+    // A third segment is either the stack ("Rust", "Go, Kafka") or a place. Anything
+    // that is neither is dropped: a capitalized word is not evidence of a location.
+    if (isStackTag(piece)) {
+      stack = stack ? `${stack}, ${piece}` : piece;
+    } else if (!location && looksLikePlace(piece)) {
+      location = piece;
+    }
+  }
+
+  return { title, company, location, dateText, ...(stack ? { stack } : {}) };
+}
+
+/** True when every comma/slash/"and" separated part of `text` is a known technology. */
+function isStackTag(text: string): boolean {
+  const parts = text.split(/\s*(?:,|\/|&|\+|\band\b)\s*/i).filter(Boolean);
+  return parts.length > 0 && parts.every((part) => extractTechnologies(part).length > 0 && part.length <= 30);
+}
+
+/** True for text that names a real place ("Lagos", "Remote (UK)", "Portland, OR"). */
+function looksLikePlace(text: string): boolean {
+  if (LOCATION_HINT_REGEX.test(text)) return true;
+  return !isEmptyPlaceSet(findPlaces(text));
+}
+
+/** Bullet markers used across resume layouts. */
+const BULLET_LINE = /^\s*[-*•●▪◦–—+]\s+/;
+
+/**
+ * Rejoins bullets that a PDF wrapped across several lines.
+ *
+ * Text pulled out of a PDF keeps the visual line breaks, so one bullet becomes
+ * "Engineered a ... using Rust," / "Axum, Tokio, SQLx, and PostgreSQL." and each piece
+ * looked like its own accomplishment (and the last wrap of a role could be mistaken for
+ * the next employer's name). A line is a continuation when it follows bullet text that
+ * has not ended its sentence, and is not itself a bullet, heading, date line, or role
+ * heading. A line after a full stop is never joined, so real paragraphs stay apart.
+ */
+export function joinWrappedBulletLines(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let inBullet = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) {
+      out.push(raw);
+      inBullet = false;
+      continue;
+    }
+    const previous = out[out.length - 1]?.trimEnd() ?? '';
+    const isContinuation =
+      inBullet &&
+      !BULLET_LINE.test(line) &&
+      !identifySectionHeading(line) &&
+      !isPureDateText(line) &&
+      !DATE_RANGE_REGEX.test(line) &&
+      !/\s[—–|]\s/.test(line) &&
+      !/[.!?]["')\]]?$/.test(previous) &&
+      // A short Title Case line after a bullet is usually the next employer or role
+      // ("Andela"), not the rest of a sentence. Wrapped text starts lowercase, follows a
+      // comma or a joining word, or runs long.
+      (/^[a-z0-9(]/.test(line) ||
+        /[,;:-]$/.test(previous) ||
+        /\b(and|or|of|the|to|for|with|in|on|at|by|a|an|from|into|across|using|via)$/i.test(previous) ||
+        line.length > 45);
+    if (isContinuation) {
+      // "lock-" + "free" stays "lock-free"; anything else gets a space.
+      out[out.length - 1] = previous.endsWith('-') ? `${previous}${line}` : `${previous} ${line}`;
+      continue;
+    }
+    out.push(raw);
+    inBullet = BULLET_LINE.test(line);
+  }
+  return out;
+}
+
 /**
  * Parses raw text lines from the experience section into distinct work history records.
  */
@@ -428,17 +642,21 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
     location?: string;
     dateText: string;
     highlights: string[];
+    /** True when the newest highlight came from an unbulleted line, which may be the next employer's name. */
+    plainTail?: boolean;
+    /** Stack tag from the heading, counted as technologies used in this role. */
+    stack?: string;
   } | null = null;
 
   const commitCurrent = () => {
     if (current && (current.company || current.title)) {
       const { startDate, endDate, isCurrent } = parseDateRange(current.dateText);
-      const allText = `${current.title} ${current.company} ${current.highlights.join(' ')}`;
+      const allText = `${current.title} ${current.company} ${current.stack ?? ''} ${current.highlights.join(' ')}`;
       const technologiesUsed = extractTechnologies(allText);
 
       results.push({
-        company: current.company || 'Company',
-        title: current.title || 'Role',
+        company: current.company,
+        title: current.title,
         location: current.location,
         startDate,
         endDate,
@@ -461,6 +679,7 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
       const bulletText = line.replace(/^[-*•●–—+]\s+/, '').trim();
       if (current) {
         current.highlights.push(bulletText);
+        current.plainTail = false;
       }
       continue;
     }
@@ -489,7 +708,7 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
           if (ROLE_KEYWORD_REGEX.test(single)) {
             current.title = single;
           } else {
-            if (current.company && (ROLE_KEYWORD_REGEX.test(current.company) || current.title === 'Professional Experience')) {
+            if (current.company && (ROLE_KEYWORD_REGEX.test(current.company) || !current.title)) {
               current.title = current.company;
             }
             current.company = single;
@@ -497,14 +716,15 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
         }
       }
 
-      // Check if company string has role or remote location markers
-      if (current.company && ROLE_KEYWORD_REGEX.test(current.company) && current.title === 'Professional Experience') {
-        current.title = current.company;
-        current.company = 'Company';
+      if (current.company && ROLE_KEYWORD_REGEX.test(current.company) && !current.title) {
+        const reparsed = parseRoleHeader([current.company]);
+        current.title = reparsed.title;
+        current.company = reparsed.company;
+        current.location = current.location ?? reparsed.location;
       }
-      if (current.company && /remote/i.test(current.company)) {
+      if (current.company && /\bremote\b/i.test(current.company)) {
         current.location = 'Remote';
-        current.company = current.company.replace(/\s*remote\s*/i, '').trim();
+        current.company = current.company.replace(/[\s,(-]*\bremote\b[)\s]*/i, '').trim();
       }
       continue;
     }
@@ -534,82 +754,20 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
         lineText = cleanLine.replace(parenDateMatch[0], '').trim();
       }
 
-      if (lineText.includes('|')) {
-        const segments = lineText.split('|').map((s) => s.trim());
-        if (segments.length >= 2) {
-          // Check if any segment is a date range
-          let dateSegmentIndex = -1;
-          for (let i = 1; i < segments.length; i++) {
-            if (isDateLine(segments[i]!)) {
-              dateSegmentIndex = i;
-              dateText = segments[i]!;
-              break;
-            }
-          }
-
-          const firstSeg = segments[0] ?? '';
-          const atMatchInFirst = firstSeg.match(/^(.*?)\s+(?:at|@)\s+(.*?)$/i);
-          const dashSegments = firstSeg.split(/\s+[—–-]\s+/);
-          if (dashSegments.length >= 2 && dashSegments[0] && dashSegments[1] && ROLE_KEYWORD_REGEX.test(dashSegments[0])) {
-            title = dashSegments[0].trim();
-            company = dashSegments[1].trim();
-          } else if (atMatchInFirst && atMatchInFirst[1] && atMatchInFirst[2]) {
-            // e.g. "Senior Software Engineer @ Rocksteady Technologies | July 2025 - Present"
-            title = atMatchInFirst[1].trim();
-            company = atMatchInFirst[2].trim();
-          } else if (dateSegmentIndex === 1) {
-            const isRoleFirst = ROLE_KEYWORD_REGEX.test(firstSeg);
-            if (isRoleFirst) {
-              title = firstSeg;
-              company = 'Company';
-            } else {
-              company = firstSeg;
-              title = 'Software Engineer';
-            }
-          } else {
-            const isFirstRole = ROLE_KEYWORD_REGEX.test(firstSeg);
-            const otherSeg = segments[1] ?? 'Company';
-            const isOtherRole = ROLE_KEYWORD_REGEX.test(otherSeg);
-            if (isOtherRole && !isFirstRole) {
-              company = firstSeg;
-              title = otherSeg;
-            } else {
-              title = firstSeg;
-              company = otherSeg;
-            }
-          }
-
-          // Check remaining segments for location
-          for (let i = 1; i < segments.length; i++) {
-            if (i !== dateSegmentIndex) {
-              const seg = segments[i]!;
-              if (!location && !seg.includes('@') && !isDateLine(seg) && seg !== company) {
-                location = seg;
-              }
-            }
-          }
-        }
-      } else {
-        // e.g. "Software Engineer at Google"
-        const atMatch = lineText.match(/^(.*?)\s+(?:at|@)\s+(.*?)$/i);
-        if (atMatch && atMatch[1] && atMatch[2]) {
-          title = atMatch[1].trim();
-          company = atMatch[2].trim();
+      const segments = lineText.split(/\s*\|\s*/).map((segment) => segment.trim()).filter(Boolean);
+      const headerSegments: string[] = [];
+      for (const segment of segments) {
+        if (!dateText && isPureDateText(segment)) {
+          dateText = segment;
         } else {
-          // e.g. "Software Engineer — CoreServe — Rust" or "Google - Tech Lead" or "Acme Corp - Senior Engineer"
-          const dashSegments = lineText.split(/\s+[—–-]\s+/);
-          if (dashSegments.length >= 2 && dashSegments[0] && dashSegments[1]) {
-            const isRoleFirst = /engineer|developer|architect|lead|manager|specialist|director|designer|analyst|consultant/i.test(dashSegments[0]);
-            if (isRoleFirst) {
-              title = dashSegments[0].trim();
-              company = dashSegments[1].trim();
-            } else {
-              title = dashSegments[1].trim();
-              company = dashSegments[0].trim();
-            }
-          }
+          headerSegments.push(segment);
         }
       }
+      const parsedHeader = parseRoleHeader(headerSegments);
+      title = parsedHeader.title;
+      company = parsedHeader.company;
+      location = parsedHeader.location;
+      if (!dateText && parsedHeader.dateText) dateText = parsedHeader.dateText;
 
       current = {
         company,
@@ -617,17 +775,18 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
         location,
         dateText,
         highlights: [],
+        ...(parsedHeader.stack ? { stack: parsedHeader.stack } : {}),
       };
       continue;
     }
 
     // Multi-line layouts: if an active entry has no highlights yet, check if this unbulleted line is the complementary role or company
     if (current && current.highlights.length === 0 && !isBullet(line) && cleanLine.length < 60) {
-      if (ROLE_KEYWORD_REGEX.test(cleanLine) && current.title === 'Software Engineer') {
+      if (ROLE_KEYWORD_REGEX.test(cleanLine) && !current.title) {
         current.title = cleanLine;
         continue;
       }
-      if (current.company === 'Company' && !ROLE_KEYWORD_REGEX.test(cleanLine)) {
+      if (!current.company && !ROLE_KEYWORD_REGEX.test(cleanLine)) {
         current.company = cleanLine;
         continue;
       }
@@ -635,9 +794,17 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
 
     // Check if an unbulleted line is a brand new role title without delimiters after an active entry already has highlights and dates
     if (current && current.dateText && current.highlights.length > 0 && ROLE_KEYWORD_REGEX.test(cleanLine) && cleanLine.length < 60) {
+      // "Andela" on its own line followed by "Backend Developer" is the next employer, not
+      // an accomplishment of the previous role.
+      let nextCompany = '';
+      const tail = current.highlights[current.highlights.length - 1] ?? '';
+      if (current.plainTail && tail.length <= 40 && tail.split(/\s+/).length <= 4 && !/[.;:]$/.test(tail)) {
+        nextCompany = tail;
+        current.highlights.pop();
+      }
       commitCurrent();
       current = {
-        company: 'Company',
+        company: nextCompany,
         title: cleanLine,
         dateText: '',
         highlights: [],
@@ -651,11 +818,12 @@ function parseExperiences(lines: readonly string[]): ParsedExperience[] {
         continue;
       }
       current.highlights.push(cleanLine);
+      current.plainTail = true;
     } else {
       // Start a fallback entry if orphan line encountered
       current = {
         company: cleanLine,
-        title: 'Professional Experience',
+        title: '',
         dateText: '',
         highlights: [],
       };
@@ -740,6 +908,19 @@ function parseProjects(lines: readonly string[]): ParsedProject[] {
       continue;
     }
 
+    // "StatusHD - React Native app for ..." is a complete project entry on one line.
+    const inlineProject = cleanLine.match(/^([^|:]{2,50}?)\s+[—–-]\s+(.{8,})$/) ?? cleanLine.match(/^([^|:]{2,40}?):\s+(.{8,})$/);
+    if (inlineProject && inlineProject[1] && inlineProject[2] && !/^https?:/i.test(inlineProject[1])) {
+      commitCurrent();
+      const description = inlineProject[2].trim();
+      current = {
+        title: inlineProject[1].replace(/[*_#]/g, '').trim(),
+        description,
+        highlights: [description],
+      };
+      continue;
+    }
+
     // New project headline detected
     if (!current || cleanLine.includes('|') || cleanLine.startsWith('**') || /^[\w\s]{2,40}$/.test(cleanLine)) {
       commitCurrent();
@@ -774,30 +955,73 @@ function parseProjects(lines: readonly string[]): ParsedProject[] {
   return results;
 }
 
+const DEGREE_REGEX = /\b(bachelor(?:'s)?|master(?:'s)?|b\.?\s?s\.?c?|m\.?\s?s\.?c?|b\.?\s?tech|m\.?\s?tech|b\.?\s?eng|m\.?\s?eng|b\.?\s?a|m\.?\s?a|mba|ph\.?\s?d|hnd|ond|nd|nce|associate(?:'s)?|doctor(?:ate)?|diploma|certificate|bootcamp|llb|mbbs|b\.?\s?ed)\b\.?/i;
+const INSTITUTION_REGEX = /\b(university|college|institute|polytechnic|school|academy|lautech|unilag|mit|bootcamp)\b/i;
+
+/**
+ * Classifies the parts of a single education line ("B.Tech Computer Science, LAUTECH, 2025",
+ * "BSc in Physics | University of Lagos | 2019") by content. Unknown parts stay empty; the
+ * resume must never show a degree, school, or subject the candidate did not write.
+ */
+function classifyEducationLine(text: string): ParsedEducation | null {
+  const yearMatch = text.match(/\b(19\d\d|20\d\d)\b(?!.*\b(19\d\d|20\d\d)\b)/);
+  const graduationDate = yearMatch && yearMatch[1] ? `${yearMatch[1]}-05` : undefined;
+  const parts = text
+    .split(/\s*(?:\||,|\s[—–-]\s)\s*/)
+    .map((part) => part.replace(/\(?\b(?:19|20)\d\d\b\)?(?:\s*[-–—]\s*(?:(?:19|20)\d\d|present))?/gi, '').trim())
+    .filter((part) => part.length > 0 && !/^(?:expected|graduated|class of)$/i.test(part));
+
+  let degree = '';
+  let fieldOfStudy = '';
+  let institution = '';
+  let lastAssigned: 'degree' | 'field' | 'institution' | null = null;
+  for (const part of parts) {
+    if (!degree && DEGREE_REGEX.test(part)) {
+      lastAssigned = 'degree';
+      const split = part.match(/^(.+?)\s+in\s+(.+)$/i);
+      if (/^(?:bachelor|master|doctor|associate)/i.test(part) && !(split && split[1] && split[2])) {
+        degree = part;
+      } else if (split && split[1] && split[2]) {
+        degree = split[1].trim();
+        fieldOfStudy = split[2].trim();
+      } else {
+        const degreeMatch = part.match(DEGREE_REGEX);
+        const rest = degreeMatch ? part.slice((degreeMatch.index ?? 0) + degreeMatch[0].length).trim() : '';
+        degree = degreeMatch && rest && !INSTITUTION_REGEX.test(rest) ? part.slice(0, (degreeMatch.index ?? 0) + degreeMatch[0].length).trim() : part;
+        if (degreeMatch && rest && !INSTITUTION_REGEX.test(rest)) fieldOfStudy = rest.replace(/^(?:in|of)\s+/i, '');
+      }
+      continue;
+    }
+    const looksLikeInstitution = INSTITUTION_REGEX.test(part) || /^[A-Z]{3,10}$/.test(part);
+    if (!institution && looksLikeInstitution) {
+      institution = part;
+      lastAssigned = 'institution';
+    } else if (lastAssigned === 'institution' && !looksLikeInstitution && part.split(/\s+/).length <= 3) {
+      // "University of California, Berkeley": the campus belongs to the school name.
+      institution = `${institution}, ${part}`;
+    } else if (degree && !fieldOfStudy) {
+      fieldOfStudy = part;
+      lastAssigned = 'field';
+    } else if (!institution) {
+      institution = part;
+      lastAssigned = 'institution';
+    }
+  }
+
+  if (!degree && !institution) return null;
+  return { institution, degree, fieldOfStudy, graduationDate };
+}
+
 /**
  * Parses raw text lines from the education section into academic records.
  */
 function parseEducation(lines: readonly string[]): ParsedEducation[] {
+  type MutableEducation = { -readonly [K in keyof ParsedEducation]: ParsedEducation[K] };
   const results: ParsedEducation[] = [];
-  const DEGREE_REGEX = /\b(bachelor|master|b\.?s\.?|m\.?s\.?|ph\.?d|b\.?a\.?|associate|doctor|diploma)\b/i;
-  const isDateOnlyLine = (l: string) => /\b(19\d\d|20\d\d)\b/i.test(l) && !/[a-zA-Z]{5,}/.test(l.replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i, ''));
-
-  let current: {
-    institution: string;
-    degree: string;
-    fieldOfStudy: string;
-    graduationDate?: string;
-  } | null = null;
+  let current: MutableEducation | null = null;
 
   const commitCurrent = () => {
-    if (current && (current.institution || current.degree)) {
-      results.push({
-        institution: current.institution || 'Academic Institution',
-        degree: current.degree || 'Degree',
-        fieldOfStudy: current.fieldOfStudy || 'General Studies',
-        graduationDate: current.graduationDate,
-      });
-    }
+    if (current && (current.institution || current.degree)) results.push(current);
     current = null;
   };
 
@@ -805,81 +1029,42 @@ function parseEducation(lines: readonly string[]): ParsedEducation[] {
     const clean = line.replace(/^[-*•#]\s*/, '').trim();
     if (!clean) continue;
 
-    // Single-line pipe or dash format e.g. "B.S. in Computer Science | Stanford University | 2018"
-    if (clean.includes('|') || clean.includes('—') || clean.includes('–')) {
+    const isDateOnly = /^(?:[A-Za-z]+\.?\s+)?(?:19|20)\d\d(?:\s*[-–—]\s*(?:(?:[A-Za-z]+\.?\s+)?(?:19|20)\d\d|present))?$/i.test(clean);
+    if (isDateOnly) {
+      const years = clean.match(/(?:19|20)\d\d/g);
+      if (current && years) current.graduationDate = `${years[years.length - 1]}-05`;
+      continue;
+    }
+
+    if (/^(?:gpa|cgpa|grade|honou?rs|relevant coursework|coursework)\b/i.test(clean)) continue;
+
+    const hasDelimiter = /\||,|\s[—–-]\s/.test(clean);
+    if (hasDelimiter || DEGREE_REGEX.test(clean)) {
+      const parsed = classifyEducationLine(clean);
+      if (!parsed) continue;
+      if (current && !current.institution && !parsed.degree && parsed.institution) {
+        current.institution = parsed.institution;
+        current.graduationDate = current.graduationDate ?? parsed.graduationDate;
+        continue;
+      }
+      if (current && !current.degree && parsed.degree && !parsed.institution) {
+        current.degree = parsed.degree;
+        current.fieldOfStudy = parsed.fieldOfStudy;
+        current.graduationDate = current.graduationDate ?? parsed.graduationDate;
+        continue;
+      }
       commitCurrent();
-
-      let institution = '';
-      let degree = '';
-      let fieldOfStudy = '';
-      let graduationDate: string | undefined;
-
-      const dateMatch = clean.match(/\b(19\d\d|20\d\d)\b/);
-      if (dateMatch && dateMatch[1]) {
-        graduationDate = `${dateMatch[1]}-05`;
-      }
-
-      if (clean.includes('|')) {
-        const segments = clean.split('|').map((s) => s.trim());
-        degree = segments[0] || 'Degree';
-        institution = segments[1] || 'University';
-        fieldOfStudy = segments[2] || '';
-      } else {
-        const parts = clean.split(/\s+[—–]\s+/).map((s) => s.trim());
-        institution = parts[0] || 'Academic Institution';
-        degree = parts[1] || 'Degree';
-        if (degree.includes(',')) {
-          const sub = degree.split(',').map((s) => s.trim());
-          degree = sub[0] || degree;
-          fieldOfStudy = sub.slice(1).join(', ') || fieldOfStudy;
-        }
-      }
-
-      results.push({
-        institution: institution || 'Academic Institution',
-        degree: degree || 'Degree',
-        fieldOfStudy: fieldOfStudy || 'General Studies',
-        graduationDate,
-      });
+      current = { ...parsed };
       continue;
     }
 
-    // New degree line detected e.g. "B.S. in Computer Science"
-    if (DEGREE_REGEX.test(clean)) {
-      commitCurrent();
-
-      let fieldOfStudy = '';
-      const fieldMatch = clean.match(/(?:in|of)\s+([A-Za-z\s]+)/i);
-      if (fieldMatch && fieldMatch[1]) {
-        fieldOfStudy = fieldMatch[1].trim();
-      }
-
-      current = {
-        degree: clean,
-        institution: '',
-        fieldOfStudy,
-      };
-      continue;
-    }
-
-    // Date-only line e.g. "May 2021"
-    if (isDateOnlyLine(clean)) {
-      const yearMatch = clean.match(/\b(19\d\d|20\d\d)\b/);
-      if (yearMatch && yearMatch[1] && current) {
-        current.graduationDate = `${yearMatch[1]}-05`;
-      }
-      continue;
-    }
-
-    // Institution line or honors line
     if (current && !current.institution) {
-      current.institution = clean.replace(/\s*honors:.*$/i, '').trim();
-    } else if (!current) {
-      current = {
-        institution: clean,
-        degree: 'Degree',
-        fieldOfStudy: 'General Studies',
-      };
+      current.institution = clean;
+    } else if (current && !current.degree && DEGREE_REGEX.test(clean)) {
+      current.degree = clean;
+    } else {
+      commitCurrent();
+      current = { institution: clean, degree: '', fieldOfStudy: '' };
     }
   }
 
@@ -895,27 +1080,22 @@ function parseSkills(
   experiences: readonly ParsedExperience[],
   projects: readonly ParsedProject[]
 ): string[] {
-  const skillSet = new Set<string>();
+  // Keyed case-insensitively so "Postgres", "postgresql" and "PostgreSQL" collapse to the
+  // first spelling the candidate used.
+  const skills = new Map<string, string>();
+  const add = (skill: string) => {
+    const trimmed = skill.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase().replace(/^postgres$/, 'postgresql').replace(/^golang$/, 'go');
+    if (!skills.has(key)) skills.set(key, trimmed);
+  };
 
   for (const line of skillLines) {
     const clean = line.replace(/^[-*•#]\s*/, '').replace(/^[A-Za-z0-9\s&/_-]+:\s*/, '');
-    const tokens = clean.split(/[,;|•]/).map((s) => s.trim()).filter((s) => s.length > 1);
-    for (const t of tokens) {
-      skillSet.add(t);
-    }
+    for (const token of clean.split(/[,;|•]/)) add(token);
   }
+  for (const exp of experiences) exp.technologiesUsed.forEach(add);
+  for (const proj of projects) proj.technologiesUsed.forEach(add);
 
-  // Cross-reference technologies discovered in experiences and projects
-  for (const exp of experiences) {
-    for (const tech of exp.technologiesUsed) {
-      skillSet.add(tech);
-    }
-  }
-  for (const proj of projects) {
-    for (const tech of proj.technologiesUsed) {
-      skillSet.add(tech);
-    }
-  }
-
-  return Array.from(skillSet);
+  return Array.from(skills.values());
 }

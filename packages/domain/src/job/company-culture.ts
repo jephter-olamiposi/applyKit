@@ -2,7 +2,7 @@
  * @fileoverview Targeted Company Mission, Culture Extraction, and Evidence Alignment Engine.
  *
  * Implements local-first parsing of employer culture, mission statements, engineering values,
- * and product ecosystems from job descriptions (Phase 21, ADR-0033).
+ * and product ecosystems from job descriptions (ADR-0033).
  *
  * Invariant (ADR-0004): Zero Hallucination. Cultural alignment statements link the employer's
  * authentic stated values to the candidate's verified EvidenceGraph items, ensuring motivation
@@ -11,8 +11,6 @@
 
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
-import type { JobPosting } from './job-posting.js';
-import { areCompetenciesEquivalent, normalizeCompetencyToken } from './synonyms.js';
 
 /**
  * Extracted company culture, values, and organizational mission profile.

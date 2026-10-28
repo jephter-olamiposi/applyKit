@@ -172,7 +172,7 @@ describe('14-Point Resume Golden Standard Audit Engine', () => {
     const tailoredResume = tailorCandidateResume(mockJob, mockProfile);
     const audit = auditResumeQuality(tailoredResume, mockProfile, mockJob, 'modern');
 
-    expect(audit.totalCount).toBe(14);
+    expect(audit.totalCount).toBe(17);
     expect(audit.overallScore).toBeGreaterThanOrEqual(85);
     expect(audit.isReady).toBe(true);
 
@@ -288,8 +288,12 @@ describe('14-Point Resume Golden Standard Audit Engine', () => {
     expect(polished.tailoredSummary).toContain('PostgreSQL');
     // Weak opening replaced with a plain past-tense verb
     expect(polished.experiences[0]?.rankedHighlights[0]?.text).toMatch(/^Built microservices using Node\.js and AWS\./);
-    // Audit regenerated and high score
+    // Audit regenerated: style issues fixed, but a bullet that is not in the candidate's
+    // resume is still reported instead of being waved through.
     expect(polished.qualityAudit).toBeDefined();
-    expect(polished.qualityAudit?.overallScore).toBeGreaterThanOrEqual(85);
+    expect(polished.qualityAudit?.checks.no_pronoun_i.status).toBe('passed');
+    expect(polished.qualityAudit?.checks.no_buzzwords.status).toBe('passed');
+    expect(polished.qualityAudit?.checks.facts_traceable.status).toBe('failed');
+    expect(polished.qualityAudit?.isReady).toBe(false);
   });
 });

@@ -267,6 +267,7 @@ describe('Form Engine - Canonical Field Classification & Option Matcher', () => 
             isAuthorizedInCountry: true,
             requiresSponsorship: false,
             authorizedCountries: ['US'],
+            confirmedByCandidate: true,
           },
           demographics: {
             gender: 'Female',

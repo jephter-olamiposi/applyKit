@@ -14,7 +14,6 @@ import type {
   CoverLetterContext,
 } from './contexts.js';
 import type { AIRequest } from './provider.js';
-import type { WritingStyleProfile } from './writing-style.js';
 import { wrapUntrustedContent, buildHardenedSystemPrompt } from './sanitization.js';
 
 /**
@@ -172,8 +171,8 @@ export function buildFieldAnsweringPrompt(
   const lengthPref = context.answerLengthPreference ?? 'normal';
 
   const lengthGuidance = {
-    short: 'Keep it brief — 2-3 sentences max.',
-    normal: 'Write a natural paragraph — 3-5 sentences.',
+    short: 'Keep it brief: 2-3 sentences max.',
+    normal: 'Write a natural paragraph of 3-5 sentences.',
     detailed: 'Write 2-3 paragraphs with specific details.',
   }[lengthPref];
 
@@ -216,7 +215,7 @@ CRITICAL DIRECTIVES:
 
 ${styleGuidance ? `WRITING STYLE (match this voice):\n${styleGuidance}\n` : ''}
 
-FORBIDDEN — These will cause rejection:
+FORBIDDEN (these cause rejection):
 ${forbiddenRules}
 
 Return a valid JSON object matching this schema:
@@ -389,6 +388,8 @@ CRITICAL INVARIANTS:
 4. Do not open with "I am writing to apply", "I am excited", or "I would be a perfect fit". Do not close with "Thank you for your time and consideration".
 5. Do not repeat the job description back to the reader. Say what the candidate did and why it matters for this role.
 6. Avoid "passionate", "results-driven", "proven track record", "leverage", "synergy", "cutting-edge", and "dynamic".
+7. No em dashes, no "Furthermore" or "Moreover", and no "verified" anywhere in the letter. Use contractions where a person would ("I'd", "I've").
+8. Keep it under 200 words: one short opening, one paragraph with two concrete results, one line to close.
 
 Return a valid JSON object matching this schema:
 {

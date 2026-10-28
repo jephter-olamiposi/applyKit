@@ -37,11 +37,13 @@ import type {
   FactCheckReport,
   ResumeTemplateId,
   ResumeQualityAuditReport,
+  ResumeRewriteChange,
   AnswerCategory,
   SpacingDensity,
   SourcedOpportunity,
 } from '@applykit/domain';
 import type { StorageUsageSummary, PurgeResult } from '../storage/purge-engine.js';
+import type { KeyCheckResult } from '../ai/key-check.js';
 
 /**
  * Raw extraction payload produced by content script DOM crawlers.
@@ -170,6 +172,42 @@ export interface SetApiKeyResponse {
   success: boolean;
   provider: AIProviderName;
   error?: string;
+  /** What the provider said when the key was checked before saving. */
+  check?: KeyCheckResult;
+}
+
+/** Re-checks the saved key for one provider. */
+export interface CheckApiKeyRequest {
+  type: 'CHECK_API_KEY';
+  provider: AIProviderName;
+}
+
+export interface CheckApiKeyResponse {
+  type: 'CHECK_API_KEY_RESULT';
+  provider: AIProviderName;
+  check: KeyCheckResult;
+}
+
+/** The last check per provider, with when it ran. */
+export type KeyChecks = Partial<Record<AIProviderName, KeyCheckResult & { checkedAt: string }>>;
+
+/** The local log of recent AI drafts and what the checker said about them. */
+export interface GetDraftLogRequest {
+  type: 'GET_DRAFT_LOG';
+}
+
+export interface GetDraftLogResponse {
+  type: 'GET_DRAFT_LOG_RESULT';
+  log: unknown[];
+}
+
+export interface GetKeyChecksRequest {
+  type: 'GET_KEY_CHECKS';
+}
+
+export interface GetKeyChecksResponse {
+  type: 'GET_KEY_CHECKS_RESULT';
+  checks: KeyChecks;
 }
 
 /**
@@ -430,7 +468,7 @@ export interface IngestResumeResponse {
 
 /**
  * Parse an uploaded resume (PDF base64, TXT, MD, or JSON) into a full CandidateProfile
- * and decomposed EvidenceGraph preview before user approval (Phase 18).
+ * and decomposed EvidenceGraph preview before user approval.
  */
 export interface BootstrapProfileFromResumeRequest {
   type: 'BOOTSTRAP_PROFILE_FROM_RESUME';
@@ -886,6 +924,8 @@ export interface GenerateTailoredResumeRequest {
   maxProjects?: number;
   templateId?: ResumeTemplateId;
   onePageFit?: boolean;
+  /** End the summary with a line naming the company. Defaults to true. */
+  mentionCompany?: boolean;
 }
 
 export interface GenerateTailoredResumeResponse {
@@ -915,6 +955,25 @@ export interface AutoFixResumeResponse {
 }
 
 /**
+ * Asks the AI to reword a tailored resume toward its job. Every reworded line is checked
+ * against its original and kept only if it adds no new facts (ai/resume-rewrite.ts).
+ */
+export interface RewordResumeWithAiRequest {
+  type: 'REWORD_RESUME_WITH_AI';
+  resume: TailoredResume;
+  jobId?: string;
+}
+
+export interface RewordResumeWithAiResponse {
+  type: 'REWORD_RESUME_WITH_AI_RESULT';
+  success: boolean;
+  tailoredResume?: TailoredResume;
+  qualityAudit?: ResumeQualityAuditReport;
+  changes?: ResumeRewriteChange[];
+  error?: string;
+}
+
+/**
  * Verifiable evidence citation linking an assistant answer back to the candidate's resume or profile.
  */
 export interface GroundedEvidenceCitation {
@@ -932,7 +991,7 @@ export interface AnswerAdHocQuestionRequest {
   type: 'ANSWER_AD_HOC_QUESTION';
   question: string;
   maxLength?: number;
-  tone?: 'concise' | 'star' | 'motivational' | 'bullets' | 'technical' | 'conversational' | 'executive' | 'ats_aggressive';
+  tone?: 'plain' | 'concise' | 'star' | 'motivational' | 'bullets' | 'technical' | 'conversational' | 'executive' | 'ats_aggressive';
   userNotes?: string;
 }
 
@@ -945,6 +1004,12 @@ export interface AnswerAdHocQuestionResponse {
   supportingCitations?: GroundedEvidenceCitation[];
   sourceResumeName?: string;
   notes?: string;
+  /** Where the facts about the company came from, so the candidate can check them. */
+  companySources?: { title: string; url: string }[];
+  /** When the draft did not pass every check: the draft, for the candidate to edit. */
+  draftText?: string;
+  /** What the check found in that draft, in plain words. */
+  problems?: string[];
   error?: string;
 }
 
@@ -976,6 +1041,38 @@ export interface InsertTextIntoActiveElementRequest {
 export interface InsertTextIntoActiveElementResponse {
   type: 'INSERT_TEXT_INTO_ACTIVE_ELEMENT_RESULT';
   success: boolean;
+  error?: string;
+}
+
+/**
+ * Content script asks the service worker to list the options of React dropdowns on
+ * its own page (they are invisible to the isolated world). See background/page-widgets.
+ */
+export interface AnnotatePageWidgetsRequest {
+  type: 'ANNOTATE_PAGE_WIDGETS';
+}
+
+export interface AnnotatePageWidgetsResponse {
+  type: 'ANNOTATE_PAGE_WIDGETS_RESULT';
+  success: boolean;
+  annotated: number;
+  error?: string;
+}
+
+/**
+ * Content script asks the service worker to pick one option on a React dropdown in
+ * its own page. `wanted` is the planned option value or label.
+ */
+export interface PickPageWidgetOptionRequest {
+  type: 'PICK_PAGE_WIDGET_OPTION';
+  selector: string;
+  wanted: string;
+}
+
+export interface PickPageWidgetOptionResponse {
+  type: 'PICK_PAGE_WIDGET_OPTION_RESULT';
+  success: boolean;
+  chosenLabel?: string;
   error?: string;
 }
 
@@ -1095,7 +1192,7 @@ export interface GenerateCoverLetterDocxResponse {
 }
 
 /**
- * Automated ATS submission detected by content script observer or background navigation (Phase 20).
+ * Automated ATS submission detected by content script observer or background navigation.
  */
 export interface SubmissionDetectedNotification {
   type: 'SUBMISSION_DETECTED';
@@ -1110,6 +1207,46 @@ export interface SubmissionDetectedResponse {
   applicationId?: string;
   previousStatus?: string;
   newStatus?: string;
+  error?: string;
+}
+
+/**
+ * Destinations the side panel can display.
+ *
+ * Declared in the message layer, which both the service worker and the UI import,
+ * so a handler cannot accept a tab the panel is unable to render.
+ */
+export const SIDE_PANEL_TAB_IDS = [
+  'overview',
+  'sourced_feed',
+  'review_matches',
+  'tailor_resume',
+  'cover_letter',
+  'evidence',
+  'prepare_application',
+  'track',
+  'profile',
+  'settings',
+] as const;
+
+/** A side panel destination. */
+export type SidePanelTabId = (typeof SIDE_PANEL_TAB_IDS)[number];
+
+/**
+ * Asks the service worker to open the side panel on a given tab.
+ *
+ * Originates from the in-page hub, where the candidate attaches a tailored
+ * document without leaving the application form. It carries no candidate data,
+ * so it is safe to accept from a content script.
+ */
+export interface OpenSidePanelTabRequest {
+  type: 'OPEN_SIDEPANEL_TAB';
+  tab: SidePanelTabId;
+}
+
+export interface OpenSidePanelTabResponse {
+  type: 'OPEN_SIDEPANEL_TAB_RESULT';
+  success: boolean;
   error?: string;
 }
 
@@ -1137,6 +1274,9 @@ export type ExtensionRequest =
   | ExtractJobRequest
   | GetApiKeysStatusRequest
   | SetApiKeyRequest
+  | CheckApiKeyRequest
+  | GetKeyChecksRequest
+  | GetDraftLogRequest
   | GetCandidateProfileSummaryRequest
   | GetCurrentExtractionRequest
   | GetCandidateProfileRequest
@@ -1173,9 +1313,12 @@ export type ExtensionRequest =
   | ExecuteSelectiveActionRequest
   | GenerateTailoredResumeRequest
   | AutoFixResumeRequest
+  | RewordResumeWithAiRequest
   | AnswerAdHocQuestionRequest
   | SaveReusableAnswerRequest
   | InsertTextIntoActiveElementRequest
+  | AnnotatePageWidgetsRequest
+  | PickPageWidgetOptionRequest
   | ExecuteOneClickAutoFillRequest
   | GenerateCoverLetterRequest
   | FactCheckDocumentRequest
@@ -1192,6 +1335,7 @@ export type ExtensionRequest =
   | FetchAtsJobsRequest
   | GetSourcedOpportunitiesRequest
   | HarvestPageLinksRequest
+  | OpenSidePanelTabRequest
   | SubmissionDetectedNotification;
 
 /**
@@ -1210,6 +1354,8 @@ export function isValidExtensionRequest(value: unknown): value is ExtensionReque
   const id = (candidate: unknown): candidate is string => nonEmptyText(candidate, 256);
 
   switch (message.type) {
+    case 'CHECK_API_KEY':
+      return ['openai', 'anthropic', 'gemini', 'openrouter'].includes(String(message.provider));
     case 'SET_API_KEY':
       // An empty key is a revocation request, not malformed input.
       return ['openai', 'anthropic', 'gemini', 'openrouter'].includes(String(message.provider)) &&
@@ -1250,6 +1396,8 @@ export function isValidExtensionRequest(value: unknown): value is ExtensionReque
         message.form.fields.length <= 500 &&
         objectValue(message.plan) &&
         Array.isArray(message.plan.actions);
+    case 'OPEN_SIDEPANEL_TAB':
+      return (SIDE_PANEL_TAB_IDS as readonly string[]).includes(String(message.tab));
     case 'SUBMISSION_DETECTED':
       return nonEmptyText(message.url, 4096) &&
         typeof message.title === 'string' &&
@@ -1258,6 +1406,10 @@ export function isValidExtensionRequest(value: unknown): value is ExtensionReque
     case 'HIGHLIGHT_FORM_FIELD':
       return nonEmptyText(message.selector, 4096) &&
         (message.label === undefined || (typeof message.label === 'string' && message.label.length <= 4096));
+    case 'REWORD_RESUME_WITH_AI':
+      return objectValue(message.resume) && (message.jobId === undefined || id(message.jobId));
+    case 'PICK_PAGE_WIDGET_OPTION':
+      return nonEmptyText(message.selector, 4096) && nonEmptyText(message.wanted, 2000);
     case 'TOGGLE_IN_PAGE_REVIEW_BADGES':
       return typeof message.enabled === 'boolean';
     case 'FETCH_ATS_JOBS': {
@@ -1302,6 +1454,9 @@ export type ExtensionResponse =
   | ExtractJobResponse
   | GetApiKeysStatusResponse
   | SetApiKeyResponse
+  | CheckApiKeyResponse
+  | GetKeyChecksResponse
+  | GetDraftLogResponse
   | GetCandidateProfileSummaryResponse
   | CurrentExtractionResponse
   | GetCandidateProfileResponse
@@ -1311,6 +1466,7 @@ export type ExtensionResponse =
   | FetchAtsJobsResponse
   | GetSourcedOpportunitiesResponse
   | HarvestPageLinksResponse
+  | OpenSidePanelTabResponse
   | ListSavedJobsResponse
   | ListApplicationsResponse
   | GetApplicationDetailResponse
@@ -1343,6 +1499,7 @@ export type ExtensionResponse =
   | ExecuteSelectiveActionResponse
   | GenerateTailoredResumeResponse
   | AutoFixResumeResponse
+  | RewordResumeWithAiResponse
   | AnswerAdHocQuestionResponse
   | SaveReusableAnswerResponse
   | InsertTextIntoActiveElementResponse

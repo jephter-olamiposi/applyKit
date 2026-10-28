@@ -1,13 +1,13 @@
 /**
- * @fileoverview Tailoring Studio Component for Resumes and Cover Letters.
+ * @fileoverview The Resume tab: the tailored resume and cover letter for the current job.
  *
- * Provides candidate review and export interface for evidence-grounded documents (ADR-0004):
- * 1. Dynamic Resume Selector: Ranked experiences, projects, and partitioned skills.
- * 2. Evidence-Grounded Cover Letter: Sectional assembly strictly citing verified accomplishments.
- * 3. Fact-Checking Verification: Automated verification dial flagging unbacked statements.
- * 4. Clean Exporters: 1-click Markdown, plain text, and local file downloads.
+ * Resume: a readable preview, the few layout choices, downloads, and a plain account of
+ * what changed and anything that must be fixed before sending (ADR-0004). Cover letter:
+ * a short editable draft whose claims are checked against the resume; downloads use the
+ * candidate's edits.
  */
 
+import { NextStep } from './NextStep.js';
 import React, { useState, useEffect, useCallback } from 'react';
 import type {
   TailoredResume,
@@ -21,7 +21,6 @@ import type {
 import {
   exportResumeAsMarkdown,
   exportResumeAsPlainText,
-  exportCoverLetterAsMarkdown,
   exportCoverLetterAsPlainText,
   generateResumePdfBlob,
   generateCoverLetterPdfBlob,
@@ -29,26 +28,26 @@ import {
   generateCoverLetterDocxBlob,
   getStandardResumeFilename,
   getStandardCoverLetterFilename,
+  getApplicationFolderName,
+  withEditedLetterText,
 } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
 import { PdfPreviewCanvas } from './PdfPreviewCanvas.js';
-import { downloadBlob, downloadText } from '../download-manager.js';
+import { downloadBlob } from '../download-manager.js';
 import type {
   GenerateTailoredResumeResponse,
   GenerateCoverLetterResponse,
-  GenerateCoverLetterPdfRequest,
   GenerateCoverLetterPdfResponse,
-  GenerateResumePdfRequest,
   GenerateResumePdfResponse,
-  GenerateResumeDocxRequest,
   GenerateResumeDocxResponse,
-  GenerateCoverLetterDocxRequest,
   GenerateCoverLetterDocxResponse,
   FactCheckDocumentResponse,
   GetCandidateProfileResponse,
   ExtensionRequest,
   AutoFixResumeRequest,
   AutoFixResumeResponse,
+  RewordResumeWithAiRequest,
+  RewordResumeWithAiResponse,
 } from '../../messages/contracts.js';
 
 interface TailoringStudioProps {
@@ -66,29 +65,36 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
 
   // Resume State
   const [tailoredResume, setTailoredResume] = useState<TailoredResume | null>(null);
-  const [resumeFactCheck, setResumeFactCheck] = useState<FactCheckReport | null>(null);
+  const [, setResumeFactCheck] = useState<FactCheckReport | null>(null);
   const [qualityAudit, setQualityAudit] = useState<ResumeQualityAuditReport | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<ResumeTemplateId>('modern');
   const [onePageFit, setOnePageFit] = useState<boolean>(false);
   const [resumeDensity, setResumeDensity] = useState<SpacingDensity>('standard');
-  const [showTargetBadge, setShowTargetBadge] = useState<boolean>(true);
+  // Off by default: a resume normally does not print the target job title under the name.
+  const [showTargetBadge, setShowTargetBadge] = useState<boolean>(false);
+  // On by default: the resume cheat sheet says to name the company you are applying to.
+  const [mentionCompany, setMentionCompany] = useState<boolean>(true);
   const [resumeBlobUrl, setResumeBlobUrl] = useState<string | null>(null);
   const [isRenderingPreview, setIsRenderingPreview] = useState<boolean>(false);
   const [previewRenderError, setPreviewRenderError] = useState<string | null>(null);
-  const [resumeSubView, setResumeSubView] = useState<'canvas' | 'editor'>('canvas');
   const [isAutoFixing, setIsAutoFixing] = useState<boolean>(false);
-  const [showAuditDetails, setShowAuditDetails] = useState<boolean>(false);
+  const [isRewording, setIsRewording] = useState<boolean>(false);
+  const [rewordChanges, setRewordChanges] = useState<RewordResumeWithAiResponse['changes'] | null>(null);
   const [loadingResume, setLoadingResume] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isGeneratingDocx, setIsGeneratingDocx] = useState(false);
 
   // Cover Letter State
   const [coverLetter, setCoverLetter] = useState<TailoredCoverLetter | null>(null);
+  // Every tailored resume shares one filename, so each job's files go in their own folder.
+  const applicationFolder = getApplicationFolderName(
+    tailoredResume?.companyName ?? coverLetter?.companyName,
+    tailoredResume?.targetJobTitle ?? coverLetter?.targetJobTitle
+  );
   const [letterFactCheck, setLetterFactCheck] = useState<FactCheckReport | null>(null);
   const [loadingLetter, setLoadingLetter] = useState(false);
   const [editedLetterText, setEditedLetterText] = useState('');
   const [recipient, setRecipient] = useState('');
-  const [tone, setTone] = useState<'technical' | 'conversational' | 'executive'>('technical');
 
   // Shared State
   const [profile, setProfile] = useState<CandidateProfile | null>(null);
@@ -109,7 +115,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
       })
       .catch((err) => {
         console.error('Failed to load profile for tailoring studio:', err);
-        setError('Failed to load your candidate profile for tailoring.');
+        setError('Could not load your profile.');
       });
   }, []);
 
@@ -179,16 +185,18 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
           type: 'GENERATE_TAILORED_RESUME';
           templateId?: ResumeTemplateId;
           onePageFit?: boolean;
+          mentionCompany?: boolean;
         },
         GenerateTailoredResumeResponse
       >({
         type: 'GENERATE_TAILORED_RESUME',
         templateId: selectedTemplate,
         onePageFit,
+        mentionCompany,
       });
 
       if (!res.success || !res.tailoredResume) {
-        throw new Error(res.error || 'Failed to generate tailored resume.');
+        throw new Error(res.error || 'Could not tailor your resume.');
       }
 
       setTailoredResume(res.tailoredResume);
@@ -199,7 +207,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     } finally {
       setLoadingResume(false);
     }
-  }, [selectedTemplate, onePageFit]);
+  }, [selectedTemplate, onePageFit, mentionCompany]);
 
   // Refine the generated document without changing source evidence.
   const handleAutoFix = async () => {
@@ -216,19 +224,43 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
       });
 
       if (!res.success || !res.tailoredResume) {
-        throw new Error(res.error || 'Failed to auto-polish resume.');
+        throw new Error(res.error || 'Could not fix the wording.');
       }
 
       setTailoredResume(res.tailoredResume);
       if (res.qualityAudit) {
         setQualityAudit(res.qualityAudit);
       }
-      setCopyFeedback('Resume refined. Unsupported claims were not added, and the content was kept to one page.');
+      setCopyFeedback('Wording fixed. No facts were changed or added.');
       setTimeout(() => setCopyFeedback(null), 4500);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsAutoFixing(false);
+    }
+  };
+
+  // AI rewording toward this job. The service worker keeps only lines that add no facts.
+  const handleRewordWithAi = async () => {
+    if (!tailoredResume) return;
+    try {
+      setIsRewording(true);
+      setError(null);
+      const res = await sendToBackground<RewordResumeWithAiRequest, RewordResumeWithAiResponse>({
+        type: 'REWORD_RESUME_WITH_AI',
+        resume: tailoredResume,
+      });
+      if (!res.success || !res.tailoredResume) {
+        throw new Error(res.error || 'Could not reword the resume.');
+      }
+      setTailoredResume(res.tailoredResume);
+      if (res.qualityAudit) setQualityAudit(res.qualityAudit);
+      setRewordChanges(res.changes ?? []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(/api key|no provider|not configured|unauthor/i.test(message) ? 'Add an AI key in Settings to reword your resume with AI.' : message);
+    } finally {
+      setIsRewording(false);
     }
   };
 
@@ -241,17 +273,15 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
         {
           type: 'GENERATE_COVER_LETTER';
           recipient?: string;
-          tone?: 'technical' | 'conversational' | 'executive';
         },
         GenerateCoverLetterResponse
       >({
         type: 'GENERATE_COVER_LETTER',
         recipient: recipient.trim() || undefined,
-        tone,
       });
 
       if (!res.success || !res.coverLetter) {
-        throw new Error(res.error || 'Failed to generate cover letter.');
+        throw new Error(res.error || 'Could not write the letter.');
       }
 
       setCoverLetter(res.coverLetter);
@@ -262,9 +292,10 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     } finally {
       setLoadingLetter(false);
     }
-  }, [recipient, tone]);
+  }, [recipient]);
 
-  // Initial load on mount
+  // Initial load on mount. The letter is written on request, because the candidate may
+  // want to set who it's addressed to first.
   useEffect(() => {
     generateResume();
   }, [generateResume]);
@@ -289,7 +320,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     } catch (err) {
       console.error('Fact-check verification failed:', err);
       setLetterFactCheck(null);
-      setRecheckError('Fact-check verification could not be completed. Please try again.');
+      setRecheckError('Could not check the letter. Try again.');
     } finally {
       setRechecking(false);
     }
@@ -300,21 +331,16 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     navigator.clipboard
       .writeText(text)
       .then(() => {
-        setCopyFeedback(`${label} copied to clipboard.`);
+        setCopyFeedback(`${label} copied.`);
         setTimeout(() => setCopyFeedback(null), 3000);
       })
       .catch(() => {
-        setCopyFeedback(`Could not copy ${label}. Clipboard access is unavailable.`);
+        setCopyFeedback(`Could not copy. Your browser blocked clipboard access.`);
         setTimeout(() => setCopyFeedback(null), 3000);
       });
   };
 
   // File Download Helper
-  const handleDownload = (filename: string, content: string, mimeType: string) => {
-    downloadText(content, filename, mimeType).catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to download file');
-    });
-  };
 
   // PDF Download Helper: Generates vector PDF directly in the client (ADR-0026) with background RPC fallback
   const handleDownloadPdf = async (
@@ -366,7 +392,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
       }
 
       if (blob) {
-        await downloadBlob(blob, filename);
+        await downloadBlob(blob, filename, applicationFolder);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to download PDF');
@@ -432,7 +458,7 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
       }
 
       if (blob) {
-        await downloadBlob(blob, filename || 'Resume.docx');
+        await downloadBlob(blob, filename || 'Resume.docx', applicationFolder);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to download Word document');
@@ -441,716 +467,375 @@ export const TailoringStudio: React.FC<TailoringStudioProps> = ({
     }
   };
 
+  // Letter downloads are built from the candidate's edited text, not the first draft.
+  const handleDownloadLetterPdf = async (letter: TailoredCoverLetter) => {
+    setIsGeneratingPdf(true);
+    setError(null);
+    try {
+      const blob = await generateCoverLetterPdfBlob(letter);
+      await downloadBlob(blob, getStandardCoverLetterFilename(profile, 'pdf'), getApplicationFolderName(letter.companyName, letter.targetJobTitle));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create the PDF.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleDownloadLetterDocx = async (letter: TailoredCoverLetter) => {
+    setIsGeneratingDocx(true);
+    setError(null);
+    try {
+      const blob = await generateCoverLetterDocxBlob(letter, profile ?? undefined);
+      await downloadBlob(blob, getStandardCoverLetterFilename(profile, 'docx'), getApplicationFolderName(letter.companyName, letter.targetJobTitle));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create the Word file.');
+    } finally {
+      setIsGeneratingDocx(false);
+    }
+  };
+
+  const honestyIssues = qualityAudit
+    ? [qualityAudit.checks.no_placeholders, qualityAudit.checks.facts_traceable]
+        .filter((check) => check && check.status === 'failed')
+        .flatMap((check) => check!.recommendations)
+    : [];
+  const styleIssues = qualityAudit
+    ? Object.values(qualityAudit.checks).filter(
+        (check) => check.status !== 'passed' && check.id !== 'no_placeholders' && check.id !== 'facts_traceable'
+      )
+    : [];
+  const letterForExport = coverLetter ? withEditedLetterText(coverLetter, editedLetterText) : null;
+  const wordCount = editedLetterText.split(/\s+/).filter(Boolean).length;
+
   return (
-    <div className="tailoring-studio-container" role="region" aria-label="Tailoring Studio">
-      {/* Mode Switcher & Target Indicator */}
-      <div className="tailoring-header">
-        <div className="tailoring-title-row">
-          <div>
-            <h2 className="tailoring-heading">Tailoring Studio</h2>
-            <p className="tailoring-subheading">
-              Evidence-grounded resumes and cover letters with zero hallucination guarantee.
-            </p>
-          </div>
-          {showModeSwitcher && <div className="tailoring-mode-pills">
-            <button
-              type="button"
-              className={`mode-pill ${activeMode === 'resume' ? 'mode-pill-active' : ''}`}
-              onClick={() => setActiveMode('resume')}
-            >
-              Tailored Resume
-            </button>
-            <button
-              type="button"
-              className={`mode-pill ${activeMode === 'cover_letter' ? 'mode-pill-active' : ''}`}
-              onClick={() => {
-                setActiveMode('cover_letter');
-                if (!coverLetter && !loadingLetter) {
-                  generateLetter();
-                }
-              }}
-            >
-              Cover Letter
-            </button>
-          </div>}
+    <div className="ui-stack" role="region" aria-label={activeMode === 'resume' ? 'Resume' : 'Cover letter'}>
+      {showModeSwitcher && (
+        <div className="ui-segmented" role="group" aria-label="Document">
+          <button type="button" aria-pressed={activeMode === 'resume'} onClick={() => setActiveMode('resume')}>
+            Resume
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeMode === 'cover_letter'}
+            onClick={() => {
+              setActiveMode('cover_letter');
+              if (!coverLetter && !loadingLetter) generateLetter();
+            }}
+          >
+            Cover letter
+          </button>
         </div>
+      )}
 
-        {copyFeedback && (
-          <div className="tailoring-copy-toast" role="status">
-            {copyFeedback}
-          </div>
-        )}
-
-        {error && (
-          <div className="tailoring-error-banner" role="alert">
-            <span>{error}</span>
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* 1. TAILORED RESUME VIEW                                                   */}
-      {/* ========================================================================= */}
-      {activeMode === 'resume' && (
-        <div className="tailoring-resume-view">
-          {loadingResume ? (
-            <div className="tailoring-loading-state">
-              <div className="loading-spinner" />
-              <p>Reordering experiences and ranking verified bullets...</p>
+      {copyFeedback && <div className="ui-note ui-note-good" role="status">{copyFeedback}</div>}
+      {error && (
+        <div className="ui-note ui-note-bad" role="alert">
+          {error}
+          {/No job|extract|posting/i.test(error) && onNavigateToTab && (
+            <div style={{ marginTop: 6 }}>
+              <button type="button" className="ui-link" onClick={() => onNavigateToTab('overview')}>
+                Read a job first
+              </button>
             </div>
-          ) : tailoredResume ? (
-            <div className="resume-content-layout">
-              {/* Target Role & Grounding Score Banner */}
-              <div className="grounding-score-card">
-                <div className="score-main-info">
-                  <div className="target-opportunity-badge">
-                    Target: <strong>{tailoredResume.targetJobTitle}</strong> at <strong>{tailoredResume.companyName}</strong>
-                  </div>
-                  {resumeFactCheck && (
-                    <div className="fact-check-status-row">
-                      <span className={`grounding-score-pill ${resumeFactCheck.isPristine ? 'score-pristine' : 'score-good'}`}>
-                        {resumeFactCheck.isPristine ? 'Fully grounded' : `${resumeFactCheck.groundingScore}% grounded`}
-                      </span>
-                      <span className="statements-checked-count">
-                        {resumeFactCheck.totalStatementsChecked} statements audited against EvidenceGraph
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="btn-refresh-tailoring"
-                  onClick={generateResume}
-                  disabled={loadingResume}
-                  title="Regenerate resume ordering"
-                >
-                  Refresh
+          )}
+        </div>
+      )}
+
+      {activeMode === 'resume' && (
+        <>
+          {loadingResume && !tailoredResume && <p className="ui-subtle">Tailoring your resume for this job...</p>}
+
+          {tailoredResume && (
+            <>
+              <div className="ui-spread">
+                <p className="ui-text">
+                  For <strong>{tailoredResume.targetJobTitle}</strong> at {tailoredResume.companyName}
+                </p>
+                <button type="button" className="ui-link" onClick={generateResume} disabled={loadingResume}>
+                  {loadingResume ? 'Updating...' : 'Redo'}
                 </button>
               </div>
 
-              {/* Sub-View Mode Switcher (ADR-0031) */}
-              <div className="resume-view-mode-tabs" role="tablist" aria-label="Resume Studio View Mode">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resumeSubView === 'canvas'}
-                  className={`resume-subtab-btn ${resumeSubView === 'canvas' ? 'resume-subtab-active' : ''}`}
-                  onClick={() => setResumeSubView('canvas')}
-                >
-                  Live PDF preview
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resumeSubView === 'editor'}
-                  className={`resume-subtab-btn ${resumeSubView === 'editor' ? 'resume-subtab-active' : ''}`}
-                  onClick={() => setResumeSubView('editor')}
-                >
-                  Content and quality checks
-                </button>
-              </div>
-
-              {resumeSubView === 'canvas' ? (
-                <PdfPreviewCanvas
-                  blobUrl={resumeBlobUrl}
-                  isGenerating={isRenderingPreview}
-                  filename={getStandardResumeFilename(profile, 'pdf')}
-                  docxFilename={getStandardResumeFilename(profile, 'docx')}
-                  isGeneratingDocx={isGeneratingDocx}
-                  onDownload={() => {
-                    if (profile) {
-                      handleDownloadPdf(
-                        'GENERATE_RESUME_PDF',
-                        {
-                          templateId: selectedTemplate,
-                          onePageFit,
-                          density: resumeDensity,
-                          showTargetBadge,
-                        },
-                        getStandardResumeFilename(profile, 'pdf')
-                      );
-                    }
-                  }}
-                  onDownloadDocx={() => {
-                    handleDownloadDocx(
-                      'GENERATE_RESUME_DOCX',
-                      {
-                        templateId: selectedTemplate,
-                        density: resumeDensity,
-                        showTargetBadge,
-                      },
-                      getStandardResumeFilename(profile, 'docx')
-                    );
-                  }}
-                  templateId={selectedTemplate}
-                  density={resumeDensity}
-                  onePageFit={onePageFit}
-                  showTargetBadge={showTargetBadge}
-                  onTemplateChange={(t) => setSelectedTemplate(t)}
-                  onDensityChange={(d) => setResumeDensity(d)}
-                  onOnePageFitToggle={(fit) => setOnePageFit(fit)}
-                  onShowTargetBadgeToggle={(show) => setShowTargetBadge(show)}
-                  error={previewRenderError}
-                />
-              ) : (
-                <div className="resume-structured-editor">
-                  {/* Template Selector & Layout Controls */}
-                  <div className="resume-design-toolbar">
-                <div className="template-picker-group">
-                  <span className="template-picker-label">Design Template:</span>
-                  <div className="template-pill-buttons">
-                    {(['modern', 'classic', 'minimalist', 'compact'] as ResumeTemplateId[]).map((tId) => (
-                      <button
-                        key={tId}
-                        type="button"
-                        className={`template-pill ${selectedTemplate === tId ? 'template-pill-active' : ''}`}
-                        onClick={() => setSelectedTemplate(tId)}
-                      >
-                        {tId === 'modern' && 'Modern'}
-                        {tId === 'classic' && 'Classic'}
-                        {tId === 'minimalist' && 'Minimalist ATS'}
-                        {tId === 'compact' && 'Compact'}
-                      </button>
+              {honestyIssues.length > 0 ? (
+                <div className="ui-note ui-note-bad" role="alert">
+                  <strong style={{ fontWeight: 600 }}>Fix these before you send it:</strong>
+                  <ul style={{ margin: '4px 0 0 16px' }}>
+                    {honestyIssues.slice(0, 5).map((issue) => (
+                      <li key={issue}>{issue}</li>
                     ))}
-                  </div>
-                </div>
-
-                <label className="one-page-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={onePageFit}
-                    onChange={(e) => setOnePageFit(e.target.checked)}
-                  />
-                  <span>{onePageFit ? 'Enforce 1-Page Fit (US Letter 792pt budget)' : 'Full Comprehensive Resume (Multi-page, all history & highlights)'}</span>
-                </label>
-              </div>
-
-              {/* 14-Point Resume Golden Standard Audit Dial */}
-              {qualityAudit && (() => {
-                const totalCount = qualityAudit.totalCount;
-                const passedCount = qualityAudit.passedCount;
-                const warningCount = Object.values(qualityAudit.checks).filter((c) => c.status === 'warning').length;
-                const failedCount = Object.values(qualityAudit.checks).filter((c) => c.status === 'failed').length;
-                const isGoldenStandard = passedCount === totalCount && warningCount === 0 && failedCount === 0;
-                const pageBudgetCheck = qualityAudit.checks.one_page_fit;
-
-                return (
-                  <div className="resume-quality-audit-card">
-                    <div className="quality-audit-header">
-                      <div className="quality-audit-score-group">
-                        <div className="quality-score-circle">
-                          <span className="quality-score-num">{qualityAudit.overallScore}</span>
-                          <span className="quality-score-max">/100</span>
-                        </div>
-                        <div className="quality-score-meta">
-                          <h4 className="quality-card-title">14-Point Golden Standard</h4>
-                          <div className="quality-status-pill-row">
-                            <span
-                              className={`quality-status-badge ${
-                                isGoldenStandard
-                                  ? 'quality-status-golden'
-                                  : qualityAudit.overallScore >= 80
-                                  ? 'quality-status-good'
-                                  : 'quality-status-warn'
-                              }`}
-                            >
-                              {isGoldenStandard
-                                ? 'All checks passed'
-                                : `${passedCount}/14 passed, ${warningCount + failedCount} need review`}
-                            </span>
-                            {pageBudgetCheck && (
-                              <span className={`budget-pill ${pageBudgetCheck.status === 'passed' ? 'budget-fit' : 'budget-over'}`}>
-                                {pageBudgetCheck.status === 'passed' ? 'Fits 1 page' : 'Over budget'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="quality-actions-group">
-                        <button
-                          type="button"
-                          className="btn-auto-fix-golden"
-                          disabled={isAutoFixing}
-                          onClick={handleAutoFix}
-                          title="Automatically remove buzzwords, eliminate 'I', normalize typos, and budget to 1 page"
-                        >
-                          {isAutoFixing ? 'Refining...' : 'Refine resume'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-toggle-audit-details"
-                          onClick={() => setShowAuditDetails(!showAuditDetails)}
-                        >
-                          {showAuditDetails ? '▲ Hide Checklist' : '▼ View 14 Checks'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Collapsible 14-Point Checklist */}
-                    {showAuditDetails && (
-                      <div className="quality-checklist-container">
-                        <div className="checklist-grid">
-                          {Object.values(qualityAudit.checks).map((check) => (
-                            <div key={check.id} className={`audit-item-card audit-item-${check.status}`}>
-                              <div className="audit-item-top">
-                                <span className="audit-check-icon">
-                                  {check.status === 'passed' ? 'Pass' : check.status === 'warning' ? 'Review' : 'Fail'}
-                                </span>
-                                <span className="audit-item-name">{check.name}</span>
-                                <span className="audit-item-score">{check.score}pts</span>
-                              </div>
-                              <p className="audit-item-desc">{check.description}</p>
-                              {check.recommendations.length > 0 && (
-                                <div className="audit-item-recs">
-                                  {check.recommendations.map((rec, rIdx) => (
-                                    <span key={rIdx} className="audit-rec-chip">
-                                      {rec}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Professional Summary */}
-              <div className="tailored-section-card">
-                <h3 className="tailored-section-title">Tailored Professional Summary</h3>
-                <p className="tailored-summary-text">{tailoredResume.tailoredSummary}</p>
-              </div>
-
-              {/* Skills Alignment */}
-              <div className="tailored-section-card">
-                <h3 className="tailored-section-title">Matched Technical Competencies</h3>
-                <div className="skills-partition-group">
-                  {tailoredResume.skills.matchedRequired.length > 0 && (
-                    <div className="skill-bucket">
-                      <span className="skill-bucket-label bucket-required">Required Criteria Matched:</span>
-                      <div className="skill-tags-row">
-                        {tailoredResume.skills.matchedRequired.map((skill) => (
-                          <span key={skill} className="skill-tag skill-tag-required">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {tailoredResume.skills.matchedPreferred.length > 0 && (
-                    <div className="skill-bucket">
-                      <span className="skill-bucket-label bucket-preferred">Preferred Qualifications Matched:</span>
-                      <div className="skill-tags-row">
-                        {tailoredResume.skills.matchedPreferred.map((skill) => (
-                          <span key={skill} className="skill-tag skill-tag-preferred">
-                            + {skill}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {tailoredResume.skills.additionalSkills.length > 0 && (
-                    <div className="skill-bucket">
-                      <span className="skill-bucket-label bucket-additional">Additional Verified Skills:</span>
-                      <div className="skill-tags-row">
-                        {tailoredResume.skills.additionalSkills.slice(0, 8).map((skill) => (
-                          <span key={skill} className="skill-tag skill-tag-additional">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                  </ul>
+                  {onNavigateToTab && (
+                    <button type="button" className="ui-link" style={{ marginTop: 6 }} onClick={() => onNavigateToTab('profile')}>
+                      Edit your profile
+                    </button>
                   )}
                 </div>
-              </div>
+              ) : (
+                <div className="ui-note ui-note-good">Everything on this resume comes from what you wrote. Nothing was added.</div>
+              )}
 
-              {/* Ranked Work Experiences */}
-              <div className="tailored-section-card">
-                <h3 className="tailored-section-title">Ranked Work Experience</h3>
-                <div className="experiences-ranked-list">
-                  {tailoredResume.experiences.map((exp) => (
-                    <div key={exp.experienceId} className="ranked-experience-item">
-                      <div className="exp-header-row">
-                        <div>
-                          <h4 className="exp-title-text">{exp.title}</h4>
-                          <span className="exp-company-text">{exp.company}</span>
-                        </div>
-                        <span className="exp-relevance-pill">{exp.relevanceScore}% Match</span>
-                      </div>
-                      <ul className="ranked-highlights-list">
-                        {exp.rankedHighlights.map((h, i) => (
-                          <li key={i} className="ranked-highlight-bullet">
-                            <span className="bullet-content">{h.text}</span>
-                            <div className="bullet-grounding-tags">
-                              {h.sourceEvidenceId && (
-                                <span className="evidence-badge">Grounding verified</span>
-                              )}
-                              {h.matchedRequirements.map((req) => (
-                                <span key={req} className="req-match-pill">{req}</span>
-                              ))}
-                            </div>
+              <PdfPreviewCanvas
+                blobUrl={resumeBlobUrl}
+                isGenerating={isRenderingPreview}
+                filename={getStandardResumeFilename(profile, 'pdf')}
+                docxFilename={getStandardResumeFilename(profile, 'docx')}
+                isGeneratingDocx={isGeneratingDocx}
+                onDownload={() => {
+                  if (profile) {
+                    handleDownloadPdf(
+                      'GENERATE_RESUME_PDF',
+                      { templateId: selectedTemplate, onePageFit, density: resumeDensity, showTargetBadge },
+                      getStandardResumeFilename(profile, 'pdf')
+                    );
+                  }
+                }}
+                onDownloadDocx={() => {
+                  handleDownloadDocx(
+                    'GENERATE_RESUME_DOCX',
+                    { templateId: selectedTemplate, density: resumeDensity, showTargetBadge },
+                    getStandardResumeFilename(profile, 'docx')
+                  );
+                }}
+                templateId={selectedTemplate}
+                density={resumeDensity}
+                onePageFit={onePageFit}
+                showTargetBadge={showTargetBadge}
+                onTemplateChange={(t) => setSelectedTemplate(t)}
+                onDensityChange={(d) => setResumeDensity(d)}
+                onOnePageFitToggle={(fit) => setOnePageFit(fit)}
+                onShowTargetBadgeToggle={(show) => setShowTargetBadge(show)}
+                companyName={tailoredResume.companyName}
+                mentionCompany={mentionCompany}
+                onMentionCompanyToggle={(on) => setMentionCompany(on)}
+                error={previewRenderError}
+              />
+
+              <section className="ui-card" aria-label="Reword with AI">
+                <div className="ui-spread">
+                  <div>
+                    <h3 className="ui-card-title">Reword for this job</h3>
+                    <p className="ui-subtle">
+                      The AI rewrites your summary and bullets in this job's language. Any line that adds a number, tool, or name you did not write is thrown out.
+                    </p>
+                  </div>
+                </div>
+                <button type="button" className="ui-btn ui-btn-block" style={{ marginTop: 8 }} disabled={isRewording} onClick={handleRewordWithAi}>
+                  {isRewording ? 'Rewording...' : 'Reword with AI'}
+                </button>
+                {rewordChanges && (
+                  <div className="ui-stack" style={{ gap: 6, marginTop: 10 }}>
+                    <p className="ui-text">
+                      {rewordChanges.filter((c) => c.accepted).length === 0
+                        ? 'Nothing changed. Your wording already fits, or every suggestion added something you did not write.'
+                        : `Reworded ${rewordChanges.filter((c) => c.accepted).length} line${rewordChanges.filter((c) => c.accepted).length === 1 ? '' : 's'}.`}
+                      {rewordChanges.some((c) => !c.accepted)
+                        ? ` Kept ${rewordChanges.filter((c) => !c.accepted).length} as you wrote them because the AI changed the facts.`
+                        : ''}
+                    </p>
+                    <details className="ui-details">
+                      <summary>See each change</summary>
+                      <ul className="ui-list">
+                        {rewordChanges.map((change) => (
+                          <li key={change.id}>
+                            <span className={`ui-chip ${change.accepted ? 'ui-chip-good' : 'ui-chip-warn'}`}>{change.accepted ? 'Used' : `Kept yours: ${change.reason}`}</span>
+                            <p className="ui-subtle" style={{ marginTop: 4 }}>Before: {change.before}</p>
+                            <p className="ui-text">After: {change.after}</p>
                           </li>
                         ))}
                       </ul>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Projects */}
-              {tailoredResume.projects.length > 0 && (
-                <div className="tailored-section-card">
-                  <h3 className="tailored-section-title">Notable Projects</h3>
-                  <div className="projects-ranked-list">
-                    {tailoredResume.projects.map((proj) => (
-                      <div key={proj.projectId} className="ranked-project-item">
-                        <div className="proj-header-row">
-                          <h4 className="proj-title-text">{proj.title}</h4>
-                          <span className="proj-relevance-pill">{proj.relevanceScore}% Match</span>
-                        </div>
-                        {proj.technologiesUsed.length > 0 && (
-                          <div className="proj-tech-row">
-                            {proj.technologiesUsed.map((t) => (
-                              <span key={t} className="tech-badge">{t}</span>
-                            ))}
-                          </div>
-                        )}
-                        <ul className="ranked-highlights-list">
-                          {proj.rankedHighlights.map((h, i) => (
-                            <li key={i} className="ranked-highlight-bullet">
-                              <span className="bullet-content">{h.text}</span>
-                              {h.sourceEvidenceId && (
-                                <span className="evidence-badge">Grounding verified</span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                    </details>
                   </div>
-                </div>
-              )}
+                )}
+              </section>
 
-              {/* Action Toolbar */}
-              <div className="tailoring-actions-bar">
-                <button
-                  type="button"
-                  className="btn-action-primary"
-                  onClick={() => {
-                    if (profile) {
-                      const md = exportResumeAsMarkdown(tailoredResume, profile);
-                      handleCopy(md, 'Resume Markdown');
-                    }
-                  }}
-                >
-                  Copy Markdown
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-secondary"
-                  onClick={() => {
-                    if (profile) {
-                      const txt = exportResumeAsPlainText(tailoredResume, profile);
-                      handleCopy(txt, 'Resume Plain Text');
-                    }
-                  }}
-                >
-                  Copy Plain Text
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-download"
-                  onClick={() => {
-                    if (profile) {
-                      const md = exportResumeAsMarkdown(tailoredResume, profile);
-                      const filename = `resume-tailored-${tailoredResume.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.md`;
-                      handleDownload(filename, md, 'text/markdown');
-                    }
-                  }}
-                >
-                  Download .md
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-download"
-                  style={{ backgroundColor: '#1d4ed8', color: '#ffffff', fontWeight: 600 }}
-                  disabled={isGeneratingDocx}
-                  onClick={() => {
-                    handleDownloadDocx(
-                      'GENERATE_RESUME_DOCX',
-                      {
-                        templateId: selectedTemplate,
-                        density: resumeDensity,
-                        showTargetBadge,
-                      },
-                      getStandardResumeFilename(profile, 'docx')
-                    );
-                  }}
-                >
-                  {isGeneratingDocx ? 'Generating Word...' : 'Download .docx (ATS Best)'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-download"
-                  disabled={isGeneratingPdf}
-                  onClick={() => {
-                    if (profile) {
-                      handleDownloadPdf(
-                        'GENERATE_RESUME_PDF',
-                        {
-                          jobId: undefined,
-                          templateId: selectedTemplate,
-                          onePageFit,
-                          maxBulletsPerItem: undefined,
-                          maxProjects: undefined,
-                        },
-                        getStandardResumeFilename(profile, 'pdf')
-                      );
-                    }
-                  }}
-                >
-                  {isGeneratingPdf ? 'Generating PDF...' : `Download PDF (${selectedTemplate.toUpperCase()})`}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-            <div className="tailoring-empty-state">
-              <p>No job posting detected. Navigate to a job posting and click Extract.</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 2. COVER LETTER VIEW                                                      */}
-      {/* ========================================================================= */}
-      {activeMode === 'cover_letter' && (
-        <div className="tailoring-cover-letter-view">
-          {/* Customization Options Bar */}
-          <div className="cover-letter-config-bar">
-            <div className="config-field">
-              <label htmlFor="cl-recipient">Recipient / Team:</label>
-              <input
-                id="cl-recipient"
-                type="text"
-                className="config-input"
-                placeholder="e.g. Hiring Team or Jane Doe"
-                value={recipient}
-                onChange={(e) => setRecipient(e.target.value)}
-              />
-            </div>
-            <div className="config-field">
-              <label htmlFor="cl-tone">Tone:</label>
-              <select
-                id="cl-tone"
-                className="config-select"
-                value={tone}
-                onChange={(e) => setTone(e.target.value as any)}
-              >
-                <option value="technical">Technical Focus</option>
-                <option value="conversational">Conversational</option>
-                <option value="executive">Executive</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              className="btn-action-draft"
-              onClick={generateLetter}
-              disabled={loadingLetter}
-            >
-              {loadingLetter ? 'Drafting...' : 'Generate Letter'}
-            </button>
-          </div>
-
-          {loadingLetter ? (
-            <div className="tailoring-loading-state">
-              <div className="loading-spinner" />
-              <p>Synthesizing evidence-grounded cover letter...</p>
-            </div>
-          ) : coverLetter ? (
-            <div className="cover-letter-content-layout">
-              {/* Fact-Check Verification Card */}
-              {letterFactCheck && (
-                <div className={`fact-check-card ${letterFactCheck.isPristine ? 'card-pristine' : 'card-warning'}`}>
-                  <div className="fact-check-top">
+              <details className="ui-details ui-card">
+                <summary>What changed for this job</summary>
+                <div className="ui-stack" style={{ gap: 10 }}>
+                  <div>
+                    <p className="ui-label">Summary</p>
+                    <p className="ui-text">{tailoredResume.tailoredSummary}</p>
+                  </div>
+                  {tailoredResume.skills.matchedRequired.length + tailoredResume.skills.matchedPreferred.length > 0 && (
                     <div>
-                      <h4 className="fact-check-title">
-                        {letterFactCheck.isPristine
-                          ? 'Evidence grounded'
-                          : `Grounding verification: ${letterFactCheck.groundingScore}%`}
-                      </h4>
-                      <p className="fact-check-desc">
-                        {letterFactCheck.verifiedStatements.length} verified statements cited directly from CandidateProfile and EvidenceGraph.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-recheck-grounding"
-                      onClick={recheckGrounding}
-                      disabled={rechecking}
-                      title="Re-audit after manual edits"
-                    >
-                      {rechecking ? 'Auditing...' : 'Re-check Grounding'}
-                    </button>
-                  </div>
-
-                  {letterFactCheck.unbackedStatements.length > 0 && (
-                    <div className="unbacked-warnings-list">
-                      {letterFactCheck.unbackedStatements.map((u, i) => (
-                        <div key={i} className="unbacked-warning-pill">
-                          <span className="warning-badge">{u.severity.toUpperCase()}</span>
-                          <span className="warning-reason">{u.reason}</span>
-                        </div>
-                      ))}
+                      <p className="ui-label">Skills moved to the front because the job asks for them</p>
+                      <div className="ui-row" style={{ gap: 4 }}>
+                        {[...tailoredResume.skills.matchedRequired, ...tailoredResume.skills.matchedPreferred].map((skill) => (
+                          <span key={skill} className="ui-chip ui-chip-good">{skill}</span>
+                        ))}
+                      </div>
                     </div>
                   )}
+                  <div>
+                    <p className="ui-label">Each role now leads with</p>
+                    <ul className="ui-list">
+                      {tailoredResume.experiences.map((exp) => (
+                        <li key={exp.experienceId}>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>{[exp.title, exp.company].filter(Boolean).join(', ')}</span>
+                          {exp.rankedHighlights[0] && <p className="ui-subtle">{exp.rankedHighlights[0].text}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-              )}
-              {recheckError && <p className="form-error-msg">{recheckError}</p>}
+              </details>
 
-              {/* Letter Editor */}
-              <div className="cover-letter-editor-container">
-                <div className="editor-meta-header">
-                  <span>Target: {coverLetter.targetJobTitle} – {coverLetter.companyName}</span>
-                  <span>{editedLetterText.split(/\s+/).filter(Boolean).length} words</span>
+              {qualityAudit && styleIssues.length > 0 && (
+                <details className="ui-details ui-card">
+                  <summary>
+                    Writing checks: {styleIssues.length} thing{styleIssues.length === 1 ? '' : 's'} to look at
+                  </summary>
+                  <ul className="ui-list">
+                    {styleIssues.map((check) => (
+                      <li key={check.id}>
+                        <span style={{ color: 'var(--text)' }}>{check.name}</span>
+                        <p className="ui-subtle">{check.description}</p>
+                        {check.recommendations.slice(0, 2).map((rec) => (
+                          <p key={rec} className="ui-subtle">{rec}</p>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className="ui-btn ui-btn-sm" disabled={isAutoFixing} onClick={handleAutoFix}>
+                    {isAutoFixing ? 'Fixing...' : 'Fix wording automatically'}
+                  </button>
+                </details>
+              )}
+
+              <div className="ui-row" style={{ gap: 14 }}>
+                <button
+                  type="button"
+                  className="ui-link"
+                  onClick={() => {
+                    if (profile) handleCopy(exportResumeAsPlainText(tailoredResume, profile), 'Resume text');
+                  }}
+                >
+                  Copy as plain text
+                </button>
+                <button
+                  type="button"
+                  className="ui-link"
+                  onClick={() => {
+                    if (profile) handleCopy(exportResumeAsMarkdown(tailoredResume, profile), 'Resume Markdown');
+                  }}
+                >
+                  Copy as Markdown
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {activeMode === 'cover_letter' && (
+        <>
+          {!coverLetter && (
+            <section className="ui-card ui-stack" style={{ gap: 10 }}>
+              <p className="ui-text">
+                A short letter in your voice: why this role, two results from your resume, and a plain close. You can edit
+                every word before downloading.
+              </p>
+              <label>
+                <span className="ui-label">Who it's addressed to (optional)</span>
+                <input
+                  className="ui-input"
+                  type="text"
+                  placeholder="e.g. Ada Lovelace, or leave blank"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                />
+              </label>
+              <button type="button" className="ui-btn ui-btn-primary ui-btn-block" onClick={generateLetter} disabled={loadingLetter}>
+                {loadingLetter ? 'Writing...' : 'Write my cover letter'}
+              </button>
+            </section>
+          )}
+
+          {coverLetter && (
+            <>
+              {letterFactCheck &&
+                (letterFactCheck.unbackedStatements.length === 0 ? (
+                  <div className="ui-note ui-note-good">Every claim in this letter comes from your resume.</div>
+                ) : (
+                  <div className="ui-note ui-note-warn" role="alert">
+                    <strong style={{ fontWeight: 600 }}>Check these sentences. Your resume doesn't back them up:</strong>
+                    <ul style={{ margin: '4px 0 0 16px' }}>
+                      {letterFactCheck.unbackedStatements.slice(0, 4).map((u) => (
+                        <li key={u.statement}>“{u.statement}”</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              {recheckError && <div className="ui-note ui-note-bad">{recheckError}</div>}
+
+              <div>
+                <div className="ui-spread" style={{ marginBottom: 4 }}>
+                  <span className="ui-subtle">Edit freely. Downloads use your edits.</span>
+                  <span className="ui-subtle">{wordCount} words</span>
                 </div>
                 <textarea
-                  className="cover-letter-textarea"
-                  rows={14}
+                  className="ui-textarea"
+                  rows={16}
                   value={editedLetterText}
                   onChange={(e) => setEditedLetterText(e.target.value)}
-                  placeholder="Cover letter text..."
+                  aria-label="Cover letter"
                 />
               </div>
 
-              {/* Cited Evidence Accomplishments */}
-              {coverLetter.allCitations.length > 0 && (
-                <div className="tailored-section-card">
-                  <h3 className="tailored-section-title">Verified Evidence Cited</h3>
-                  <div className="citations-list">
-                    {coverLetter.allCitations.map((cit, idx) => (
-                      <div key={idx} className="citation-snippet-card">
-                        <span className="citation-num">#{idx + 1}</span>
-                        <span className="citation-text">{cit.sourceSnippet}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Export Toolbar */}
-              <div className="tailoring-actions-bar">
+              <div className="ui-row">
                 <button
                   type="button"
-                  className="btn-action-primary"
-                  onClick={() => {
-                    if (profile) {
-                      const md = exportCoverLetterAsMarkdown(
-                        { ...coverLetter, fullText: editedLetterText },
-                        profile
-                      );
-                      handleCopy(md, 'Cover Letter Markdown');
-                    }
-                  }}
+                  className="ui-btn ui-btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={isGeneratingPdf || !letterForExport}
+                  onClick={() => letterForExport && handleDownloadLetterPdf(letterForExport)}
                 >
-                  Copy Markdown
+                  {isGeneratingPdf ? 'Preparing PDF...' : 'Download PDF'}
                 </button>
                 <button
                   type="button"
-                  className="btn-action-secondary"
-                  onClick={() => {
-                    if (profile) {
-                      const txt = exportCoverLetterAsPlainText(
-                        { ...coverLetter, fullText: editedLetterText },
-                        profile
-                      );
-                      handleCopy(txt, 'Cover Letter Plain Text');
-                    }
-                  }}
+                  className="ui-btn"
+                  style={{ flex: 1 }}
+                  disabled={isGeneratingDocx || !letterForExport}
+                  onClick={() => letterForExport && handleDownloadLetterDocx(letterForExport)}
                 >
-                  Copy Plain Text
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-download"
-                  onClick={() => {
-                    const filename = `cover-letter-${coverLetter.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.txt`;
-                    handleDownload(filename, editedLetterText, 'text/plain');
-                  }}
-                >
-                  Download .txt
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-download"
-                  style={{ backgroundColor: '#1d4ed8', color: '#ffffff', fontWeight: 600 }}
-                  disabled={isGeneratingDocx}
-                  onClick={() => {
-                    handleDownloadDocx(
-                      'GENERATE_COVER_LETTER_DOCX',
-                      {
-                        jobId: undefined,
-                        recipient,
-                        tone,
-                      },
-                      getStandardCoverLetterFilename(profile, 'docx')
-                    );
-                  }}
-                >
-                  {isGeneratingDocx ? 'Generating Word...' : 'Download .docx'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-action-download"
-                  disabled={isGeneratingPdf}
-                  onClick={() => {
-                    handleDownloadPdf(
-                      'GENERATE_COVER_LETTER_PDF',
-                      {
-                        jobId: undefined,
-                        recipient,
-                        tone,
-                      },
-                      getStandardCoverLetterFilename(profile, 'pdf')
-                    );
-                  }}
-                >
-                  {isGeneratingPdf ? 'Generating PDF...' : 'Download PDF'}
+                  {isGeneratingDocx ? 'Preparing Word file...' : 'Download Word'}
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="tailoring-empty-state">
-              <p>Click "Generate Letter" to draft an evidence-grounded cover letter.</p>
-            </div>
+              <div className="ui-row" style={{ gap: 14 }}>
+                <button
+                  type="button"
+                  className="ui-link"
+                  onClick={() => {
+                    if (profile && letterForExport) handleCopy(exportCoverLetterAsPlainText(letterForExport, profile), 'Letter');
+                  }}
+                >
+                  Copy text
+                </button>
+                <button type="button" className="ui-link" onClick={recheckGrounding} disabled={rechecking}>
+                  {rechecking ? 'Checking...' : 'Check my edits against my resume'}
+                </button>
+                <button type="button" className="ui-link" onClick={generateLetter} disabled={loadingLetter}>
+                  {loadingLetter ? 'Writing...' : 'Start over'}
+                </button>
+              </div>
+            </>
           )}
-        </div>
+        </>
       )}
 
-      {/* Pipeline Forward Progression Card */}
-      <div className="pipeline-next-step-card">
-        <div className="next-step-info">
-          <span className="next-step-title">Materials Ready?</span>
-          <span className="next-step-desc">
-            Proceed to the application form to auto-fill all fields and custom questions in 1 click.
-          </span>
-        </div>
-        <button
-          type="button"
-          className="btn-primary btn-next-step"
-          onClick={() => onNavigateToTab?.('prepare_application')}
-        >
-          Next Step: Auto-Fill Application Form &rarr;
-        </button>
-      </div>
+      {onNavigateToTab && (tailoredResume || coverLetter) && (
+        <NextStep
+          title="Fill the application"
+          hint="Open the job's application form in this tab. ApplyKit fills what it knows and leaves Submit to you."
+          actionLabel="Go to the application"
+          onAction={() => onNavigateToTab('prepare_application')}
+          secondary={
+            activeMode === 'resume'
+              ? { label: 'Write a cover letter first', onAction: () => onNavigateToTab('cover_letter') }
+              : { label: 'Back to the resume', onAction: () => onNavigateToTab('tailor_resume') }
+          }
+        />
+      )}
     </div>
   );
 };

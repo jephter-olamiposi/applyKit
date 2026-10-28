@@ -23,7 +23,6 @@
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { WorkExperience } from '../candidate/experience.js';
 import type { JobPosting } from '../job/job-posting.js';
-import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
 import type {
   TailoredResume,
   ResumeTemplateId,
@@ -63,6 +62,20 @@ export const BANNED_BUZZWORDS: readonly string[] = [
   'best of breed',
   'world-class',
 ];
+
+/** "dynamic" used about a person or workplace, not a technical "dynamic X". */
+export const FLUFF_DYNAMIC =
+  /\bdynamic(?=\s*(?:[,.;]|$|\s+(?:and|team|teams|environment|professional|individual|leader|engineer|developer|self-starter|fast-paced|culture|personality|person)\b))/i;
+
+/**
+ * Pattern for one buzzword. Shared by the check and the auto-fix so the fix never
+ * deletes a word the check would not flag (it used to turn "dynamic codec negotiation"
+ * into "codec negotiation").
+ */
+function buzzwordPattern(buzz: string, flags: string): RegExp {
+  if (buzz === 'dynamic') return new RegExp(FLUFF_DYNAMIC.source, flags);
+  return new RegExp(`\\b${buzz.replace('-', '[- ]')}\\b`, flags);
+}
 
 /**
  * Standard past-tense active verbs demonstrating engineering accomplishment.
@@ -454,7 +467,7 @@ export function auditResumeQuality(
   const hasValidTemplate = validTemplates.includes(templateId);
   checks.template_selected = {
     id: 'template_selected',
-    name: 'Pre-designed Template',
+    name: 'Uses a ready-made template',
     status: hasValidTemplate ? 'passed' : 'failed',
     score: hasValidTemplate ? 100 : 0,
     description: `Using ${templateId.toUpperCase()} template with verified typography and spacing.`,
@@ -466,7 +479,7 @@ export function auditResumeQuality(
   const pageBudget = calculatePagePointBudget(resume, profile, templateId);
   checks.one_page_fit = {
     id: 'one_page_fit',
-    name: '1-Page Fit Guarantee',
+    name: 'Fits on one page',
     status: pageBudget.fitsOnePage ? 'passed' : 'warning',
     score: pageBudget.fitsOnePage ? 100 : Math.max(50, Math.round((760 / pageBudget.totalPoints) * 100)),
     description: pageBudget.fitsOnePage
@@ -482,13 +495,28 @@ export function auditResumeQuality(
   const totalJobMatches = matchedReqSkills.length + matchedPrefSkills.length;
   checks.job_keywords = {
     id: 'job_keywords',
-    name: 'Job Description Keywords',
+    name: 'Uses words from the job description',
     status: totalJobMatches >= 3 ? 'passed' : totalJobMatches >= 1 ? 'warning' : 'failed',
     score: Math.min(100, totalJobMatches * 25),
     description: `Matched ${totalJobMatches} direct job description competencies across summary and skills.`,
     recommendations: totalJobMatches < 3
       ? ['Ensure verified skills matching the job criteria are included in your profile.']
       : [],
+    autoFixable: false,
+  };
+
+  // The cheat sheet's "include the company name you are applying to": the summary's
+  // closing line names it when the candidate keeps that option on.
+  const companyNamed = Boolean(job.companyName) && resume.tailoredSummary.toLowerCase().includes(job.companyName.toLowerCase());
+  checks.company_named = {
+    id: 'company_named',
+    name: 'Names the company you are applying to',
+    status: companyNamed ? 'passed' : 'warning',
+    score: companyNamed ? 100 : 60,
+    description: companyNamed
+      ? `The summary names ${job.companyName}.`
+      : `The summary does not name ${job.companyName || 'the company'}.`,
+    recommendations: companyNamed ? [] : [`Turn on "Name ${job.companyName || 'the company'} in my summary".`],
     autoFixable: false,
   };
 
@@ -499,7 +527,7 @@ export function auditResumeQuality(
   );
   checks.summary_targeting = {
     id: 'summary_targeting',
-    name: 'Targeted Summary',
+    name: 'Summary names what the job asks for',
     status: summarySkill ? 'passed' : 'warning',
     score: summarySkill ? 100 : 50,
     description: summarySkill
@@ -517,7 +545,7 @@ export function auditResumeQuality(
   const firstBulletMatches = (firstBullet?.matchedRequirements.length ?? 0) > 0;
   checks.first_item_aligned = {
     id: 'first_item_aligned',
-    name: 'First Item Alignment',
+    name: 'First line shows what they are looking for',
     status: firstBulletMatches ? 'passed' : 'warning',
     score: firstBulletMatches ? 100 : 60,
     description: firstBulletMatches
@@ -531,7 +559,7 @@ export function auditResumeQuality(
   const hasValueTitles = resume.experiences.every((exp) => exp.title.length > 5);
   checks.title_demonstrates_value = {
     id: 'title_demonstrates_value',
-    name: 'Value-Demonstrating Titles',
+    name: 'Job titles show your value',
     status: hasValueTitles ? 'passed' : 'warning',
     score: hasValueTitles ? 100 : 70,
     description: hasValueTitles
@@ -550,7 +578,7 @@ export function auditResumeQuality(
   );
   checks.online_links = {
     id: 'online_links',
-    name: 'Online Profile Links',
+    name: 'Has an online link',
     status: hasOnlineLink ? 'passed' : 'warning',
     score: hasOnlineLink ? 100 : 30,
     description: hasOnlineLink
@@ -570,7 +598,7 @@ export function auditResumeQuality(
   const hasNoPronounI = !summaryHasI && bulletsWithI.length === 0;
   checks.no_pronoun_i = {
     id: 'no_pronoun_i',
-    name: 'No "I" or Personal Pronouns',
+    name: 'No "I"',
     status: hasNoPronounI ? 'passed' : 'warning',
     score: hasNoPronounI ? 100 : Math.max(40, 100 - (bulletsWithI.length + (summaryHasI ? 1 : 0)) * 20),
     description: hasNoPronounI
@@ -583,13 +611,14 @@ export function auditResumeQuality(
   // No buzzwords check
   const textBlob = `${resume.tailoredSummary} ${allBullets.join(' ')}`.toLowerCase();
   const detectedBuzzwords = BANNED_BUZZWORDS.filter((buzz) => {
-    const rx = new RegExp(`\\b${buzz.replace('-', '[- ]')}\\b`, 'i');
-    return rx.test(textBlob);
+    // "dynamic" is fluff about a person ("dynamic engineer") but a plain technical word
+    // in "dynamic codec negotiation" or "dynamic pricing", which must not be flagged.
+    return buzzwordPattern(buzz, 'i').test(textBlob);
   });
   const hasNoBuzzwords = detectedBuzzwords.length === 0;
   checks.no_buzzwords = {
     id: 'no_buzzwords',
-    name: 'No Fluff Buzzwords',
+    name: 'No buzzwords about how great you are',
     status: hasNoBuzzwords ? 'passed' : 'warning',
     score: hasNoBuzzwords ? 100 : Math.max(30, 100 - detectedBuzzwords.length * 25),
     description: hasNoBuzzwords
@@ -616,7 +645,7 @@ export function auditResumeQuality(
   const isActionWordsPassed = actionVerbRatio >= 0.7 && weakOpeningCount === 0;
   checks.action_words = {
     id: 'action_words',
-    name: 'Active Action Verbs',
+    name: 'Lines start with action words',
     status: isActionWordsPassed ? 'passed' : 'warning',
     score: Math.round(actionVerbRatio * 100),
     description: `${actionVerbCount}/${allBullets.length} bullets begin with strong action verbs.`,
@@ -637,7 +666,7 @@ export function auditResumeQuality(
   const isImpactPassed = impactRatio >= 0.5;
   checks.impact_measured = {
     id: 'impact_measured',
-    name: 'Impact-Driven Metrics',
+    name: 'Shows impact, not just duties',
     status: isImpactPassed ? 'passed' : 'warning',
     score: Math.min(100, Math.round(impactRatio * 150)),
     description: `${quantifiedCount}/${allBullets.length} bullets include quantified scale, %, or performance metrics.`,
@@ -653,7 +682,7 @@ export function auditResumeQuality(
   const yearsImpressiveOrOmitted = !mentionsYearsInSummary || verifiedYears >= 3;
   checks.skills_and_impressive_years = {
     id: 'skills_and_impressive_years',
-    name: 'Relevant Skills & Impressive Years',
+    name: 'Skills match what they want',
     status: yearsImpressiveOrOmitted ? 'passed' : 'warning',
     score: yearsImpressiveOrOmitted ? 100 : 70,
     description: yearsImpressiveOrOmitted
@@ -667,7 +696,7 @@ export function auditResumeQuality(
   const hasCoreSections = resume.experiences.length > 0 && totalJobMatches > 0;
   checks.impressive_sections = {
     id: 'impressive_sections',
-    name: 'High-Signal Technical Sections',
+    name: 'Only strong sections',
     status: hasCoreSections ? 'passed' : 'warning',
     score: hasCoreSections ? 100 : 50,
     description: 'Focuses strictly on high-signal sections: Technical Skills, Experience, Projects, and Education.',
@@ -677,6 +706,7 @@ export function auditResumeQuality(
 
   // No typos or bad grammar
   let typoIssues = 0;
+  const typoNotes: string[] = [];
   for (const bullet of allBullets) {
     // Check tech casing
     for (const [lower, proper] of Object.entries(TECH_ORTHOGRAPHY_MAP)) {
@@ -690,24 +720,104 @@ export function auditResumeQuality(
     if (/\s{2,}/.test(bullet)) {
       typoIssues++;
     }
+    const repeated = findRepeatedPhrase(bullet);
+    if (repeated) {
+      typoIssues++;
+      typoNotes.push(`"${repeated}" appears twice in one bullet. Check for a copy-paste slip.`);
+    }
   }
   const isGrammarClean = typoIssues === 0;
   checks.no_typos_grammar = {
     id: 'no_typos_grammar',
-    name: 'Clean Orthography & Typography',
+    name: 'No typos or grammar slips',
     status: isGrammarClean ? 'passed' : 'warning',
     score: isGrammarClean ? 100 : Math.max(50, 100 - typoIssues * 15),
     description: isGrammarClean
       ? 'Standardized technology casing (e.g. TypeScript, Node.js, PostgreSQL) and clean punctuation.'
       : `Found ${typoIssues} casing or typography inconsistency issue(s).`,
-    recommendations: isGrammarClean ? [] : ['Normalize technology casing and clean up formatting inconsistencies.'],
+    recommendations: isGrammarClean ? [] : [...typoNotes, 'Normalize technology casing and clean up formatting inconsistencies.'],
     autoFixable: true,
+  };
+
+  // Honesty checks. Style checks above can all pass on a resume that says "Company" where
+  // the employer should be, so these two gate readiness on their own.
+  const placeholderPattern = /^(?:company|role|degree|university|academic institution|general studies|n\/a|tbd)$/i;
+  const placeholderIssues: string[] = [];
+  for (const exp of resume.experiences) {
+    if (!exp.title.trim() || placeholderPattern.test(exp.title.trim())) placeholderIssues.push('A role is missing its job title.');
+    if (!exp.company.trim() || placeholderPattern.test(exp.company.trim())) placeholderIssues.push(`"${exp.title || 'A role'}" is missing the employer name.`);
+    if (!exp.startDate) placeholderIssues.push(`"${exp.title || 'A role'}" is missing dates.`);
+  }
+  for (const edu of profile.education) {
+    for (const value of [edu.degree, edu.fieldOfStudy, edu.institution]) {
+      if (value && placeholderPattern.test(value.trim())) placeholderIssues.push(`Education has a placeholder value: "${value}".`);
+    }
+  }
+  checks.no_placeholders = {
+    id: 'no_placeholders',
+    name: 'No missing or placeholder details',
+    status: placeholderIssues.length === 0 ? 'passed' : 'failed',
+    score: placeholderIssues.length === 0 ? 100 : 0,
+    description:
+      placeholderIssues.length === 0
+        ? 'Every role has a title, employer, and dates.'
+        : `${placeholderIssues.length} detail${placeholderIssues.length === 1 ? ' is' : 's are'} missing. Fill them in your profile before sending.`,
+    recommendations: [...new Set(placeholderIssues)],
+    autoFixable: false,
+  };
+
+  // Auto-fix rewrites openings ("responsible for building" -> "Built") and casing, so a
+  // bullet traces back when it shares most of its content words with one the candidate wrote.
+  const contentWords = (text: string) =>
+    new Set(text.toLowerCase().replace(/[^a-z0-9.+#%$ ]/g, ' ').split(/\s+/).filter((word) => word.length > 2));
+  const profileBulletWords = [...profile.experiences.flatMap((exp) => exp.highlights), ...profile.projects.flatMap((project) => project.highlights)].map(contentWords);
+  const tracesToProfile = (text: string) => {
+    const words = contentWords(text);
+    if (words.size === 0) return true;
+    return profileBulletWords.some((source) => {
+      let shared = 0;
+      for (const word of words) if (source.has(word)) shared++;
+      return shared / words.size >= 0.6;
+    });
+  };
+  const profileSkills = new Set(profile.skills.map((skill) => skill.name.trim().toLowerCase()));
+  const untraceable: string[] = [];
+  for (const item of [...resume.experiences, ...resume.projects]) {
+    for (const highlight of item.rankedHighlights) {
+      if (!highlight.sourceEvidenceId && !tracesToProfile(highlight.text)) {
+        untraceable.push(`Bullet not found in your resume: "${highlight.text.slice(0, 60)}"`);
+      }
+    }
+  }
+  const listedSkills = [
+    ...resume.skills.matchedRequired,
+    ...resume.skills.matchedPreferred,
+    ...resume.skills.additionalSkills,
+    ...(resume.skills.domainCategories ?? []).flatMap((group) => group.skills),
+  ];
+  for (const skill of new Set(listedSkills)) {
+    if (!profileSkills.has(skill.trim().toLowerCase())) untraceable.push(`Skill not in your profile: ${skill}`);
+  }
+  checks.facts_traceable = {
+    id: 'facts_traceable',
+    name: 'Everything comes from your resume',
+    status: untraceable.length === 0 ? 'passed' : 'failed',
+    score: untraceable.length === 0 ? 100 : 0,
+    description:
+      untraceable.length === 0
+        ? 'Every bullet and skill traces back to something you wrote.'
+        : `${untraceable.length} item${untraceable.length === 1 ? '' : 's'} could not be traced to your resume.`,
+    recommendations: untraceable.slice(0, 5),
+    autoFixable: false,
   };
 
   // Calculate Overall Score
   const checkValues = Object.values(checks) as ResumeAuditCheckItem[];
   const totalScore = checkValues.reduce((sum, c) => sum + c.score, 0);
-  const overallScore = Math.round(totalScore / checkValues.length);
+  const honestyFailed = checks.no_placeholders.status === 'failed' || checks.facts_traceable.status === 'failed';
+  // A resume with a missing employer or an untraceable claim is not ready however well it
+  // scores on style, so the overall score is capped below the "ready" range.
+  const overallScore = Math.min(honestyFailed ? 59 : 100, Math.round(totalScore / checkValues.length));
   const passedCount = checkValues.filter((c) => c.status === 'passed').length;
   const isReady = checkValues.every((c) => c.status !== 'failed');
 
@@ -825,8 +935,7 @@ export function autoFixResumeQualityIssues(
 
   // Remove buzzwords
   for (const buzz of BANNED_BUZZWORDS) {
-    const rx = new RegExp(`\\b${buzz.replace('-', '[- ]')}\\b`, 'gi');
-    summary = summary.replace(rx, '');
+    summary = summary.replace(buzzwordPattern(buzz, 'gi'), '');
   }
 
   // Normalize tech orthography
@@ -841,13 +950,11 @@ export function autoFixResumeQualityIssues(
 
   // If the summary is unusable, rebuild it from profile facts only.
   if (!summary || summary.length < 20) {
-    const title = profile.professional.currentTitle || profile.professional.headline || job.title;
-    const coreSkills = resume.skills.matchedRequired.slice(0, 4).join(', ');
-    const years = calculateVerifiedExperienceYears(profile.experiences);
-    summary = [
-      `${title}${years >= 3 ? ` with ${years} years of experience` : ''}.`,
-      coreSkills ? `Core stack: ${coreSkills}.` : '',
-    ].filter(Boolean).join(' ');
+    const title = profile.professional.currentTitle || profile.professional.headline || resume.experiences[0]?.title || 'Engineer';
+    const coreSkills = resume.skills.matchedRequired.slice(0, 3);
+    const stack = coreSkills.length > 1 ? `${coreSkills.slice(0, -1).join(', ')} and ${coreSkills[coreSkills.length - 1]}` : coreSkills[0] ?? '';
+    const years = Math.floor(calculateVerifiedExperienceYears(profile.experiences));
+    summary = `${title}${years >= 2 ? ` with ${years} years of experience` : ''}${stack ? `, working mostly in ${stack}` : ''}.`;
   }
 
   // Clean highlights for experiences
@@ -866,8 +973,7 @@ export function autoFixResumeQualityIssues(
 
       // Clean buzzwords
       for (const buzz of BANNED_BUZZWORDS) {
-        const rx = new RegExp(`\\b${buzz.replace('-', '[- ]')}\\b`, 'gi');
-        text = text.replace(rx, '');
+        text = text.replace(buzzwordPattern(buzz, 'gi'), '');
       }
 
       // Ensure first character is capitalized
@@ -930,3 +1036,36 @@ export function autoFixResumeQualityIssues(
     qualityAudit: newAudit,
   };
 }
+
+/**
+ * Finds a phrase of three or more words that occurs twice in one bullet, the usual sign
+ * of a copy-paste slip ("an admin dashboard for managing an admin dashboardproducts").
+ * Words glued to the repeat ("dashboardproducts") still count, since that is the slip.
+ */
+export function findRepeatedPhrase(text: string): string | undefined {
+  const words = text.toLowerCase().match(/[a-z0-9][a-z0-9'-]*/g) ?? [];
+  for (let size = 4; size >= 3; size -= 1) {
+    const seen = new Map<string, number>();
+    for (let i = 0; i + size <= words.length; i += 1) {
+      const gram = words.slice(i, i + size).join(' ');
+      if (gram.split(' ').filter((word) => word.length > 3).length < 2) continue;
+      const first = seen.get(gram);
+      if (first !== undefined && i >= first + size) return gram;
+      if (first === undefined) seen.set(gram, i);
+    }
+    // Catch the glued form: the last word of the repeat fused with the next word.
+    for (let i = 0; i + size <= words.length; i += 1) {
+      const head = words.slice(i, i + size - 1).join(' ');
+      const tail = words[i + size - 1]!;
+      for (let j = i + size; j + size - 1 <= words.length; j += 1) {
+        const candidateHead = words.slice(j, j + size - 1).join(' ');
+        const glued = words[j + size - 1];
+        if (candidateHead === head && glued && glued !== tail && glued.startsWith(tail) && head.split(' ').some((w) => w.length > 3)) {
+          return `${head} ${tail}`;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+

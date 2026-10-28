@@ -25,6 +25,7 @@ import {
   typeTextProgressively,
 } from './pacing-engine.js';
 
+import { PAGE_OPTIONS_ATTRIBUTE } from './page-widget-options.js';
 /**
  * Sleeps for a designated millisecond interval to ensure reactive framework state updates
  * and mimic natural human pacing.
@@ -177,30 +178,49 @@ export function simulateCustomComboboxSelect(
     element.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
   }
 
-  // Look for open popup option elements matching optionValue
+  // Only look inside this dropdown's own list. Pages often keep other option lists in
+  // the DOM permanently (Greenhouse keeps ~240 hidden phone-country options), so a
+  // page-wide [role="option"] search picks an answer from the wrong question.
   const root = element.ownerDocument || document;
-  const options = Array.from(
-    root.querySelectorAll<HTMLElement>(
-      '[role="option"], .select-option, [data-automation-id="promptOption"], li[data-value]'
-    )
-  );
-
-  const matched = options.find((opt) => {
-    const text = (opt.textContent || '').trim().toLowerCase();
-    const val = (opt.getAttribute('data-value') || '').toLowerCase();
-    const target = optionValue.trim().toLowerCase();
-    return text === target || val === target || text.includes(target);
-  });
-
-  if (matched && !isSubmitElement(matched)) {
-    matched.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
-    matched.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
-  } else {
-    element.setAttribute('data-value', optionValue);
-    if (!(element instanceof HTMLInputElement)) {
-      element.textContent = optionValue;
+  const OPTION_SELECTOR = '[role="option"], .select-option, [data-automation-id="promptOption"], li[data-value]';
+  const findScope = (): ParentNode | null => {
+    const listboxId = element.getAttribute('aria-controls') || element.getAttribute('aria-owns');
+    const listbox = listboxId ? root.getElementById(listboxId) : null;
+    if (listbox) return listbox;
+    // Walk up to the edge of this question and no further.
+    let node = element.parentElement;
+    for (let depth = 0; node && depth < 8; depth += 1) {
+      if (node.querySelector(OPTION_SELECTOR)) return node;
+      if (node.matches('.field-wrapper, fieldset, form, [role="group"], body')) break;
+      node = node.parentElement;
     }
+    // Workday renders its prompt options in a page-level popup that belongs to
+    // whichever prompt was opened last; nothing else is trusted page-wide.
+    return root.querySelector('[data-automation-id="promptOption"]') ? root : null;
+  };
+  const scope = findScope();
+  const options = scope
+    ? Array.from(scope.querySelectorAll<HTMLElement>(scope === root ? '[data-automation-id="promptOption"]' : OPTION_SELECTOR))
+    : [];
+
+  const target = optionValue.trim().toLowerCase();
+  const matched =
+    options.find((opt) => (opt.textContent || '').trim().toLowerCase() === target || (opt.getAttribute('data-value') || '').toLowerCase() === target) ??
+    options.find((opt) => (opt.textContent || '').trim().toLowerCase().includes(target));
+
+  if (!matched || isSubmitElement(matched)) {
+    // Undo the search text so the box is left as the candidate found it.
+    if (element instanceof HTMLInputElement) {
+      setNativeInputValue(element, '');
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: '', inputType: 'deleteContentBackward' }));
+    }
+    element.blur();
+    // Typing the answer into the box would look filled but submit nothing.
+    throw new Error(`Could not pick "${optionValue}" in this dropdown. Choose it yourself.`);
   }
+
+  matched.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, composed: true }));
+  matched.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
 
   element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
   element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
@@ -305,6 +325,15 @@ function applyVisualHighlight(element: HTMLElement): () => void {
 }
 
 /**
+ * Page-world operations the content script cannot do itself. The content entry point
+ * wires these to the service worker; tests pass fakes or leave them out.
+ */
+export interface PageHooks {
+  /** Picks an option on a React dropdown (see background/page-widgets). */
+  readonly pickPageOption?: (selector: string, wanted: string) => Promise<{ ok: boolean; chosenLabel?: string; reason?: string }>;
+}
+
+/**
  * Executes a single DryRunAction against the document DOM.
  *
  * @param action Planned action item.
@@ -314,7 +343,8 @@ function applyVisualHighlight(element: HTMLElement): () => void {
 export async function executeSingleAction(
   action: DryRunAction,
   doc: Document,
-  options: ExecutionOptions = {}
+  options: ExecutionOptions = {},
+  hooks: PageHooks = {}
 ): Promise<void> {
   const browserAction = action.action;
 
@@ -369,6 +399,14 @@ export async function executeSingleAction(
       case 'select_option': {
         if (element instanceof HTMLSelectElement) {
           simulateSelectOption(element, browserAction.value || '');
+        } else if (element.hasAttribute(PAGE_OPTIONS_ATTRIBUTE)) {
+          if (!hooks.pickPageOption) {
+            throw new Error('This dropdown can only be set from the page. Choose it yourself.');
+          }
+          const picked = await hooks.pickPageOption(browserAction.selector, browserAction.value || '');
+          if (!picked.ok) {
+            throw new Error(`Could not pick "${browserAction.value ?? ''}" in this dropdown (${picked.reason ?? 'unknown'}). Choose it yourself.`);
+          }
         } else {
           simulateCustomComboboxSelect(element, browserAction.value || '');
         }
@@ -430,7 +468,8 @@ export async function executeSingleAction(
 export async function executeBrowserPlan(
   plan: DryRunPlan,
   doc: Document,
-  options: ExecutionOptions = {}
+  options: ExecutionOptions = {},
+  hooks: PageHooks = {}
 ): Promise<ExecutionReport> {
   const startTime = Date.now();
   const pacingDelay = options.pacingDelayMs ?? 150;
@@ -442,7 +481,7 @@ export async function executeBrowserPlan(
 
   for (const action of approvedActions) {
     try {
-      await executeSingleAction(action, doc, options);
+      await executeSingleAction(action, doc, options, hooks);
       executedActionIds.push(action.id);
 
       // Inject human-paced microtask delay between consecutive fills

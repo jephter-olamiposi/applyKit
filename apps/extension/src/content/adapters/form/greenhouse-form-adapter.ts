@@ -32,6 +32,7 @@ import {
   extractNativeSelectOptions,
 } from '../form-crawler-helpers.js';
 
+import { isWidgetInternalInput, readMaxLength, readTaggedOptions } from '../../page-widget-options.js';
 /**
  * Greenhouse ATS Form Adapter.
  */
@@ -50,7 +51,7 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
 
     return Boolean(
       doc.querySelector(
-        '#grnhse_app, form#application_form, form#job-apply-form, [data-greenhouse], #main_fields, #eeo_questions, input#gh_src'
+        '#grnhse_app, form#application_form, form#application-form.application--form, form#job-apply-form, [data-greenhouse], #main_fields, #eeo_questions, input#gh_src'
       )
     );
   }
@@ -107,7 +108,7 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
     const root =
       container ||
       doc.querySelector<HTMLElement>(
-        '#grnhse_app, form#application_form, form#job-apply-form, #main_fields'
+        '#grnhse_app, form#application_form, form#application-form.application--form, form#job-apply-form, #main_fields'
       ) ||
       doc.body;
 
@@ -118,7 +119,7 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
     // Identify submit button (e.g. #submit_app, .js-submit-button)
     let submitButtonSelector: string | undefined;
     const submitBtn = root.querySelector<HTMLElement>(
-      'input#submit_app, button#submit_app, input[name="submit_button"], .js-submit-button, input[type="submit"], [data-qa="submit-button"]'
+      'input#submit_app, button#submit_app, input[name="submit_button"], .js-submit-button, input[type="submit"], button[type="submit"], [data-qa="submit-button"]'
     );
     if (submitBtn && isSubmitElement(submitBtn)) {
       submitButtonSelector = generateElementSelector(submitBtn, root);
@@ -175,6 +176,7 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
     );
 
     for (const el of Array.from(interactiveElements)) {
+      if (isWidgetInternalInput(el)) continue;
       const tag = el.tagName.toLowerCase();
       const type = (el.getAttribute('type') || '').toLowerCase();
       const name = el.getAttribute('name') || undefined;
@@ -189,6 +191,10 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
 
       if (tag === 'textarea') {
         fieldType = 'textarea';
+      } else if (el.getAttribute('role') === 'combobox') {
+        // Current Greenhouse forms render every dropdown as a react-select combobox.
+        fieldType = 'select';
+        options = readTaggedOptions(el);
       } else if (tag === 'select') {
         fieldType = 'select';
         options = extractNativeSelectOptions(el as HTMLSelectElement);
@@ -203,7 +209,7 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
       }
 
       // Check if inside Greenhouse EEO demographic container
-      const isEeoField = Boolean(el.closest('#eeo_questions, #eeo_fields, .eeo-section'));
+      const isEeoField = Boolean(el.closest('#eeo_questions, #eeo_fields, .eeo-section, .demographic--container'));
 
       const rawAttrs: RawFieldAttributes = {
         tag,
@@ -266,6 +272,7 @@ export class GreenhouseFormAdapter implements AtsFormAdapter {
         confidenceScore: classification.confidence,
         inferredMappingKey: classification.inferredProfilePath,
         isHoneypotSuspect: isHoneypot,
+        ...readMaxLength(el),
       });
     }
 

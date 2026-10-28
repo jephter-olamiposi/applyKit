@@ -7,7 +7,6 @@ import {
   type AIRequest,
   type AIResponse,
   type JobExtractionContext,
-  type FieldAnsweringContext,
 } from '../index.js';
 
 describe('AI Provider Abstraction & Scoped Contexts', () => {

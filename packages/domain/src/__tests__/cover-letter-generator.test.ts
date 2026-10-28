@@ -165,7 +165,7 @@ describe('Evidence-Grounded Cover Letter Generator Suite', () => {
     });
 
     expect(coverLetter.fullText).toContain('Dear Dr. Sarah Connor, VP of Engineering,');
-    expect(coverLetter.closingParagraph).toContain('Sincerely,');
+    expect(coverLetter.closingParagraph).toContain('Best,');
     expect(coverLetter.closingParagraph).toContain('Taylor Swift');
   });
 });

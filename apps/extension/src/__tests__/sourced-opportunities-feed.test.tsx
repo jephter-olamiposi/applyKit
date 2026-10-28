@@ -4,10 +4,10 @@
  * @vitest-environment happy-dom
  */
 
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SourcedOpportunity, CandidateProfile } from '@applykit/domain';
+import type { SourcedOpportunity } from '@applykit/domain';
 import { SourcedOpportunitiesFeed } from '../sidepanel/components/SourcedOpportunitiesFeed.js';
 import * as bridge from '../messages/bridge.js';
 
@@ -82,12 +82,12 @@ describe('SourcedOpportunitiesFeed', () => {
     expect(container.textContent).toContain('Monad Labs');
     expect(container.textContent).toContain('Senior Distributed Systems Engineer');
     expect(container.textContent).toContain('Stripe');
-    expect(container.textContent).toContain('Passes all eligibility gates');
-    expect(container.textContent).toContain('Blocked: geography');
+    expect(container.textContent).toContain('Open to you');
+    expect(container.textContent).toContain('Not open to you: location');
     expect(container.textContent).toContain('Candidates must be physically located');
   });
 
-  it('triggers ATS watchlist scan when clicking Scan Curated Watchlist', async () => {
+  it('triggers ATS watchlist scan when clicking Check my companies', async () => {
     mockedSend
       .mockResolvedValueOnce({
         type: 'GET_SOURCED_OPPORTUNITIES_RESULT',
@@ -106,7 +106,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     const scanBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Scan watchlist')
+      b.textContent?.includes('Check my companies')
     );
     expect(scanBtn).toBeDefined();
 
@@ -118,11 +118,11 @@ describe('SourcedOpportunitiesFeed', () => {
       type: 'FETCH_ATS_JOBS',
       keyword: undefined,
     });
-    expect(container.textContent).toContain('Found 2 live opportunities.');
+    expect(container.textContent).toContain('Found 2 open roles.');
     expect(container.textContent).toContain('Monad Labs');
   });
 
-  it('filters visible opportunities by EV priority tier', async () => {
+  it('filters visible opportunities by tier', async () => {
     mockedSend.mockResolvedValueOnce({
       type: 'GET_SOURCED_OPPORTUNITIES_RESULT',
       success: true,
@@ -139,7 +139,7 @@ describe('SourcedOpportunitiesFeed', () => {
 
     // Click Tier 1 button
     const tier1Btn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Tier 1: High EV')
+      b.textContent?.includes('Best bets')
     );
     expect(tier1Btn).toBeDefined();
 
@@ -153,7 +153,7 @@ describe('SourcedOpportunitiesFeed', () => {
 
     // Click Blocked button
     const blockedBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Blocked / Low')
+      b.textContent?.includes('Not for you')
     );
     expect(blockedBtn).toBeDefined();
 
@@ -166,7 +166,7 @@ describe('SourcedOpportunitiesFeed', () => {
     expect(container.textContent).toContain('Stripe');
   });
 
-  it('harvests active browser tab links when clicking Harvest Active Tab', async () => {
+  it('harvests active browser tab links when clicking Find job links on this page', async () => {
     mockedSend
       .mockResolvedValueOnce({
         type: 'GET_SOURCED_OPPORTUNITIES_RESULT',
@@ -186,7 +186,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     const harvestBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Harvest active tab')
+      b.textContent?.includes('Find job links on this page')
     );
     expect(harvestBtn).toBeDefined();
 
@@ -195,11 +195,11 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     expect(mockedSend).toHaveBeenCalledWith({ type: 'HARVEST_PAGE_LINKS' });
-    expect(container.textContent).toContain('Links found on this tab (1)');
+    expect(container.textContent).toContain('Job links on this page (1)');
     expect(container.textContent).toContain('Senior Software Engineer');
   });
 
-  it('calls onNavigateToTab when Open & Stage is clicked', async () => {
+  it('calls onNavigateToTab when Open job is clicked', async () => {
     mockedSend.mockResolvedValueOnce({
       type: 'GET_SOURCED_OPPORTUNITIES_RESULT',
       success: true,
@@ -214,7 +214,7 @@ describe('SourcedOpportunitiesFeed', () => {
     });
 
     const stageBtns = Array.from(container.querySelectorAll('button')).filter((b) =>
-      b.textContent?.includes('Open and stage')
+      b.textContent?.includes('Open job')
     );
     expect(stageBtns.length).toBeGreaterThan(0);
 

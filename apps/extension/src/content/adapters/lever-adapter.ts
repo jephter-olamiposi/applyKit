@@ -46,7 +46,7 @@ export class LeverJobSiteAdapter implements JobSiteAdapter {
     }
 
     const locationEl = doc.querySelector('.sort-by-location') || doc.querySelector('.location');
-    const location = locationEl?.textContent?.trim() || 'Remote / Unspecified';
+    const location = locationEl?.textContent?.trim() || '';
 
     const commitmentEl = doc.querySelector('.sort-by-commitment');
     const commitmentText = commitmentEl?.textContent?.toLowerCase() || '';

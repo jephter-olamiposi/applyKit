@@ -6,10 +6,10 @@
  * Claims lacking backing evidence are flagged or assigned zero confidence.
  */
 
-import type { ClaimId, EvidenceId } from '../types/ids.js';
+import type { EvidenceId } from '../types/ids.js';
 import { createClaimId } from '../types/ids.js';
 import type { Evidence } from './evidence.js';
-import type { CandidateClaim, ClaimType } from './candidate-claim.js';
+import type { CandidateClaim } from './candidate-claim.js';
 
 /** Regular expression identifying quantified metric achievements (percentages, dollar amounts, throughput). */
 const QUANTIFIED_METRIC_REGEX = /(?:\d+%\s*|\$\d+[\d,.]*(?:k|m|b)?|\b\d+x\b|\b\d+\+?\s*(?:users|clients|qps|ms|requests|engineers|microservices|queries|deployments|customers)\b)/i;
@@ -157,36 +157,4 @@ export function deriveClaimsFromEvidence(evidenceList: readonly Evidence[]): Can
   }
 
   return claims;
-}
-
-/**
- * Validates and updates a claim against a set of evidence nodes, recalculating confidence
- * and detecting dangling or missing references.
- *
- * @param claim The claim to evaluate.
- * @param evidenceMap Lookup map of known evidence nodes.
- * @returns Updated claim with recalculated confidence and valid evidence links.
- */
-export function refreshClaimEvidenceLinks(
-  claim: CandidateClaim,
-  evidenceMap: ReadonlyMap<EvidenceId, Evidence>
-): CandidateClaim {
-  const validEvIds: EvidenceId[] = [];
-  const validEvidence: Evidence[] = [];
-
-  for (const id of claim.supportedByEvidenceIds) {
-    const ev = evidenceMap.get(id);
-    if (ev) {
-      validEvIds.push(id);
-      validEvidence.push(ev);
-    }
-  }
-
-  const confidence = calculateClaimConfidence(validEvidence);
-
-  return {
-    ...claim,
-    supportedByEvidenceIds: validEvIds,
-    confidence,
-  };
 }

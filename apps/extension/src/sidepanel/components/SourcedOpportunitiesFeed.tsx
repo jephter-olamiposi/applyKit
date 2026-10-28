@@ -85,7 +85,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
   const handleScanWatchlist = async () => {
     setIsLoading(true);
     setErrorMessage(null);
-    setStatusMessage('Scanning direct ATS boards (Greenhouse, Ashby, Lever)...');
+    setStatusMessage('Checking the company job boards...');
     try {
       const res = await sendToBackground<
         {
@@ -107,11 +107,11 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
         const failedSources = res.sourceStatuses?.filter((source) => source.status === 'failed') || [];
         setStatusMessage(
           failedSources.length > 0
-            ? `Found ${res.opportunities.length} opportunities. ${failedSources.length} source(s) could not be scanned.`
-            : `Found ${res.opportunities.length} live opportunities.`
+            ? `Found ${res.opportunities.length} open roles. ${failedSources.length} board(s) did not respond.`
+            : `Found ${res.opportunities.length} open roles.`
         );
       } else {
-        setErrorMessage(res.error || 'Failed to scan employer boards.');
+        setErrorMessage(res.error || 'Could not reach the job boards. Try again in a minute.');
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -130,7 +130,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
     setIsLoading(true);
     setShowCustomModal(false);
     setErrorMessage(null);
-    setStatusMessage(`Scanning board for ${customName.trim() || customSlug}...`);
+    setStatusMessage(`Checking ${customName.trim() || customSlug}...`);
 
     try {
       const res = await sendToBackground<
@@ -161,9 +161,9 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
           const existingIds = new Set(res.opportunities.map((o) => o.id));
           return [...res.opportunities, ...prev.filter((p) => !existingIds.has(p.id))];
         });
-        setStatusMessage(`Found ${res.opportunities.length} postings from ${customName || customSlug}.`);
+        setStatusMessage(`Found ${res.opportunities.length} open roles at ${customName || customSlug}.`);
       } else {
-        setErrorMessage(res.error || 'Failed to fetch custom company board.');
+        setErrorMessage(res.error || 'Could not load that company board. Check the name in its jobs URL.');
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -186,10 +186,10 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
       if (res.success) {
         setHarvestedLinks(res.links);
         if (res.links.length === 0) {
-          setHarvestError('No supported ATS job links or career URLs found on this active tab.');
+          setHarvestError('No job links found on this page.');
         }
       } else {
-        setHarvestError(res.error || 'Failed to harvest links from active tab.');
+        setHarvestError(res.error || 'Could not read links from this page.');
       }
     } catch (err) {
       setHarvestError(err instanceof Error ? err.message : String(err));
@@ -271,10 +271,10 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
       <section className="feed-header">
         <div className="feed-header-top">
           <div>
-            <h2 className="feed-title">Job search</h2>
+            <h2 className="feed-title">Find jobs</h2>
             <p className="feed-subtitle">
-              Direct queries to employer ATS boards, screened against your eligibility and
-              preferences.
+              Pulls current openings straight from company job boards and checks each one against
+              where you can work.
             </p>
           </div>
           <button
@@ -293,7 +293,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
             onClick={handleScanWatchlist}
             disabled={isLoading}
           >
-            {isLoading ? 'Scanning boards...' : 'Scan watchlist'}
+            {isLoading ? 'Checking boards...' : 'Check my companies'}
           </button>
 
           <button
@@ -301,9 +301,9 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
             className="btn-ghost"
             onClick={handleHarvestPageLinks}
             disabled={isHarvesting}
-            title="Scan the current browser tab for ATS job links"
+            title="Collect job links from the page open in your browser"
           >
-            {isHarvesting ? 'Harvesting...' : 'Harvest active tab'}
+            {isHarvesting ? 'Looking...' : 'Find job links on this page'}
           </button>
         </div>
 
@@ -322,7 +322,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
             value={selectedPlatform}
             onChange={(e) => setSelectedPlatform(e.target.value as 'all' | SourcedPlatformId)}
           >
-            <option value="all">All ATS</option>
+            <option value="all">All boards</option>
             <option value="greenhouse">Greenhouse</option>
             <option value="ashby">Ashby</option>
             <option value="lever">Lever</option>
@@ -370,7 +370,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
         <section className="feed-harvest-panel">
           <div className="feed-harvest-head">
             <span className="feed-harvest-title">
-              Links found on this tab ({harvestedLinks.length})
+              Job links on this page ({harvestedLinks.length})
             </span>
             <button type="button" className="feed-link-btn" onClick={() => setHarvestedLinks([])}>
               Dismiss
@@ -387,7 +387,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
                   className="btn-ghost btn-ghost-sm"
                   onClick={() => handleOpenAndStage(link.url)}
                 >
-                  Stage
+                  Open
                 </button>
               </div>
             ))}
@@ -410,37 +410,37 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
           className={`tier-pill tier-pill-1 ${selectedTier === 'tier1_high_ev' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier1_high_ev')}
         >
-          Tier 1: High EV ({tierCounts.tier1_high_ev})
+          Best bets ({tierCounts.tier1_high_ev})
         </button>
         <button
           type="button"
           className={`tier-pill tier-pill-2 ${selectedTier === 'tier2_competitive' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier2_competitive')}
         >
-          Tier 2: Competitive ({tierCounts.tier2_competitive})
+          Good ({tierCounts.tier2_competitive})
         </button>
         <button
           type="button"
           className={`tier-pill tier-pill-3 ${selectedTier === 'tier3_conditional' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier3_conditional')}
         >
-          Tier 3: Conditional ({tierCounts.tier3_conditional})
+          Check first ({tierCounts.tier3_conditional})
         </button>
         <button
           type="button"
           className={`tier-pill tier-pill-4 ${selectedTier === 'tier4_low_or_blocked' ? 'tier-pill-active' : ''}`}
           onClick={() => setSelectedTier('tier4_low_or_blocked')}
         >
-          Blocked / Low ({tierCounts.tier4_low_or_blocked})
+          Not for you ({tierCounts.tier4_low_or_blocked})
         </button>
       </div>
 
       <div className="feed-list">
         {filteredOpportunities.length === 0 && !isLoading && (
           <div className="feed-empty">
-            <p className="feed-empty-title">No opportunities loaded</p>
+            <p className="feed-empty-title">No jobs loaded yet</p>
             <p className="feed-empty-text">
-              Select <strong>Scan watchlist</strong> to fetch live openings from employer boards.
+              Press <strong>Check my companies</strong> to pull current openings from the company job boards you follow.
             </p>
           </div>
         )}
@@ -472,15 +472,15 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
             {opp.verdict && (
               <div className="opp-verdict">
                 {opp.verdict === 'OPEN' && (
-                  <span className="verdict-pill verdict-open">Passes all eligibility gates</span>
+                  <span className="verdict-pill verdict-open">Open to you</span>
                 )}
                 {opp.verdict === 'CONDITIONAL' && (
-                  <span className="verdict-pill verdict-conditional">Needs manual review</span>
+                  <span className="verdict-pill verdict-conditional">Check eligibility</span>
                 )}
                 {opp.verdict === 'BLOCKED' && (
                   <div className="verdict-blocked">
                     <span className="verdict-blocked-title">
-                      Blocked: {opp.fatalGate ? opp.fatalGate.replace('_', ' ') : 'ineligible'}
+                      Not open to you: {opp.fatalGate === 'geography' ? 'location' : opp.fatalGate === 'work_authorization' ? 'work permit' : opp.fatalGate === 'timezone' ? 'time zone' : opp.fatalGate === 'entity' ? 'contract type' : 'eligibility'}
                     </span>
                     {opp.verbatimEvidence && (
                       <p className="verdict-evidence">&quot;{opp.verbatimEvidence}&quot;</p>
@@ -505,7 +505,7 @@ export const SourcedOpportunitiesFeed: React.FC<SourcedOpportunitiesFeedProps> =
                 className={`btn-primary-sm ${opp.verdict === 'BLOCKED' ? 'btn-primary-sm-muted' : ''}`}
                 onClick={() => handleOpenAndStage(opp.url)}
               >
-                Open and stage
+                Open job
               </button>
             </div>
           </article>

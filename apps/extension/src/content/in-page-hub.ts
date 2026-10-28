@@ -1,18 +1,21 @@
 /**
- * @fileoverview In-Page Floating Assistant Hub & Active Field Pills (Phase 17).
+ * @fileoverview In-Page Floating Assistant Hub & Active Field Pills.
  *
  * Implements Simplify-style in-page ergonomics through an isolated Shadow DOM root:
  * 1. Isolated Shadow DOM: Zero style pollution between host ATS page and ApplyKit UI.
- * 2. Active Field Focus Pill: Floating [⚡ Fill Value] or [💡 Draft Answer] directly adjacent to inputs.
- * 3. Bottom-Right Floating Hub: Discreet [⚡ ApplyKit · X Fields Detected] badge with 1-click execution.
+ * 2. Active Field Focus Pill: Floating [Fill Value] or [Draft Answer] control placed next to
+ *    the focused input.
+ * 3. Bottom-Right Floating Hub: Discreet [ApplyKit · X Fields Detected] badge with one-click
+ *    execution.
  * 4. Submission Hard Gate: Strictly forbidden from triggering form submissions.
  * 5. Isolated Context: All LLM requests execute in the background service worker.
  */
 
-import type { CandidateProfile, ApplicationForm } from '@applykit/domain';
+import type { CandidateProfile } from '@applykit/domain';
 import { simulateTextInput } from './action-interpreter.js';
 import { escapeXmlEntities } from './extractor.js';
 import { inspectPageForms } from './form-crawler.js';
+import { annotatePageWidgetsOnce } from './page-widget-bridge.js';
 import type {
   GetCandidateProfileResponse,
   ExecuteOneClickAutoFillResponse,
@@ -30,7 +33,6 @@ interface CachedFieldInfo {
 let activeProfileCache: CandidateProfile | null = null;
 let hostElement: HTMLElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
-let activeTargetElement: HTMLElement | null = null;
 let fieldPillContainer: HTMLElement | null = null;
 let floatingHubContainer: HTMLElement | null = null;
 let essayPopoverContainer: HTMLElement | null = null;
@@ -44,11 +46,26 @@ let focusHideTimeout: any = null;
  */
 const HUB_STYLES = `
   :host {
+    --bg: #f6f6f3; --surface: #ffffff; --surface-2: #efefeb; --border: #e2e2dc; --border-strong: #c9c9c1;
+    --text: #1c1c1a; --text-2: #45453f; --muted: #74746b;
+    --accent: #1f5d52; --accent-hover: #184a41; --accent-text: #1f5d52; --on-accent: #ffffff;
+    --success: #2c7a4b; --success-text: #23663e; --warning: #a86a00; --warning-text: #8a5700; --danger: #b3261e; --danger-text: #9c2019;
+  }
+  @media (prefers-color-scheme: dark) {
+    :host {
+      --bg: #151514; --surface: #1d1d1b; --surface-2: #262623; --border: #33332f; --border-strong: #4a4a44;
+      --text: #ecece8; --text-2: #c9c9c2; --muted: #9b9b92;
+      --accent: #7cc4b2; --accent-hover: #93d1c1; --accent-text: #8fd0bf; --on-accent: #0f211c;
+      --success: #6cc08b; --success-text: #84cf9f; --warning: #e2b65c; --warning-text: #ecc679; --danger: #ef8a7f; --danger-text: #f3a197;
+    }
+  }
+
+  :host {
     all: initial;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 13px;
     line-height: 1.4;
-    color: #f8fafc;
+    color: var(--text);
     box-sizing: border-box;
   }
 
@@ -65,12 +82,12 @@ const HUB_STYLES = `
     display: flex;
     align-items: center;
     gap: 8px;
-    background: #0f172a;
-    border: 1px solid rgba(59, 130, 246, 0.5);
+    background: var(--bg);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
     border-radius: 9999px;
     padding: 6px 14px 6px 10px;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(12px);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 12%, transparent);
+    backdrop-filter: none;
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     animation: hubSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -86,31 +103,17 @@ const HUB_STYLES = `
     }
   }
 
-  .hub-badge-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: #2563eb;
-    border-radius: 50%;
-    color: #ffffff;
-    font-size: 13px;
-    font-weight: bold;
-    flex-shrink: 0;
-  }
-
   .hub-label {
     font-size: 12px;
     font-weight: 600;
-    color: #f1f5f9;
+    color: var(--text);
     white-space: nowrap;
   }
 
   .hub-action-btn {
     appearance: none;
-    background: #2563eb;
-    color: #ffffff;
+    background: var(--accent);
+    color: var(--on-accent);
     border: none;
     border-radius: 9999px;
     padding: 4px 12px;
@@ -122,7 +125,7 @@ const HUB_STYLES = `
   }
 
   .hub-action-btn:hover {
-    background: #1d4ed8;
+    background: var(--accent);
     transform: scale(1.02);
   }
 
@@ -139,7 +142,7 @@ const HUB_STYLES = `
     appearance: none;
     background: transparent;
     border: none;
-    color: #94a3b8;
+    color: var(--muted);
     cursor: pointer;
     font-size: 14px;
     padding: 2px 4px;
@@ -149,265 +152,201 @@ const HUB_STYLES = `
   }
 
   .hub-close-btn:hover {
-    color: #f8fafc;
+    color: var(--text);
   }
 
-  /* Active Field Focus Pill */
+  /* Field pill: sits in the field's top-right corner so it never covers the label above. */
   .applykit-field-pill {
     position: absolute;
     z-index: 2147483647;
     display: flex;
     align-items: center;
     gap: 6px;
-    background: #1e293b;
-    border: 1px solid #3b82f6;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
-    padding: 4px 10px;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-    font-size: 11px;
+    padding: 3px 8px;
+    font-size: 11.5px;
     font-weight: 600;
-    color: #f8fafc;
+    color: var(--accent-text);
     cursor: pointer;
     white-space: nowrap;
-    transition: all 0.15s ease;
-    animation: pillFadeIn 0.2s ease;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 10%, transparent);
+    animation: pillFadeIn 0.15s ease;
   }
 
   @keyframes pillFadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .applykit-field-pill:hover {
-    background: #2563eb;
-    border-color: #60a5fa;
-    transform: translateY(-1px);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   }
 
   .applykit-field-pill.filled {
-    background: #065f46;
-    border-color: #10b981;
-    color: #a7f3d0;
+    background: color-mix(in srgb, var(--success) 12%, var(--surface));
+    border-color: var(--success);
+    color: var(--success-text);
   }
 
-  /* Essay Assistant Anchored Popover */
+  /* Answer writer, anchored under the question it answers. */
   .applykit-essay-popover {
     position: absolute;
     z-index: 2147483647;
-    width: 440px;
-    max-width: 92vw;
-    background: #0f172a;
-    border: 1px solid #3b82f6;
-    border-radius: 12px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
-    padding: 16px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    animation: popoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  @keyframes popoverFadeIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
+    width: 420px;
+    max-width: calc(100vw - 20px);
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 14%, transparent);
+    padding: 14px;
+    animation: pillFadeIn 0.15s ease;
   }
 
   .essay-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    border-bottom: 1px solid #334155;
-    padding-bottom: 6px;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 10px;
   }
 
   .essay-title {
     font-size: 13px;
     font-weight: 700;
-    color: #38bdf8;
+    color: var(--text);
   }
 
   .essay-question-text {
-    font-size: 11.5px;
-    color: #94a3b8;
-    margin-bottom: 10px;
-    font-style: italic;
-    max-height: 48px;
+    font-size: 12px;
+    color: var(--text-2);
+    margin-top: 2px;
+    max-height: 54px;
     overflow-y: auto;
     line-height: 1.4;
   }
 
-  .essay-notes-group {
-    margin-bottom: 10px;
-  }
-
-  .essay-notes-label {
-    display: block;
-    font-size: 10.5px;
-    font-weight: 600;
-    color: #cbd5e1;
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .essay-notes-input {
-    width: 100%;
-    box-sizing: border-box;
-    background: #1e293b;
-    border: 1px solid #475569;
-    border-radius: 6px;
-    color: #f8fafc;
-    font-size: 11.5px;
-    padding: 7px 10px;
-    outline: none;
-    transition: border-color 0.15s ease;
-  }
-
-  .essay-notes-input:focus {
-    border-color: #38bdf8;
-  }
-
-  .essay-controls-row {
+  .essay-row {
     display: flex;
-    align-items: center;
     gap: 8px;
     margin-bottom: 10px;
   }
 
+  .essay-notes-input,
   .essay-tone-select {
-    flex: 1;
-    background: #1e293b;
-    border: 1px solid #475569;
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
-    color: #f8fafc;
-    font-size: 11.5px;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
     padding: 6px 8px;
     outline: none;
-    cursor: pointer;
   }
 
-  .btn-generate {
-    background: #2563eb;
-    color: #ffffff;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-size: 11.5px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s ease;
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
+  .essay-notes-input { flex: 1; min-width: 0; }
+  .essay-tone-select { flex: 0 0 auto; cursor: pointer; }
 
-  .btn-generate:hover:not(:disabled) {
-    background: #1d4ed8;
-  }
-
-  .btn-generate:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+  .essay-notes-input:focus,
+  .essay-tone-select:focus,
+  .essay-textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
   }
 
   .essay-status {
-    font-size: 10.5px;
-    color: #38bdf8;
+    font-size: 12px;
+    color: var(--muted);
     margin-bottom: 8px;
-    min-height: 14px;
-    line-height: 1.3;
+    min-height: 16px;
+    line-height: 1.4;
   }
 
-  .essay-status.error {
-    color: #f87171;
-  }
+  .essay-status.error { color: var(--danger-text); }
+  .essay-status.good { color: var(--success-text); }
+  .essay-status.warn { color: var(--warning-text); }
 
   .essay-textarea {
     width: 100%;
     box-sizing: border-box;
-    min-height: 110px;
-    max-height: 220px;
-    background: #1e293b;
-    border: 1px solid #475569;
+    min-height: 120px;
+    max-height: 240px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
-    color: #f8fafc;
-    font-size: 12px;
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
     line-height: 1.5;
     padding: 8px 10px;
     resize: vertical;
-    font-family: inherit;
     margin-bottom: 8px;
+    outline: none;
   }
 
-  .essay-textarea:focus {
-    outline: none;
-    border-color: #38bdf8;
-  }
+  .essay-textarea[aria-busy="true"] { color: var(--muted); }
 
   .essay-actions {
     display: flex;
     justify-content: space-between;
     align-items: center;
-  }
-
-  .essay-char-count {
-    font-size: 10.5px;
-    color: #64748b;
-  }
-
-  .essay-buttons-group {
-    display: flex;
     gap: 8px;
   }
 
-  .btn-insert {
-    background: #10b981;
-    color: #ffffff;
-    border: none;
+  .essay-char-count { font-size: 11.5px; color: var(--muted); }
+  .essay-char-count.over { color: var(--danger-text); font-weight: 600; }
+
+  .essay-buttons-group { display: flex; gap: 6px; }
+
+  .btn-generate,
+  .btn-insert,
+  .btn-cancel {
     border-radius: 6px;
-    padding: 6px 14px;
-    font-size: 11.5px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s ease;
+    white-space: nowrap;
   }
 
-  .btn-insert:hover:not(:disabled) {
-    background: #059669;
+  .btn-insert {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: 1px solid var(--accent);
   }
 
-  .btn-insert:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  .btn-insert:hover:not(:disabled) { background: var(--accent-hover); }
 
+  .btn-generate,
   .btn-cancel {
-    background: transparent;
-    color: #94a3b8;
-    border: 1px solid #475569;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 11px;
-    cursor: pointer;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
   }
 
-  .btn-cancel:hover {
-    color: #f8fafc;
-    background: #1e293b;
-  }
+  .btn-generate:hover:not(:disabled),
+  .btn-cancel:hover { background: var(--surface-2); }
+
+  .btn-generate:disabled,
+  .btn-insert:disabled { opacity: 0.55; cursor: not-allowed; }
 `;
+
+/** A question's text without the required-field marks pages add ("*", "(required)"). */
+function cleanQuestionLabel(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\*+\s*$/, '')
+    .replace(/\s*\((?:required|optional)\)\s*$/i, '')
+    .trim();
+}
 
 /**
  * Safely inserts simulated text input into either a standard input/textarea or a rich text element.
@@ -474,18 +413,32 @@ function inspectTargetField(el: HTMLElement, profile: CandidateProfile | null): 
   const placeholderAttr = (el.getAttribute('placeholder') || '').toLowerCase();
   const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
 
-  let parentLabel = '';
+  // The label as the page writes it. It used to be lowercased before being sent as the
+  // question, so "What attracted you to Northwind?" reached the drafter as
+  // "what attracted you to northwind?*" and the company in it was missed.
+  let rawLabel = '';
   if (el.id) {
     try {
       const labelEl = el.ownerDocument.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (labelEl) parentLabel = (labelEl.textContent || '').toLowerCase();
+      if (labelEl) rawLabel = labelEl.textContent || '';
     } catch {
       // Ignore invalid selector edge cases
     }
   }
-  if (!parentLabel && el.closest('label')) {
-    parentLabel = (el.closest('label')?.textContent || '').toLowerCase();
+  if (!rawLabel && el.closest('label')) {
+    rawLabel = el.closest('label')?.textContent || '';
   }
+  if (!rawLabel) {
+    const labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      rawLabel = labelledBy
+        .split(/\s+/)
+        .map((id) => el.ownerDocument.getElementById(id)?.textContent || '')
+        .join(' ');
+    }
+  }
+  rawLabel = cleanQuestionLabel(rawLabel);
+  const parentLabel = rawLabel.toLowerCase();
 
   const combined = `${nameAttr} ${idAttr} ${placeholderAttr} ${ariaLabel} ${parentLabel}`.trim();
 
@@ -495,7 +448,7 @@ function inspectTargetField(el: HTMLElement, profile: CandidateProfile | null): 
     if (!isShortInput) {
       return {
         type: 'essay',
-        label: parentLabel || placeholderAttr || ariaLabel || nameAttr || 'Application Question',
+        label: rawLabel || cleanQuestionLabel(el.getAttribute('aria-label') || el.getAttribute('placeholder') || '') || 'Application question',
       };
     }
   }
@@ -544,13 +497,12 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
   const scrollTop = window.scrollY || doc.documentElement.scrollTop || 0;
   const scrollLeft = window.scrollX || doc.documentElement.scrollLeft || 0;
 
-  // Position 6px above the top-left of the target element
-  const top = rect.top + scrollTop - 30;
-  const left = rect.left + scrollLeft;
-
-  fieldPillContainer.style.top = `${Math.max(10, top)}px`;
-  fieldPillContainer.style.left = `${Math.max(10, left)}px`;
+  // Inside the field's top-right corner. Placing it above the field covered the label of
+  // the question (and on dense forms, the field before it).
   fieldPillContainer.style.display = 'flex';
+  fieldPillContainer.style.visibility = 'hidden';
+  fieldPillContainer.style.top = '0px';
+  fieldPillContainer.style.left = '0px';
   fieldPillContainer.classList.remove('filled');
 
   if (info.type === 'standard' && info.suggestedValue) {
@@ -560,13 +512,13 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
       e.preventDefault();
       applyTextToElement(target, info.suggestedValue!);
       fieldPillContainer!.classList.add('filled');
-      setFieldPillContent(fieldPillContainer!, '✓ Filled ', info.label);
+      setFieldPillContent(fieldPillContainer!, 'Filled ', info.label);
       setTimeout(() => {
         if (fieldPillContainer) fieldPillContainer.style.display = 'none';
       }, 1500);
     };
   } else if (info.type === 'essay') {
-    setFieldPillContent(fieldPillContainer, 'Draft answer with ApplyKit');
+    setFieldPillContent(fieldPillContainer, 'Draft with ApplyKit');
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -577,13 +529,13 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
     fieldPillContainer.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
-      target.style.outline = '2px dashed #3b82f6';
+      target.style.outline = '2px dashed #1f5d52';
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor' }, () => {});
+        chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor_resume' }, () => {});
       }
 
       fieldPillContainer!.classList.add('filled');
-      setFieldPillContent(fieldPillContainer!, 'Opened tailoring studio');
+      setFieldPillContent(fieldPillContainer!, 'Opened your resume');
       setTimeout(() => {
         if (fieldPillContainer) fieldPillContainer.style.display = 'none';
         target.style.outline = '';
@@ -591,6 +543,16 @@ function positionFieldPill(target: HTMLElement, info: CachedFieldInfo, doc: Docu
       }, 2500);
     };
   }
+
+  // Measure after the text is set, then pin to the field's top-right corner.
+  const pillWidth = fieldPillContainer.offsetWidth || 160;
+  const pillHeight = fieldPillContainer.offsetHeight || 22;
+  const inset = rect.height >= pillHeight + 8 ? 4 : 0;
+  const top = rect.height >= pillHeight + 8 ? rect.top + scrollTop + inset : rect.top + scrollTop - pillHeight - 2;
+  const left = Math.max(rect.left + scrollLeft, rect.right + scrollLeft - pillWidth - inset);
+  fieldPillContainer.style.top = `${Math.max(4, top)}px`;
+  fieldPillContainer.style.left = `${Math.max(4, left)}px`;
+  fieldPillContainer.style.visibility = 'visible';
 }
 
 /**
@@ -610,85 +572,123 @@ function setFieldPillContent(container: HTMLElement, prefix: string, label = '',
   container.append(text);
 }
 
+/** The page's own character limit for a field, when it sets one. */
+function fieldMaxLength(target: HTMLElement): number | undefined {
+  const value = (target as HTMLInputElement | HTMLTextAreaElement).maxLength;
+  return typeof value === 'number' && value > 0 && value < 100_000 ? value : undefined;
+}
+
+let essayKeyListener: ((event: KeyboardEvent) => void) | null = null;
+
 /**
- * Opens the in-page essay assistant popover anchored to an essay question or textarea.
+ * Opens the answer writer under an open question. It drafts from the candidate's resume
+ * through the same checked drafter as the side panel, keeps to the field's character
+ * limit, and only writes into the field when the candidate presses "Use this answer".
  */
 function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, doc: Document): void {
   if (!shadowRoot || !essayPopoverContainer) return;
+  const popover = essayPopoverContainer;
 
   if (fieldPillContainer) fieldPillContainer.style.display = 'none';
 
-  const rect = target.getBoundingClientRect();
-  const scrollTop = window.scrollY || doc.documentElement.scrollTop || 0;
-  const scrollLeft = window.scrollX || doc.documentElement.scrollLeft || 0;
-
-  essayPopoverContainer.style.top = `${rect.bottom + scrollTop + 8}px`;
-  essayPopoverContainer.style.left = `${Math.max(10, rect.left + scrollLeft)}px`;
-  essayPopoverContainer.style.display = 'block';
-
+  const maxLength = fieldMaxLength(target);
   const existingValue = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
     ? target.value
     : (target.textContent || '').trim();
 
-  essayPopoverContainer.innerHTML = `
+  popover.setAttribute('role', 'dialog');
+  popover.setAttribute('aria-label', 'Draft an answer');
+  popover.innerHTML = `
     <div class="essay-header">
-      <span class="essay-title">ApplyKit essay helper</span>
-      <button type="button" class="hub-close-btn" id="btn-popover-close">✕</button>
+      <div>
+        <div class="essay-title">Draft an answer</div>
+        <div class="essay-question-text">${escapeXmlEntities(questionLabel)}</div>
+      </div>
+      <button type="button" class="hub-close-btn" id="btn-popover-close" aria-label="Close">×</button>
     </div>
-    <div class="essay-question-text">"${escapeXmlEntities(questionLabel)}"</div>
-    <div class="essay-notes-group">
-      <label class="essay-notes-label">Your Angle / Key Thought (Optional):</label>
-      <input type="text" class="essay-notes-input" id="essay-user-notes" placeholder="e.g. 'breaking point', 'focus on partition tolerance'..." />
-    </div>
-    <div class="essay-controls-row">
-      <select class="essay-tone-select" id="essay-tone-select">
-        <option value="technical">Senior Technical (Default)</option>
-        <option value="concise">Concise & Direct</option>
-        <option value="star">STAR Method</option>
-        <option value="bullets">Bullet Points</option>
+    <div class="essay-row">
+      <input type="text" class="essay-notes-input" id="essay-user-notes" aria-label="Anything to mention (optional)" placeholder="Anything to mention? (optional)" />
+      <select class="essay-tone-select" id="essay-tone-select" aria-label="Style">
+        <option value="plain">Plain</option>
+        <option value="concise">Shorter</option>
+        <option value="star">A story (STAR)</option>
+        <option value="bullets">Bullet points</option>
       </select>
-      <button type="button" class="btn-generate" id="btn-popover-generate">Generate answer</button>
     </div>
-    <div class="essay-status" id="essay-status-msg">${existingValue ? 'Current field value loaded. Edit directly or click "Generate answer" to re-draft.' : ''}</div>
-    <textarea class="essay-textarea" id="essay-draft-box" placeholder="Grounded answer will appear here...">${escapeXmlEntities(existingValue)}</textarea>
+    <div class="essay-status" id="essay-status-msg" role="status">${existingValue ? 'This is what the field has now. Edit it here, or write a new draft.' : ''}</div>
+    <textarea class="essay-textarea" id="essay-draft-box" aria-label="Your answer" placeholder="Your answer will appear here.">${escapeXmlEntities(existingValue)}</textarea>
     <div class="essay-actions">
-      <span class="essay-char-count" id="essay-char-count">${existingValue.length} characters</span>
+      <span class="essay-char-count" id="essay-char-count"></span>
       <div class="essay-buttons-group">
-        <button type="button" class="btn-cancel" id="btn-popover-cancel">Dismiss</button>
-        <button type="button" class="btn-insert" id="btn-popover-insert" ${existingValue ? '' : 'disabled'}>Insert into Field</button>
+        <button type="button" class="btn-generate" id="btn-popover-generate">${existingValue ? 'Write a draft' : 'Write again'}</button>
+        <button type="button" class="btn-insert" id="btn-popover-insert" disabled>Use this answer</button>
       </div>
     </div>
   `;
 
-  const draftBox = essayPopoverContainer.querySelector<HTMLTextAreaElement>('#essay-draft-box');
-  const userNotesInput = essayPopoverContainer.querySelector<HTMLInputElement>('#essay-user-notes');
-  const toneSelect = essayPopoverContainer.querySelector<HTMLSelectElement>('#essay-tone-select');
-  const generateBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-generate');
-  const statusMsg = essayPopoverContainer.querySelector<HTMLDivElement>('#essay-status-msg');
-  const charCount = essayPopoverContainer.querySelector<HTMLSpanElement>('#essay-char-count');
-  const insertBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-insert');
-  const closeBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-close');
-  const cancelBtn = essayPopoverContainer.querySelector<HTMLButtonElement>('#btn-popover-cancel');
+  // Under the field, kept inside the viewport horizontally; above it when there is no room below.
+  popover.style.display = 'block';
+  popover.style.visibility = 'hidden';
+  const rect = target.getBoundingClientRect();
+  const scrollTop = window.scrollY || doc.documentElement.scrollTop || 0;
+  const scrollLeft = window.scrollX || doc.documentElement.scrollLeft || 0;
+  const width = popover.offsetWidth || 420;
+  const height = popover.offsetHeight || 320;
+  const viewportWidth = doc.documentElement.clientWidth || window.innerWidth;
+  const left = Math.min(Math.max(10, rect.left), Math.max(10, viewportWidth - width - 10)) + scrollLeft;
+  const roomBelow = window.innerHeight - rect.bottom;
+  const top = roomBelow < height + 16 && rect.top > height + 16 ? rect.top + scrollTop - height - 8 : rect.bottom + scrollTop + 8;
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+  popover.style.visibility = 'visible';
 
-  const updateCharCount = () => {
-    if (draftBox && charCount) {
-      charCount.textContent = `${draftBox.value.length} characters`;
-      if (insertBtn) insertBtn.disabled = draftBox.value.trim().length === 0;
-    }
+  const draftBox = popover.querySelector<HTMLTextAreaElement>('#essay-draft-box');
+  const userNotesInput = popover.querySelector<HTMLInputElement>('#essay-user-notes');
+  const toneSelect = popover.querySelector<HTMLSelectElement>('#essay-tone-select');
+  const generateBtn = popover.querySelector<HTMLButtonElement>('#btn-popover-generate');
+  const statusMsg = popover.querySelector<HTMLDivElement>('#essay-status-msg');
+  const charCount = popover.querySelector<HTMLSpanElement>('#essay-char-count');
+  const insertBtn = popover.querySelector<HTMLButtonElement>('#btn-popover-insert');
+  const closeBtn = popover.querySelector<HTMLButtonElement>('#btn-popover-close');
+
+  const setStatus = (text: string, tone: '' | 'error' | 'good' | 'warn' = '') => {
+    if (!statusMsg) return;
+    statusMsg.className = `essay-status${tone ? ` ${tone}` : ''}`;
+    statusMsg.textContent = text;
   };
 
+  const updateCharCount = () => {
+    if (!draftBox || !charCount) return;
+    const length = draftBox.value.length;
+    const over = maxLength !== undefined && length > maxLength;
+    charCount.textContent = maxLength !== undefined ? `${length} / ${maxLength} characters` : `${length} characters`;
+    charCount.classList.toggle('over', over);
+    if (insertBtn) insertBtn.disabled = draftBox.value.trim().length === 0 || over;
+  };
+  updateCharCount();
   draftBox?.addEventListener('input', updateCharCount);
 
   const closePopover = () => {
-    if (essayPopoverContainer) essayPopoverContainer.style.display = 'none';
+    popover.style.display = 'none';
+    if (essayKeyListener) doc.removeEventListener('keydown', essayKeyListener, true);
+    essayKeyListener = null;
+    target.focus({ preventScroll: true });
   };
 
+  if (essayKeyListener) doc.removeEventListener('keydown', essayKeyListener, true);
+  essayKeyListener = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && popover.style.display !== 'none') {
+      event.stopPropagation();
+      closePopover();
+    }
+  };
+  doc.addEventListener('keydown', essayKeyListener, true);
+
   closeBtn?.addEventListener('click', closePopover);
-  cancelBtn?.addEventListener('click', closePopover);
 
   insertBtn?.addEventListener('click', () => {
-    if (draftBox && draftBox.value) {
-      applyTextToElement(target, draftBox.value);
+    if (draftBox && draftBox.value.trim()) {
+      applyTextToElement(target, draftBox.value.trim());
       closePopover();
     }
   });
@@ -696,74 +696,77 @@ function openEssayAssistantPopover(target: HTMLElement, questionLabel: string, d
   const runGeneration = () => {
     if (!generateBtn || !draftBox) return;
     generateBtn.disabled = true;
-    generateBtn.textContent = '⏳ Generating...';
-    if (statusMsg) {
-      statusMsg.className = 'essay-status';
-      statusMsg.textContent = 'Preparing an evidence-backed answer...';
-    }
+    if (insertBtn) insertBtn.disabled = true;
+    generateBtn.textContent = 'Writing...';
+    draftBox.setAttribute('aria-busy', 'true');
+    setStatus('Writing from your resume. This takes a few seconds.');
 
     const notes = userNotesInput?.value.trim() || undefined;
-    const tone = (toneSelect?.value as 'technical' | 'concise' | 'star' | 'bullets') || 'technical';
+    const tone = (toneSelect?.value as 'plain' | 'concise' | 'star' | 'bullets') || 'plain';
 
+    const finish = () => {
+      generateBtn.disabled = false;
+      generateBtn.textContent = 'Write again';
+      draftBox.removeAttribute('aria-busy');
+      updateCharCount();
+    };
+
+    // The drafter may ask the model twice (draft, then a corrected draft), so allow for both.
     const safetyTimeout = setTimeout(() => {
       if (generateBtn.disabled) {
-        generateBtn.disabled = false;
-        generateBtn.textContent = 'Generate answer';
-        if (statusMsg) {
-          statusMsg.className = 'essay-status error';
-          statusMsg.textContent = 'Request timed out. Please verify your connection or AI provider in Settings.';
+        finish();
+        setStatus('That took too long. Check your connection, or the AI key in Settings.', 'error');
+      }
+    }, 120000);
+
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+      clearTimeout(safetyTimeout);
+      finish();
+      return;
+    }
+
+    chrome.runtime.sendMessage(
+      {
+        type: 'ANSWER_AD_HOC_QUESTION',
+        question: questionLabel,
+        tone,
+        userNotes: notes,
+        ...(maxLength !== undefined ? { maxLength } : {}),
+      },
+      (res: AnswerAdHocQuestionResponse) => {
+        clearTimeout(safetyTimeout);
+        if (chrome.runtime.lastError) {
+          finish();
+          setStatus('ApplyKit was reloaded. Refresh this page and try again.', 'error');
+          return;
+        }
+        if (res && res.success && res.answerText) {
+          draftBox.value = res.answerText;
+          finish();
+          setStatus(res.notes || 'Drafted from your resume. Read it, edit anything, then use it.', 'good');
+          draftBox.focus();
+        } else if (res?.draftText) {
+          // Not every line passed the check: show the draft and say what to look at.
+          draftBox.value = res.draftText;
+          finish();
+          const problems = (res.problems ?? []).slice(0, 3).join(' ');
+          setStatus(`Check this before using it. ${problems}`.trim(), 'warn');
+          draftBox.focus();
+        } else {
+          finish();
+          setStatus(res?.error || 'Could not draft an answer. Check your profile, or the AI key in Settings.', 'error');
         }
       }
-    }, 15000);
-
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage(
-        {
-          type: 'ANSWER_AD_HOC_QUESTION',
-          question: questionLabel,
-          tone,
-          userNotes: notes,
-        },
-        (res: AnswerAdHocQuestionResponse) => {
-          clearTimeout(safetyTimeout);
-          generateBtn.disabled = false;
-          generateBtn.textContent = 'Generate answer';
-
-          if (chrome.runtime.lastError) {
-            if (statusMsg) {
-              statusMsg.className = 'essay-status error';
-              statusMsg.textContent = chrome.runtime.lastError.message || 'Background worker error occurred.';
-            }
-            return;
-          }
-
-          if (res && res.success && res.answerText) {
-            draftBox.value = res.answerText;
-            updateCharCount();
-            if (statusMsg) {
-              statusMsg.className = 'essay-status';
-              statusMsg.textContent = res.notes || '✓ Grounded in candidate profile & evidence claims.';
-            }
-          } else {
-            if (statusMsg) {
-              statusMsg.className = 'essay-status error';
-              statusMsg.textContent = res?.error || 'Unable to draft answer. Please check candidate profile or API key in Settings.';
-            }
-          }
-        }
-      );
-    } else {
-      clearTimeout(safetyTimeout);
-      generateBtn.disabled = false;
-      generateBtn.textContent = 'Generate answer';
-    }
+    );
   };
 
   generateBtn?.addEventListener('click', runGeneration);
 
-  // If the target field has no existing value, automatically kick off the initial generation
+  // An empty field means the candidate clicked "Draft" to get one, so start right away.
   if (!existingValue) {
     runGeneration();
+  } else {
+    draftBox?.focus();
   }
 }
 
@@ -803,17 +806,16 @@ export function initInPageHub(doc: Document = document): void {
   floatingHubContainer = doc.createElement('div');
   floatingHubContainer.className = 'applykit-floating-hub';
   floatingHubContainer.innerHTML = `
-    <span class="hub-badge-icon">ApplyKit</span>
-    <span class="hub-label">ApplyKit Ready</span>
-    <button type="button" class="hub-action-btn" id="btn-hub-autofill">Fill safe fields</button>
-    <button type="button" class="hub-close-btn" id="btn-hub-dismiss" title="Dismiss">✕</button>
+    <span class="hub-label">ApplyKit</span>
+    <button type="button" class="hub-action-btn" id="btn-hub-autofill">Fill this form</button>
+    <button type="button" class="hub-close-btn" id="btn-hub-dismiss" title="Dismiss">×</button>
   `;
   shadowRoot.appendChild(floatingHubContainer);
 
   const autofillBtn = floatingHubContainer.querySelector<HTMLButtonElement>('#btn-hub-autofill');
   const dismissBtn = floatingHubContainer.querySelector<HTMLButtonElement>('#btn-hub-dismiss');
 
-  autofillBtn?.addEventListener('click', () => {
+  autofillBtn?.addEventListener('click', async () => {
     if (!autofillBtn) return;
     autofillBtn.disabled = true;
     autofillBtn.textContent = 'Filling...';
@@ -822,18 +824,20 @@ export function initInPageHub(doc: Document = document): void {
       autofillBtn.textContent = text;
       setTimeout(() => {
         autofillBtn.disabled = false;
-        autofillBtn.textContent = 'Fill safe fields';
+        autofillBtn.textContent = 'Fill this form';
       }, 3000);
     };
 
     // Safety timeout: Never leave the button stuck on 'Filling...'
     const safetyTimer = setTimeout(() => {
       if (autofillBtn.disabled && autofillBtn.textContent === 'Filling...') {
-        resetBtn('Check Side Panel');
+        resetBtn('Open ApplyKit');
       }
-    }, 12000);
+    }, 150000); // Drafting open questions with AI can take a while per question.
 
     try {
+      // Tag React dropdowns with their options first, as the side panel scan does.
+      await annotatePageWidgetsOnce();
       const forms = inspectPageForms(doc);
       const activeForm = forms[0];
 
@@ -854,9 +858,9 @@ export function initInPageHub(doc: Document = document): void {
               return;
             }
             if (res && res.success) {
-              resetBtn(`Filled ${res.report?.executedCount || 'Form'} ✓`);
+              resetBtn(`Filled ${res.report?.executedCount ?? 0}. Now check it`);
             } else {
-              resetBtn('Check Side Panel');
+              resetBtn('Open ApplyKit');
             }
           }
         );
@@ -866,7 +870,7 @@ export function initInPageHub(doc: Document = document): void {
       }
     } catch {
       clearTimeout(safetyTimer);
-      resetBtn('Check Side Panel');
+      resetBtn('Open ApplyKit');
     }
   });
 
@@ -888,7 +892,6 @@ export function initInPageHub(doc: Document = document): void {
 
     if (focusHideTimeout) clearTimeout(focusHideTimeout);
 
-    activeTargetElement = target;
     const profile = await fetchCandidateProfile();
     const info = inspectTargetField(target, profile);
 
@@ -920,13 +923,14 @@ export function unmountInPageHub(doc: Document = document): void {
   if (focusOutListener) doc.removeEventListener('focusout', focusOutListener);
   focusInListener = null;
   focusOutListener = null;
+  if (essayKeyListener) doc.removeEventListener('keydown', essayKeyListener, true);
+  essayKeyListener = null;
   const existingHost = doc.getElementById(IN_PAGE_HUB_HOST_ID);
   if (existingHost) {
     existingHost.remove();
   }
   hostElement = null;
   shadowRoot = null;
-  activeTargetElement = null;
   fieldPillContainer = null;
   floatingHubContainer = null;
   essayPopoverContainer = null;

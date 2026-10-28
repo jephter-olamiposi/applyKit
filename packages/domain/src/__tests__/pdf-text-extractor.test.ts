@@ -297,7 +297,8 @@ Rust, Go, Kafka, Kubernetes, Distributed Systems, Linux
     expect(bootstrapped.profile.experiences[0]?.highlights.length).toBe(2);
 
     expect(bootstrapped.profile.education.length).toBe(1);
-    expect(bootstrapped.profile.education[0]?.degree).toBe('B.S. in Computer Engineering');
+    expect(bootstrapped.profile.education[0]?.degree).toBe('B.S.');
+    expect(bootstrapped.profile.education[0]?.fieldOfStudy).toBe('Computer Engineering');
     expect(bootstrapped.profile.education[0]?.institution).toBe('University of Washington');
 
     expect(bootstrapped.evidence.length).toBeGreaterThan(0);
@@ -443,9 +444,11 @@ Federal University of Technology Akure — B.S. in Computer Science | 2021
     expect(tailored.skills.domainCategories!.length).toBeGreaterThan(0);
     const langCat = tailored.skills.domainCategories!.find((c) => c.category === 'Languages');
     expect(langCat?.skills).toContain('Rust');
-    expect(tailored.tailoredSummary).toContain('8 years of experience');
+    // Dated roles run from 2020 to now; the old "8 years" was four roles times two.
+    expect(tailored.tailoredSummary).toMatch(/\b6 years of experience/);
     expect(tailored.tailoredSummary).toContain('85%');
-    expect(tailored.tailoredSummary).not.toContain('CloudScale Inc');
+    // The company appears only in the plain closing line the candidate can turn off.
+    expect(tailored.tailoredSummary).toMatch(/Looking to bring this work to CloudScale Inc\.$/);
 
     const pdfBlob = await generateResumePdfBlob(tailored, bootstrapped.profile);
     expect(pdfBlob.size).toBeGreaterThan(1000);
@@ -511,7 +514,8 @@ Ladoke Akintola University of Technology — BSc, Information Systems
 
     const bootstrapped = await bootstrapProfileFromResume(resumeText, 'jephter.txt');
     expect(bootstrapped.profile.identity.legalFirstName).toBe('Jephter');
-    expect(bootstrapped.profile.identity.legalLastName).toBe('Olamiposi Olaifa');
+    expect(bootstrapped.profile.identity.legalMiddleName).toBe('Olamiposi');
+    expect(bootstrapped.profile.identity.legalLastName).toBe('Olaifa');
     expect(bootstrapped.profile.identity.email).toBe('jephterolaifa@gmail.com');
     expect(bootstrapped.profile.links.portfolio).toBe('https://dev.to/iamjephter');
     expect(bootstrapped.profile.links.github).toBe('https://github.com/jephter-olamiposi');
@@ -583,7 +587,7 @@ Ladoke Akintola University of Technology — BSc, Information Systems
     expect(tailored.skills.domainCategories).toBeDefined();
     const langCat = tailored.skills.domainCategories!.find((c) => c.category === 'Languages');
     expect(langCat?.skills[0]).toBe('Rust'); // Required skill ranked first
-    expect(tailored.tailoredSummary).not.toContain('HyperScale Corp');
+    expect(tailored.tailoredSummary).toMatch(/Looking to bring this work to HyperScale Corp\.$/);
 
     const pdfBlob = await generateResumePdfBlob(tailored, bootstrapped.profile);
     expect(pdfBlob.size).toBeGreaterThan(1000);

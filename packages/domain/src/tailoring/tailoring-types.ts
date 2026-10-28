@@ -130,6 +130,8 @@ export interface TailoredCoverLetter {
   readonly targetJobTitle: string;
   readonly companyName: string;
   readonly candidateName: string;
+  /** Salutation line, e.g. "Dear Northwind Payments team,". Exporters fall back to a generic one. */
+  readonly greeting?: string;
   readonly openingParagraph: string;
   readonly bodyParagraphs: readonly CoverLetterParagraph[];
   readonly closingParagraph: string;
@@ -189,6 +191,7 @@ export type ResumeAuditCheckId =
   | 'template_selected'
   | 'one_page_fit'
   | 'job_keywords'
+  | 'company_named'
   | 'summary_targeting'
   | 'first_item_aligned'
   | 'title_demonstrates_value'
@@ -199,7 +202,9 @@ export type ResumeAuditCheckId =
   | 'impact_measured'
   | 'skills_and_impressive_years'
   | 'impressive_sections'
-  | 'no_typos_grammar';
+  | 'no_typos_grammar'
+  | 'no_placeholders'
+  | 'facts_traceable';
 
 /**
  * Individual checklist evaluation item in the 14-Point Resume Golden Standard.

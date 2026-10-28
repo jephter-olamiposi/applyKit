@@ -450,11 +450,11 @@ export function parsePipelineProfileYaml(
         const dates = (exp.dates || '').split(/\s+-\s+/).map((d: string) => d.trim());
         parsedExperiences.push({
           id: createExperienceId(),
-          company: exp.employer || 'Company',
+          company: exp.employer || '',
           title: exp.title || 'Engineer',
           employmentType: 'full_time',
-          location: exp.location || locData.city || 'Remote',
-          isRemote: exp.remote ?? true,
+          location: exp.location || '',
+          isRemote: exp.remote ?? false,
           startDate: dates[0] || '2020-01',
           endDate: dates[1] && dates[1].toLowerCase() !== 'present' ? dates[1] : undefined,
           isCurrent: !dates[1] || dates[1].toLowerCase() === 'present',
@@ -493,7 +493,7 @@ export function parsePipelineProfileYaml(
         parsedEducation.push({
           id: createEducationId(),
           institution: edu.institution,
-          degree: edu.degree || 'Degree',
+          degree: edu.degree || '',
           fieldOfStudy: edu.field || 'Computer Science',
           endDate: edu.graduation_year,
           isCompleted: true,

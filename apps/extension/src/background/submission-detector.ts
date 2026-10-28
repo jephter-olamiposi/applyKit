@@ -1,5 +1,5 @@
 /**
- * @fileoverview Automated ATS Submission Detector Engine (Phase 20, ADR-0032).
+ * @fileoverview Automated ATS Submission Detector Engine (ADR-0032).
  *
  * Listens for post-submission ATS confirmation URLs and DOM signals to automatically
  * transition in-progress application journeys to 'submitted' without user manual friction:
@@ -139,7 +139,6 @@ export async function processSubmissionDetection(
     };
   }
 
-  const atsType = urlMatch.atsType || detectedAts || 'generic';
   const repository = getApplicationRepository();
   const applications = await repository.listApplications(50);
 

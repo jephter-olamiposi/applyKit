@@ -86,24 +86,29 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
     // Verify encapsulated elements exist inside shadow DOM
     const hub = host?.shadowRoot?.querySelector('.applykit-floating-hub');
     expect(hub).toBeDefined();
-    expect(hub?.textContent).toContain('ApplyKit Ready');
+    expect(hub?.textContent).toContain('ApplyKit');
   });
 
-  it('renders 1-click auto-fill button in floating hub badge', () => {
+  it('renders 1-click auto-fill button in floating hub badge', async () => {
+    const send = (globalThis as any).chrome.runtime.sendMessage as ReturnType<typeof vi.fn>;
+    send.mockImplementation((message: { type: string }, callback?: (res: unknown) => void) => {
+      if (message.type === 'ANNOTATE_PAGE_WIDGETS') callback?.({ type: 'ANNOTATE_PAGE_WIDGETS_RESULT', success: true, annotated: 0 });
+    });
     initInPageHub(document);
 
     const host = document.getElementById(IN_PAGE_HUB_HOST_ID);
     const autofillBtn = host?.shadowRoot?.querySelector('#btn-hub-autofill') as HTMLButtonElement;
 
     expect(autofillBtn).toBeDefined();
-    expect(autofillBtn.textContent).toBe('Fill safe fields');
+    expect(autofillBtn.textContent).toBe('Fill this form');
 
-    // Click auto-fill button
+    // Dropdown options are tagged first, then the fill request goes out.
     autofillBtn.click();
-    expect((globalThis as any).chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'EXECUTE_ONE_CLICK_AUTO_FILL' }),
-      expect.any(Function)
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'EXECUTE_ONE_CLICK_AUTO_FILL' }), expect.any(Function))
     );
+    const types = send.mock.calls.map((call) => (call[0] as { type: string }).type);
+    expect(types.indexOf('ANNOTATE_PAGE_WIDGETS')).toBeLessThan(types.indexOf('EXECUTE_ONE_CLICK_AUTO_FILL'));
   });
 
   it('detects focus on standard email field and presents fill pill', async () => {
@@ -152,7 +157,7 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
 
     expect(pill).toBeDefined();
     expect(pill.style.display).toBe('flex');
-    expect(pill.textContent).toContain('Draft answer with ApplyKit');
+    expect(pill.textContent).toContain('Draft with ApplyKit');
   });
 
   it('strictly ignores submit buttons and password fields (Submission Hard Gate)', async () => {
@@ -194,7 +199,7 @@ describe('In-Page Floating Assistant Hub (Phase 17)', () => {
 
     pill.click();
     expect((globalThis as any).chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor' }),
+      expect.objectContaining({ type: 'OPEN_SIDEPANEL_TAB', tab: 'tailor_resume' }),
       expect.any(Function)
     );
   });

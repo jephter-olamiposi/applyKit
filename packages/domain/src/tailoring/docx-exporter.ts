@@ -22,6 +22,7 @@ import {
 } from 'docx';
 import type { CandidateProfile } from '../candidate/profile.js';
 import { getPreferredOrLegalName } from '../candidate/identity.js';
+import { formatDegree, joinPresent, formatMonthYear, formatDateSpan, formatPlace } from './display-format.js';
 import type {
   TailoredResume,
   TailoredCoverLetter,
@@ -171,39 +172,46 @@ function resolveDocxTheme(templateId?: ResumeTemplateId): DocxThemeConfig {
  * Formats an ISO 8601 date string into a clean "Mon YYYY" format for resume milestones.
  */
 function formatDate(isoString?: string): string {
-  if (!isoString) return '';
-  try {
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return isoString;
-    return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-  } catch {
-    return isoString;
-  }
+  return formatMonthYear(isoString);
 }
 
 /**
- * Generates the standardized resume filename following SKILL.md conventions: Firstname_Lastname_Resume.docx.
- *
- * @param profile Verified candidate profile.
- * @param format Document extension ('docx' | 'pdf' | 'md' | 'txt').
- * @returns Filename string without spaces or illegal filesystem characters.
+ * The candidate's name for a filename. A full preferred name ("Jeff Olaifa") wins; a
+ * one-word preferred name ("Jephter") would drop the surname, so legal first and last
+ * name are used instead.
+ */
+function filenameStem(profile?: CandidateProfile | null): string {
+  if (!profile) return '';
+  const clean = (part?: string) => (part ?? '').normalize('NFKD').replace(/[^\w\s-]+/g, '').trim().replace(/\s+/g, '_');
+  const preferred = clean(profile.identity.preferredName);
+  if (preferred.includes('_')) return preferred;
+  return [clean(profile.identity.legalFirstName), clean(profile.identity.legalLastName)].filter(Boolean).join('_');
+}
+
+/**
+ * Resume filename per the pipeline spec: the candidate's name and nothing else
+ * ("Jephter_Olaifa_Resume.pdf"). The job goes in the folder name; see
+ * {@link getApplicationFolderName}.
  */
 export function getStandardResumeFilename(
   profile?: CandidateProfile | null,
   format: 'docx' | 'pdf' | 'md' | 'txt' = 'docx'
 ): string {
-  if (profile) {
-    const preferred = profile.identity.preferredName;
-    if (preferred) {
-      const clean = preferred.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
-      if (clean) return `${clean}_Resume.${format}`;
-    }
-    const first = profile.identity.legalFirstName?.trim().replace(/[^a-zA-Z0-9]/g, '') || '';
-    const last = profile.identity.legalLastName?.trim().replace(/[^a-zA-Z0-9]/g, '') || '';
-    if (first && last) return `${first}_${last}_Resume.${format}`;
-    if (first || last) return `${first || last}_Resume.${format}`;
-  }
-  return `Resume.${format}`;
+  const stem = filenameStem(profile);
+  return `${stem ? `${stem}_` : ''}Resume.${format}`;
+}
+
+/**
+ * Folder for one application's files, relative to Downloads: "ApplyKit/Monzo - Senior
+ * Backend Engineer". Every tailored resume shares the same filename by design, so the
+ * folder is what keeps one job's files from overwriting another's.
+ */
+export function getApplicationFolderName(companyName?: string, jobTitle?: string): string {
+  const clean = (text?: string) =>
+    (text ?? '').normalize('NFKD').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60).replace(/[. ]+$/, '');
+  const company = /^unknown company$/i.test((companyName ?? '').trim()) ? '' : clean(companyName);
+  const label = [company, clean(jobTitle)].filter(Boolean).join(' - ');
+  return label ? `ApplyKit/${label}` : 'ApplyKit';
 }
 
 /**
@@ -255,9 +263,7 @@ function buildResumeDocxDocument(
   if (profile?.identity.email) contactItems.push(profile.identity.email);
   if (profile?.identity.phone) contactItems.push(profile.identity.phone);
   if (profile?.identity.location) {
-    const loc = [profile.identity.location.city, profile.identity.location.stateOrProvince, profile.identity.location.country]
-      .filter(Boolean)
-      .join(', ');
+    const loc = formatPlace([profile.identity.location.city, profile.identity.location.stateOrProvince, profile.identity.location.country]);
     if (loc) contactItems.push(loc);
   }
 
@@ -441,8 +447,7 @@ function buildResumeDocxDocument(
 
     for (const exp of experiencesToRender) {
       const profileExp = profile?.experiences.find((pe) => pe.id === exp.experienceId);
-      const locString = profileExp?.location ? ` • ${profileExp.location}` : '';
-      const dateRange = `${formatDate(exp.startDate)} – ${exp.isCurrent ? 'Present' : formatDate(exp.endDate)}`;
+      const dateRange = formatDateSpan(exp.startDate, exp.endDate, exp.isCurrent);
       const bullets = isOnePage ? exp.rankedHighlights.slice(0, 3) : exp.rankedHighlights;
 
       // Experience Heading with Right-Aligned Tab Stop
@@ -459,7 +464,7 @@ function buildResumeDocxDocument(
               color: theme.primaryColor,
             }),
             new TextRun({
-              text: ` — ${exp.company}${locString}`,
+              text: joinPresent([exp.company, profileExp?.location]) ? ` | ${joinPresent([exp.company, profileExp?.location], ' | ')}` : '',
               size: theme.bodySize,
               font: theme.font,
               color: theme.textDark,
@@ -562,7 +567,7 @@ function buildResumeDocxDocument(
     children.push(createSectionHeading('Education', theme));
 
     for (const edu of profile.education) {
-      const dateString = edu.endDate ? formatDate(edu.endDate) : '';
+      const dateString = edu.endDate ? edu.endDate.slice(0, 4) : '';
       const honorsString = edu.honors && edu.honors.length > 0 ? ` • Honors: ${edu.honors.join(', ')}` : '';
 
       children.push(
@@ -571,7 +576,7 @@ function buildResumeDocxDocument(
           spacing: { before: 60, after: 20 },
           children: [
             new TextRun({
-              text: `${edu.degree} in ${edu.fieldOfStudy}${edu.gpa ? ` (GPA: ${edu.gpa})` : ''}`,
+              text: `${formatDegree(edu)}${edu.gpa ? ` (GPA: ${edu.gpa})` : ''}`,
               bold: true,
               size: theme.bodySize,
               font: theme.font,
@@ -684,7 +689,7 @@ function buildCoverLetterDocxDocument(letter: TailoredCoverLetter, profile?: Can
   if (profile?.identity.email) contactItems.push(profile.identity.email);
   if (profile?.identity.phone) contactItems.push(profile.identity.phone);
   if (profile?.identity.location) {
-    const loc = [profile.identity.location.city, profile.identity.location.country].filter(Boolean).join(', ');
+    const loc = formatPlace([profile.identity.location.city, profile.identity.location.country]);
     if (loc) contactItems.push(loc);
   }
 
@@ -741,7 +746,7 @@ function buildCoverLetterDocxDocument(letter: TailoredCoverLetter, profile?: Can
       spacing: { before: 0, after: 90 },
       children: [
         new TextRun({
-          text: 'Dear Hiring Team,',
+          text: letter.greeting || 'Dear Hiring Team,',
           bold: true,
           size: theme.bodySize,
           font: theme.font,
@@ -787,14 +792,18 @@ function buildCoverLetterDocxDocument(letter: TailoredCoverLetter, profile?: Can
   children.push(
     new Paragraph({
       spacing: { before: 0, after: 140 },
-      children: [
-        new TextRun({
-          text: letter.closingParagraph,
-          size: theme.bodySize,
-          font: theme.font,
-          color: theme.textDark,
-        }),
-      ],
+      // Word ignores "\n" inside a run, so the sign-off used to run on one line:
+      // "Thanks for reading. Best, Jephter". Each line gets its own break instead.
+      children: letter.closingParagraph.split('\n').map(
+        (line, index) =>
+          new TextRun({
+            text: line,
+            break: index > 0 ? 1 : 0,
+            size: theme.bodySize,
+            font: theme.font,
+            color: theme.textDark,
+          })
+      ),
     })
   );
 
@@ -850,26 +859,11 @@ export async function generateCoverLetterDocxBlob(
 }
 
 /**
- * Computes standard enterprise ATS-compliant filename for candidate cover letters.
- * Format: Firstname_Lastname_Cover_Letter.{ext} (e.g. Jephter_Olaifa_Cover_Letter.docx).
- *
- * @param profile Candidate profile with identity.
- * @param extension File extension without dot ('docx' | 'pdf' | 'txt').
- * @returns Clean filename string with no role or date clutter.
+ * Cover letter filename in the same shape as the resume's ("Jephter_Olaifa_Cover_Letter.pdf").
  */
 export function getStandardCoverLetterFilename(
   profile?: CandidateProfile | null,
   extension: 'docx' | 'pdf' | 'txt' = 'docx'
 ): string {
-  if (!profile) {
-    return `Candidate_Cover_Letter.${extension}`;
-  }
-  const preferred = getPreferredOrLegalName(profile.identity);
-  const cleanName = preferred
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '_');
-  return cleanName.length > 0
-    ? `${cleanName}_Cover_Letter.${extension}`
-    : `Candidate_Cover_Letter.${extension}`;
+  return `${filenameStem(profile) || 'Candidate'}_Cover_Letter.${extension}`;
 }

@@ -53,6 +53,18 @@ describe('Download Manager Test Suite', () => {
       expect(callArgs.url).toContain('data:application/pdf;base64,');
       expect(callArgs.saveAs).toBe(false);
     });
+
+    it('saves into the application folder and never lets a name climb out of Downloads', async () => {
+      const mockDownload = vi.fn((_opts, cb) => cb(1));
+      (globalThis as any).chrome = { downloads: { download: mockDownload } };
+      const blob = new Blob(['x'], { type: 'application/pdf' });
+
+      await downloadBlob(blob, 'Jephter_Olaifa_Resume.pdf', 'ApplyKit/Monzo - Senior Backend Engineer');
+      expect(mockDownload.mock.calls[0]?.[0].filename).toBe('ApplyKit/Monzo - Senior Backend Engineer/Jephter_Olaifa_Resume.pdf');
+
+      await downloadBlob(blob, 'Resume.pdf', 'ApplyKit/../../C:\\Windows/..');
+      expect(mockDownload.mock.calls[1]?.[0].filename).toBe('ApplyKit/C Windows/Resume.pdf');
+    });
   });
 
   describe('downloadBlob with DOM fallback', () => {

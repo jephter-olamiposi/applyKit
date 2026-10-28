@@ -17,7 +17,6 @@ import {
 } from '../index.js';
 import type {
   Requirement,
-  Evidence,
   CandidateClaim,
   CandidateProfile,
 } from '../index.js';
@@ -329,7 +328,7 @@ describe('Requirement Matching & Gap Analysis Engine', () => {
       );
       expect(unbackedGap).toBeDefined();
       expect(unbackedGap?.severity).toBe('moderate');
-      expect(unbackedGap?.explanation).toContain('lacks linked resume or document evidence');
+      expect(unbackedGap?.explanation).toContain('no bullet shows you using it');
     });
   });
 

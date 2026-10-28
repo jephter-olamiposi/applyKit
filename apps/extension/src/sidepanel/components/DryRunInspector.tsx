@@ -1,14 +1,12 @@
 /**
- * @fileoverview Dry Run Plan Inspector for Side Panel UI.
+ * @fileoverview "Check each field": the field-by-field review list for a planned fill.
  *
- * Implements candidate review interface for planned browser actions (ADR-0003, ADR-0006):
- * - Displays before/after diffs comparing DOM input state with candidate profile values.
- * - Risk stratification badges (Low, Medium, High).
- * - Human-in-the-loop approval toggles for high-risk and sensitive compliance questions.
- * - Inline edit overrides permitting candidates to alter proposed values prior to execution.
- * - Anti-Autonomous Submit Gate assurance confirming submit buttons are blocked.
+ * Each planned answer can be ticked, edited, filled on its own, or skipped (ADR-0003).
+ * Legal and demographic questions are never pre-ticked, and nothing here can press the
+ * page's Submit button (ADR-0006).
  */
 
+import { NextStep } from './NextStep.js';
 import React, { useState, useEffect, useCallback } from 'react';
 import type { DryRunPlan, DryRunAction, ActionId, ExecutionReport } from '@applykit/domain';
 import { sendToBackground } from '../../messages/bridge.js';
@@ -39,14 +37,13 @@ import type {
   ExecuteSelectiveActionResponse,
 } from '../../messages/contracts.js';
 import type { TabId } from './NavigationTabs.js';
-import { InstantQuestionSolver } from './InstantQuestionSolver.js';
 
 interface DryRunInspectorProps {
   onNavigateToTab?: (tab: TabId) => void;
   onPlanUpdated?: (plan: DryRunPlan) => void;
 }
 
-type ActionFilter = 'all' | 'unconfirmed' | 'high_risk' | 'medium_risk' | 'skipped';
+type ActionFilter = 'all' | 'unconfirmed';
 
 /**
  * Dry Run Plan Inspector component rendering interactive action diffs and approval gates.
@@ -125,13 +122,13 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       if (res && res.success) {
         setFeedbackNotice(
           nextState
-            ? `In-page preview overlay active: ${res.count ?? 0} field badge(s) displayed on webpage.`
+            ? `Labelled ${res.count ?? 0} field${res.count === 1 ? '' : 's'} on the page.`
             : 'In-page preview badges removed from webpage.'
         );
         setTimeout(() => setFeedbackNotice(null), 3000);
       }
     } catch (err) {
-      setFeedbackNotice(`Overlay error: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't label the page: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -150,23 +147,23 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
         if (onPlanUpdated) onPlanUpdated(res.plan);
 
         if (mode === 'low_risk_only') {
-          setFeedbackNotice('All low-risk fields approved. High-risk fields require individual confirmation.');
+          setFeedbackNotice('Ticked the simple fields. Legal questions still need your tick.');
         } else if (mode === 'all') {
-          setFeedbackNotice('All proposed actions approved.');
+          setFeedbackNotice('Everything is ticked.');
         } else {
-          setFeedbackNotice('Approvals reset to initial safety thresholds.');
+          setFeedbackNotice('Unticked everything.');
         }
         setTimeout(() => setFeedbackNotice(null), 3000);
       }
     } catch (err) {
-      setFeedbackNotice(`Batch approval failed: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't update the ticks: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleAnswerCustomFields = async () => {
     if (!plan) return;
     try {
-      setFeedbackNotice('Generating AI answers for open-ended questions...');
+      setFeedbackNotice('Drafting answers from your resume...');
       // Fetch the form from background storage
       const formRes = await sendToBackground<
         GetActiveFormRequest,
@@ -176,7 +173,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       });
 
       if (!formRes || !formRes.form) {
-        setFeedbackNotice('No active form found. Please inspect the form first.');
+        setFeedbackNotice('Scan the form first.');
         return;
       }
 
@@ -193,14 +190,14 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
         setPlan(res.plan);
         if (onPlanUpdated) onPlanUpdated(res.plan);
         setFeedbackNotice(
-          `AI answers generated for open-ended questions. ${res.plan.actions.filter(a => a.sourceEvidenceTitle?.startsWith('AI Proposal')).length} field(s) staged for review.`
+          `Drafted ${res.plan.actions.filter(a => a.sourceEvidenceTitle?.startsWith('AI Proposal')).length} answer(s). Read them before ticking.`
         );
         setTimeout(() => setFeedbackNotice(null), 4000);
       } else {
-        setFeedbackNotice(`AI answering failed: ${res.error || 'Unknown error'}`);
+        setFeedbackNotice(`Couldn't draft answers: ${res.error || 'no AI key is set up in Settings.'}`);
       }
     } catch (err) {
-      setFeedbackNotice(`AI answering error: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't draft answers: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -220,7 +217,7 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
         if (onPlanUpdated) onPlanUpdated(res.plan);
       }
     } catch (err) {
-      setFeedbackNotice(`Failed to update approval: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't update that tick: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -244,11 +241,11 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
         setPlan(res.plan);
         if (onPlanUpdated) onPlanUpdated(res.plan);
         setEditingActionId(null);
-        setFeedbackNotice('Planned value updated and confirmed.');
+        setFeedbackNotice('Saved and ticked.');
         setTimeout(() => setFeedbackNotice(null), 3000);
       }
     } catch (err) {
-      setFeedbackNotice(`Failed to save edit: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't save: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -265,11 +262,11 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       if (res.success && res.plan) {
         setPlan(res.plan);
         if (onPlanUpdated) onPlanUpdated(res.plan);
-        setFeedbackNotice('Action excluded from execution plan.');
+        setFeedbackNotice('Skipped.');
         setTimeout(() => setFeedbackNotice(null), 3000);
       }
     } catch (err) {
-      setFeedbackNotice(`Failed to exclude action: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't skip it: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -286,13 +283,13 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
       });
 
       if (res.success && res.report) {
-        setFeedbackNotice(`Single field filled safely (${res.report.durationMs}ms).`);
+        setFeedbackNotice('Filled.');
         setTimeout(() => setFeedbackNotice(null), 3000);
       } else {
-        setFeedbackNotice(`Field execution error: ${res.error || 'Failed to fill field.'}`);
+        setFeedbackNotice(`Couldn't fill it: ${res.error || 'the field may have moved on the page.'}`);
       }
     } catch (err) {
-      setFeedbackNotice(`Field fill failed: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't fill it: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setExecutingActionId(null);
     }
@@ -316,599 +313,169 @@ export const DryRunInspector: React.FC<DryRunInspectorProps> = ({
 
       if (res.success && res.report) {
         setExecutionReport(res.report);
-        setFeedbackNotice(
-          `Execution finished: ${res.report.executedCount} action(s) executed safely. Anti-Autonomous Submit Gate reached.`
-        );
+        setFeedbackNotice(null);
       } else {
-        setFeedbackNotice(`Execution failed: ${res.error || 'Unknown execution error.'}`);
+        setFeedbackNotice(`Couldn't fill the form: ${res.error || 'try scanning it again.'}`);
       }
     } catch (err) {
-      setFeedbackNotice(`Execution request failed: ${err instanceof Error ? err.message : String(err)}`);
+      setFeedbackNotice(`Couldn't fill the form: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsExecuting(false);
     }
   };
 
-  const handleAutoApproveAndExecuteAll = async () => {
-    if (!plan) return;
-    try {
-      setIsExecuting(true);
-      setFeedbackNotice('Approved actions are being executed in sequence...');
 
-      const approveRes = await sendToBackground<
-        BatchApprovePlanActionsRequest,
-        BatchApprovePlanActionsResponse
-      >({
-        type: 'BATCH_APPROVE_PLAN_ACTIONS',
-        mode: 'all',
-      });
-
-      if (!approveRes.success || !approveRes.plan) {
-        throw new Error(approveRes.error || 'Failed to approve actions');
-      }
-      setPlan(approveRes.plan);
-      if (onPlanUpdated) onPlanUpdated(approveRes.plan);
-
-      const execRes = await sendToBackground<ExecutePlanRequest, ExecutePlanResponse>({
-        type: 'EXECUTE_PLAN',
-        planId: approveRes.plan.id,
-        options: {
-          pacingDelayMs: 150,
-          highlightElements: true,
-        },
-      });
-
-      if (execRes.success && execRes.report) {
-        setExecutionReport(execRes.report);
-        setFeedbackNotice(
-          `Execution complete: ${execRes.report.executedCount} action(s) executed safely. The process stopped before submission.`
-        );
-      } else {
-        setFeedbackNotice(`Execution failed: ${execRes.error || 'Unknown execution error.'}`);
-      }
-    } catch (err) {
-      setFeedbackNotice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="dry-run-loading">Loading planned actions...</div>;
+  if (loading || !plan) {
+    // Nothing to review until the candidate asks to check fields one by one; the form
+    // panel above owns that action, so no competing empty state is shown here.
+    return null;
   }
-
-  if (!plan) {
-    return (
-      <div className="dry-run-empty-state">
-        <div className="empty-state-icon">&#128203;</div>
-        <h3 className="empty-state-title">No Dry Run Plan Generated</h3>
-        <p className="empty-state-desc">
-          Inspect a job application form first on the <strong>Form</strong> tab, then click &quot;Generate Dry Run Plan&quot; to review proposed actions.
-        </p>
-        {onNavigateToTab && (
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => onNavigateToTab('prepare_application')}
-          >
-            Go to Form Inspector
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  const filteredActions = plan.actions.filter((action) => {
-    if (filter === 'unconfirmed') return !action.userConfirmed;
-    if (filter === 'high_risk') return action.riskLevel === 'high';
-    if (filter === 'medium_risk') return action.riskLevel === 'medium';
-    return true;
-  });
 
   const unconfirmedCount = plan.actions.filter((a) => !a.userConfirmed).length;
-  const mediumRiskCount = plan.actions.filter((a) => a.riskLevel === 'medium').length;
+  const approvedCount = plan.actions.length - unconfirmedCount;
+  const visibleActions = filter === 'unconfirmed' ? plan.actions.filter((a) => !a.userConfirmed) : plan.actions;
 
   return (
-    <div className="dry-run-container">
-      {/* Header */}
-      <div className="dry-run-header">
-        <div>
-          <h2 className="section-title">Dry Run Execution Plan</h2>
-          <p className="section-subtitle">
-            Review and adjust proposed form actions before execution (ADR-0003).
-          </p>
-        </div>
-        <span
-          className={`plan-status-pill ${
-            plan.isApproved ? 'plan-status-approved' : 'plan-status-pending'
-          }`}
-        >
-          {plan.isApproved ? 'All Actions Approved' : `${unconfirmedCount} Require Approval`}
+    <section className="ui-card ui-stack" style={{ gap: 10 }} aria-label="Check each field">
+      <div className="ui-spread">
+        <h2 className="ui-card-title">Check each field</h2>
+        <span className="ui-subtle">
+          {approvedCount} of {plan.actions.length} ready
         </span>
       </div>
+      <p className="ui-subtle">
+        Tick the answers you're happy with, edit any that are off, and skip the rest. Questions about work permits,
+        visas or demographics always need your tick.
+      </p>
 
-      {feedbackNotice && (
-        <div className="alert-feedback" role="alert">
-          <span>{feedbackNotice}</span>
-        </div>
-      )}
+      {feedbackNotice && <div className="ui-note" role="status">{feedbackNotice}</div>}
 
-      {/* 1-Click Fill Hero Banner */}
-      <div className="one-click-autofill-banner">
-        <div className="autofill-banner-text">
-          <span className="autofill-banner-title">Fill approved fields</span>
-          <span className="autofill-banner-sub">
-            Batch-approves all safe actions and fills them sequentially into the webpage. Halts strictly at submission gate.
-          </span>
-        </div>
-        <button
-          type="button"
-          className="btn-one-click-autofill"
-          disabled={isExecuting || plan.actions.length === 0}
-          onClick={handleAutoApproveAndExecuteAll}
-        >
-          {isExecuting ? 'Filling approved fields...' : 'Fill approved fields'}
-        </button>
-      </div>
-
-      {/* Instant Question Solver */}
-      <InstantQuestionSolver className="dry-run-instant-solver" />
-
-      {/* Execution Report Card */}
       {executionReport && (
-        <div className="execution-report-card">
-          <div className="execution-report-header">
-            <span className="report-badge report-badge-success">&#10003; EXECUTION COMPLETED</span>
-            <span className="report-duration">{executionReport.durationMs}ms</span>
-          </div>
-          <div className="execution-metrics-grid">
-            <div className="report-metric">
-              <span className="report-metric-num">{executionReport.executedCount}</span>
-              <span className="report-metric-label">Fields Filled</span>
-            </div>
-            <div className="report-metric">
-              <span className="report-metric-num">{executionReport.failedCount}</span>
-              <span className="report-metric-label">Failures</span>
-            </div>
-            <div className="report-metric">
-              <span className="report-metric-num">{executionReport.totalPlanned}</span>
-              <span className="report-metric-label">Planned</span>
-            </div>
-          </div>
-
-          <div className="execution-gate-alert">
-            <div className="gate-alert-icon">&#128737;</div>
-            <div className="gate-alert-text">
-              <strong>Anti-Autonomous Submit Gate Reached</strong>
-              <p>
-                All approved candidate information has been filled into the form. In accordance
-                with safety invariants (ADR-0006), ApplyKit has halted before the submission button.
-                Please review the filled page and submit manually.
-              </p>
-            </div>
-          </div>
-
-          {executionReport.failedActions.length > 0 && (
-            <div className="execution-failures-list">
-              <h4 className="failures-title">Failed Actions ({executionReport.failedActions.length})</h4>
-              {executionReport.failedActions.map((fail) => (
-                <div key={fail.actionId} className="failure-item">
-                  <code className="failure-selector">{fail.selector}</code>
-                  <span className="failure-reason">{fail.error}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {onNavigateToTab && (
-            <div className="pipeline-next-step-card" style={{ marginTop: '12px' }}>
-              <div className="next-step-info">
-                <span className="next-step-title">Form Actions Executed</span>
-                <span className="next-step-desc">
-                  Review the page and submit manually, then track this application.
-                </span>
-              </div>
-              <button
-                type="button"
-                className="btn-primary btn-next-step"
-                onClick={() => onNavigateToTab('track')}
-              >
-                Next Step: Application Tracker &rarr;
-              </button>
-            </div>
-          )}
+        <div className={`ui-note ${executionReport.failedCount > 0 ? 'ui-note-warn' : 'ui-note-good'}`} role="status">
+          Filled {executionReport.executedCount} of {executionReport.totalPlanned}.
+          {executionReport.failedCount > 0 ? ` ${executionReport.failedCount} could not be filled, so fill those by hand.` : ''} Check
+          the form, then press Submit on the page yourself.
         </div>
       )}
+      {executionReport && onNavigateToTab && (
+        <NextStep
+          title="Press Submit on the page, then log it"
+          hint="Mark it in the Tracker once it's sent, so follow-ups and interviews stay in one place."
+          actionLabel="Log it in the Tracker"
+          onAction={() => onNavigateToTab('track')}
+        />
+      )}
 
-      {/* Plan Summary Card */}
-      <div className="plan-summary-card">
-        <div className="plan-meta-grid">
-          <div className="meta-col">
-            <span className="meta-label">ATS Vendor</span>
-            <span className="meta-badge ats-badge">{plan.detectedAts.toUpperCase()}</span>
-          </div>
-          <div className="meta-col">
-            <span className="meta-label">Total Actions</span>
-            <span className="meta-value">{plan.actions.length}</span>
-          </div>
-          <div className="meta-col">
-            <span className="meta-label">Low Risk</span>
-            <span className="meta-value risk-low-text">{plan.stats.lowRiskCount}</span>
-          </div>
-          <div className="meta-col">
-            <span className="meta-label">Medium Risk</span>
-            <span className="meta-value risk-medium-text">{plan.stats.mediumRiskCount}</span>
-          </div>
-          <div className="meta-col">
-            <span className="meta-label">High Risk</span>
-            <span className="meta-value risk-high-text">{plan.stats.highRiskCount}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Anti-Autonomous Submit Gate Banner (ADR-0006) */}
-      <div className="submit-gate-card">
-        <div className="gate-icon">&#128737;</div>
-        <div className="gate-content">
-          <div className="gate-header">
-            <h3 className="gate-title">Anti-Autonomous Submit Gate: Active</h3>
-            <span className="gate-status-pill">100% Protected</span>
-          </div>
-          <p className="gate-description">
-            Zero submit buttons will be clicked automatically. Execution automatically stops
-            prior to final submission, leaving the final decision exclusively with you.
-          </p>
-          {plan.submitButtonSelector && (
-            <div className="gate-target">
-              <span className="gate-target-label">Protected Submit Button:</span>
-              <code className="gate-target-selector">{plan.submitButtonSelector}</code>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Batch Actions & In-Page Overlay Toolbar (ADR-0017) */}
-      <div className="batch-actions-bar">
-        <div className="batch-btn-group">
-          <button
-            type="button"
-            className="btn-batch btn-batch-low-risk"
-            onClick={() => handleBatchApprove('low_risk_only')}
-            title="Approve all low-risk contact and identity fields"
-          >
-            Approve Low-Risk ({plan.stats.lowRiskCount})
-          </button>
-          <button
-            type="button"
-            className="btn-batch btn-batch-all"
-            onClick={() => handleBatchApprove('all')}
-            title="Approve all fields including high-risk disclosures"
-          >
-            Approve All
-          </button>
-          <button
-            type="button"
-            className="btn-batch btn-batch-reset"
-            onClick={() => handleBatchApprove('reset')}
-            title="Reset approvals back to initial safety requirements"
-          >
-            Reset
-          </button>
-          <button
-            type="button"
-            className="btn-batch btn-batch-ai-answer"
-            onClick={handleAnswerCustomFields}
-            title="Generate AI answers for open-ended custom questions (ADR-0022)"
-            disabled={plan.actions.length > 0 && plan.actions.every(a => a.sourceEvidenceTitle?.startsWith('AI Proposal'))}
-          >
-            Answer Custom Fields
-          </button>
-        </div>
-        <button
-          type="button"
-          className={`btn-toggle-overlay ${inPageOverlayActive ? 'overlay-active' : ''}`}
-          onClick={handleToggleInPageOverlay}
-          title="Toggle floating candidate data preview badges on the webpage"
-        >
-          {inPageOverlayActive ? 'Hide In-Page Badges' : 'Show In-Page Badges'}
+      <div className="ui-row">
+        <button type="button" className="ui-btn ui-btn-sm" onClick={() => handleBatchApprove('low_risk_only')}>
+          Tick the simple ones ({plan.stats.lowRiskCount})
+        </button>
+        <button type="button" className="ui-btn ui-btn-sm" onClick={handleAnswerCustomFields}>
+          Draft answers to open questions
+        </button>
+        <button type="button" className="ui-link" onClick={() => setFilter(filter === 'unconfirmed' ? 'all' : 'unconfirmed')}>
+          {filter === 'unconfirmed' ? 'Show all' : `Show only unticked (${unconfirmedCount})`}
         </button>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="plan-filter-bar">
-        <div className="filter-chips">
-          <button
-            type="button"
-            className={`filter-btn ${filter === 'all' ? 'filter-btn-active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
-            All Actions ({plan.actions.length})
-          </button>
-          <button
-            type="button"
-            className={`filter-btn ${filter === 'unconfirmed' ? 'filter-btn-active' : ''}`}
-            onClick={() => setFilter('unconfirmed')}
-          >
-            Needs Approval ({unconfirmedCount})
-          </button>
-          <button
-            type="button"
-            className={`filter-btn ${filter === 'high_risk' ? 'filter-btn-active' : ''}`}
-            onClick={() => setFilter('high_risk')}
-          >
-            High Risk ({plan.stats.highRiskCount})
-          </button>
-          <button
-            type="button"
-            className={`filter-btn ${filter === 'medium_risk' ? 'filter-btn-active' : ''}`}
-            onClick={() => setFilter('medium_risk')}
-          >
-            Medium Risk ({mediumRiskCount})
-          </button>
-          <button
-            type="button"
-            className={`filter-btn ${filter === 'skipped' ? 'filter-btn-active' : ''}`}
-            onClick={() => setFilter('skipped')}
-          >
-            Skipped ({plan.skippedFields.length})
-          </button>
-        </div>
-      </div>
+      <ul className="ui-list">
+        {visibleActions.map((action) => {
+          const isEditing = editingActionId === action.id;
+          const drafted = action.sourceEvidenceTitle?.startsWith('AI Proposal');
+          return (
+            <li
+              key={action.id}
+              onMouseEnter={() => handleHighlightField(action.action.selector, action.action.description)}
+              onMouseLeave={handleClearHighlight}
+            >
+              <label className="ui-row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={action.userConfirmed}
+                  onChange={() => handleToggleApproval(action.id, action.userConfirmed)}
+                  style={{ marginTop: 3 }}
+                />
+                <span style={{ flex: 1 }}>
+                  <span style={{ color: 'var(--text)' }}>{action.fieldLabel || action.action.description}</span>
+                  {action.riskLevel === 'high' && <span className="ui-chip ui-chip-warn" style={{ marginLeft: 6 }}>Legal question</span>}
+                  {drafted && <span className="ui-chip" style={{ marginLeft: 6 }}>Drafted from your resume</span>}
+                </span>
+              </label>
 
-      {/* Action Cards or Skipped Fields List */}
-      {filter === 'skipped' ? (
-        <div className="skipped-fields-list">
-          {plan.skippedFields.length === 0 ? (
-            <div className="empty-fields">No fields were skipped.</div>
-          ) : (
-            plan.skippedFields.map((field) => (
-              <div key={field.fieldId} className="skipped-card">
-                <div className="skipped-card-header">
-                  <span className="skipped-label">{field.label || '(Unnamed Field)'}</span>
-                  <span className={`skipped-reason-pill reason-${field.reason}`}>
-                    {field.reason.replace(/_/g, ' ')}
-                  </span>
-                </div>
-                <code className="field-selector-code">{field.selector}</code>
-                <p className="skipped-desc">{field.description}</p>
-              </div>
-            ))
-          )}
-        </div>
-      ) : (
-        <div className="actions-list">
-          {filteredActions.length === 0 ? (
-            <div className="empty-fields">No actions match current filter.</div>
-          ) : (
-            filteredActions.map((action) => {
-              const isEditing = editingActionId === action.id;
-
-              return (
-                <div
-                  key={action.id}
-                  className={`action-diff-card ${
-                    !action.userConfirmed ? 'card-requires-confirmation' : ''
-                  }`}
-                  onMouseEnter={() =>
-                    handleHighlightField(action.action.selector, action.action.description)
-                  }
-                  onMouseLeave={handleClearHighlight}
-                >
-                  <div className="action-card-header">
-                    <div className="action-title-group">
-                      <span className="action-type-tag">{action.action.actionType}</span>
-                      <span className="action-target-label">
-                        {action.action.description}
-                      </span>
-                    </div>
-                    <span
-                      className={`risk-badge risk-${action.riskLevel}`}
-                      title={`Risk Level: ${action.riskLevel}`}
-                    >
-                      {action.riskLevel.toUpperCase()} RISK
-                    </span>
-                  </div>
-
-                  <div className="action-selector-preview">
-                    <code className="field-selector-code">{action.action.selector}</code>
-                  </div>
-
-                  {/* Ground Truth Source Evidence Citation (ADR-0001) */}
-                  {action.sourceEvidenceTitle && (
-                    <div className="action-evidence-citation">
-                      <span className="citation-icon">&#128279;</span>
-                      <span className="citation-text">Grounding: {action.sourceEvidenceTitle}</span>
-                    </div>
-                  )}
-
-                  {/* AI Proposed Badge & Confidence (ADR-0022) */}
-                  {action.sourceEvidenceTitle === 'AI Proposal Grounded in Evidence Graph' && (
-                    <div className="ai-proposed-badge">
-                      <span className="ai-badge-icon">&#129302;</span>
-                      <span className="ai-badge-text">AI Proposed</span>
-                      <span className="ai-confidence">
-                        Confidence: {(action.confidence * 100).toFixed(0)}%
-                      </span>
-                      {action.sourceClaimId && (
-                        <span className="ai-claim-id">
-                          Claim: {action.sourceClaimId.slice(0, 8)}...
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* High-Risk Dedicated Warning Banner */}
-                  {action.riskLevel === 'high' && (
-                    <div className="high-risk-alert-box">
-                      <span className="alert-icon">&#9888;</span>
-                      <span className="alert-text">
-                        <strong>Legal / Demographic Disclosure:</strong> Please carefully verify
-                        this answer before confirming.
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Before / After Diff */}
-                  <div className="diff-container">
-                    <div className="diff-row diff-before">
-                      <span className="diff-tag">CURRENT IN DOM:</span>
-                      <span className="diff-text">
-                        {action.currentValue ? action.currentValue : '(Empty)'}
-                      </span>
-                    </div>
-                    <div className="diff-row diff-after">
-                      <span className="diff-tag">PROPOSED VALUE:</span>
-                      {isEditing ? (
-                        <div className="inline-edit-box">
-                          <input
-                            type="text"
-                            className="inline-edit-input"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            autoFocus
-                          />
-                          <div className="inline-edit-actions">
-                            <button
-                              type="button"
-                              className="btn-edit-save"
-                              onClick={() => handleSaveEdit(action.id)}
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-edit-cancel"
-                              onClick={() => setEditingActionId(null)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="diff-value-display">
-                          <span className="diff-text diff-text-proposed">
-                            {action.candidateValueUsed}
-                          </span>
-                          <button
-                            type="button"
-                            className="btn-link-edit"
-                            onClick={() => handleStartEdit(action)}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <p className="diff-explanation">{action.diffExplanation}</p>
-
-                  {/* Confirmation and Actions Bar */}
-                  <div className="action-footer-bar">
-                    <label className="action-confirm-toggle">
-                      <input
-                        type="checkbox"
-                        checked={action.userConfirmed}
-                        onChange={() =>
-                          handleToggleApproval(action.id, action.userConfirmed)
-                        }
-                      />
-                      <span className="toggle-label">
-                        {action.userConfirmed
-                          ? 'Approved for execution'
-                          : 'Confirm & approve this action'}
-                      </span>
-                    </label>
-
-                    <div className="action-card-btns">
-                      <button
-                        type="button"
-                        className="btn-link-locate"
-                        onClick={() =>
-                          handleHighlightField(
-                            action.action.selector,
-                            action.action.description
-                          )
-                        }
-                        title="Locate and focus this field on the live webpage"
-                      >
-                        Locate
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-link-fill-single"
-                        disabled={executingActionId === action.id || isExecuting}
-                        onClick={() => handleExecuteSingleAction(action.id)}
-                        title="Fill only this specific field on the active webpage"
-                      >
-                        {executingActionId === action.id ? 'Filling...' : 'Fill Field'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-link-exclude"
-                        onClick={() => handleExcludeAction(action.id)}
-                        title="Skip this field from automated filling"
-                      >
-                        Skip
-                      </button>
-                    </div>
+              {isEditing ? (
+                <div className="ui-stack" style={{ gap: 6, marginTop: 6, marginLeft: 22 }}>
+                  <textarea className="ui-textarea" value={editValue} onChange={(e) => setEditValue(e.target.value)} autoFocus />
+                  <div className="ui-row">
+                    <button type="button" className="ui-btn ui-btn-sm ui-btn-primary" onClick={() => handleSaveEdit(action.id)}>
+                      Save
+                    </button>
+                    <button type="button" className="ui-btn ui-btn-sm" onClick={() => setEditingActionId(null)}>
+                      Cancel
+                    </button>
                   </div>
                 </div>
-              );
-            })
-          )}
-        </div>
+              ) : (
+                <p className="ui-text" style={{ marginLeft: 22, marginTop: 2 }}>
+                  {action.candidateValueUsed || <span className="ui-subtle">Nothing yet</span>}
+                </p>
+              )}
+
+              {!isEditing && (
+                <div className="ui-row" style={{ marginLeft: 22, marginTop: 4, gap: 12 }}>
+                  <button type="button" className="ui-link" onClick={() => handleStartEdit(action)}>
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="ui-link"
+                    disabled={executingActionId === action.id || isExecuting}
+                    onClick={() => handleExecuteSingleAction(action.id)}
+                  >
+                    {executingActionId === action.id ? 'Filling...' : 'Fill just this'}
+                  </button>
+                  <button type="button" className="ui-link" onClick={() => handleHighlightField(action.action.selector, action.action.description)}>
+                    Show on page
+                  </button>
+                  <button type="button" className="ui-link" onClick={() => handleExcludeAction(action.id)}>
+                    Skip
+                  </button>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {plan.skippedFields.length > 0 && (
+        <details className="ui-details">
+          <summary>Not filled ({plan.skippedFields.length})</summary>
+          <ul className="ui-list">
+            {plan.skippedFields.map((field) => (
+              <li key={field.fieldId}>
+                <span style={{ color: 'var(--text)' }}>{field.label || 'Unnamed field'}</span>
+                <p className="ui-subtle">{field.description}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
-      {/* Plan Action Footer */}
-      <div className="dry-run-footer">
-        <div className="footer-status-summary">
-          <span>
-            {unconfirmedCount === 0 ? (
-              <strong className="text-success">&#10003; All actions approved and ready</strong>
-            ) : (
-              <span className="text-warning">&#9888; {unconfirmedCount} action(s) require confirmation</span>
-            )}
-          </span>
-        </div>
-        <div className="footer-buttons-group">
-          {onNavigateToTab && (
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => onNavigateToTab('prepare_application')}
-            >
-              Back to Form
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn-one-click-hero"
-            disabled={isExecuting || plan.actions.length === 0}
-            onClick={handleAutoApproveAndExecuteAll}
-            title="Batch-approve all fields and fill them sequentially in one single click"
-          >
-            {isExecuting ? 'Filling approved fields...' : 'Fill approved fields'}
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={!plan.isApproved || isExecuting}
-            title={
-              plan.isApproved
-                ? 'Proceed to execution'
-                : 'Approve all actions before executing'
-            }
-            onClick={handleExecutePlan}
-          >
-            {isExecuting
-              ? 'Executing Actions...'
-              : plan.isApproved
-              ? 'Execute Approved Actions'
-              : 'Approve Actions to Execute'}
-          </button>
-        </div>
+      <button
+        type="button"
+        className="ui-btn ui-btn-primary ui-btn-block"
+        disabled={isExecuting || approvedCount === 0 || !plan.isApproved}
+        onClick={handleExecutePlan}
+      >
+        {isExecuting ? 'Filling...' : plan.isApproved ? `Fill ${approvedCount} ticked field${approvedCount === 1 ? '' : 's'}` : `Tick or skip ${unconfirmedCount} more to continue`}
+      </button>
+      <div className="ui-row" style={{ justifyContent: 'space-between' }}>
+        <button type="button" className="ui-link" onClick={() => handleBatchApprove('reset')}>
+          Untick everything
+        </button>
+        <button type="button" className="ui-link" onClick={handleToggleInPageOverlay}>
+          {inPageOverlayActive ? 'Hide labels on the page' : 'Label fields on the page'}
+        </button>
       </div>
-    </div>
+    </section>
   );
 };

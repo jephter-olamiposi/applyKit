@@ -21,16 +21,15 @@ import type {
   ExecutionReport,
   ApplicationRecord,
   ApplicationId,
-  ApplicationState,
   AiJobExtractionResult,
   FieldAnsweringContext,
+  ApplicationAnswerInput,
+  ResumeRewriteResult,
   AiProposedFieldAnswer,
   ApplicationField,
   ApplicationForm,
-  WritingStyleProfile,
   SavedAnswer,
   AnswerCategory,
-  EvidenceId,
 } from '@applykit/domain';
 import {
   parsePlainTextResume,
@@ -75,6 +74,9 @@ import {
   jobPostingFromAiExtraction,
   isDegenerateJobPosting,
   buildFieldAnsweringPrompt,
+  buildResumeRewritePrompt,
+  applyResumeRewrite,
+  isResumeRewriteResult,
   isAiAnswerableCustomField,
   withAiProposedFieldAnswers,
   getWritingStyleFromProfile,
@@ -92,10 +94,16 @@ import {
   normalizeLeverJobs,
   screenSourcedOpportunities,
   DEFAULT_WATCHLIST_COMPANIES,
+  pickJobForPage,
+  roleFromPageTitle,
   type SourcedOpportunity,
-  type WatchlistCompany,
 } from '@applykit/domain';
 import { isValidExtensionRequest } from '../messages/contracts.js';
+import { annotatePageWidgets, pickPageWidgetOption } from './page-widgets.js';
+import { draftGroundedAnswer } from './grounded-answer.js';
+import {
+  PENDING_SIDEPANEL_TAB_KEY,
+} from '../storage/storage-keys.js';
 
 function isUnsupportedAcademicQuestion(question: string, profile: CandidateProfile): boolean {
   const normalized = question.toLowerCase();
@@ -115,7 +123,6 @@ import {
 } from '@applykit/domain/pdf-exporter';
 
 import type {
-  ApiKeysStatus,
   CandidateProfileSummary,
   CurrentExtractionResponse,
   ExtractedPageData,
@@ -154,8 +161,6 @@ import type {
   AiRequirementAnalysisResult,
   InspectPageFormsResponse,
   GenerateDryRunPlanResponse,
-  GetActivePlanResponse,
-  AnswerCustomFieldsRequest,
   AnswerCustomFieldsResponse,
   UpdatePlanActionResponse,
   TogglePlanActionApprovalResponse,
@@ -163,21 +168,22 @@ import type {
   ExecutePlanResponse,
   ExecuteContentPlanRequest,
   ExecuteContentPlanResponse,
-  HighlightFormFieldResponse,
-  ClearFormFieldHighlightResponse,
-  ToggleInPageReviewBadgesResponse,
   BatchApprovePlanActionsResponse,
   ExecuteSelectiveActionResponse,
   GenerateTailoredResumeResponse,
   AutoFixResumeRequest,
   AutoFixResumeResponse,
   AnswerAdHocQuestionRequest,
-  AnswerAdHocQuestionResponse,
-  GroundedEvidenceCitation,
   SaveReusableAnswerRequest,
-  SaveReusableAnswerResponse,
   InsertTextIntoActiveElementRequest,
-  InsertTextIntoActiveElementResponse,
+  AnnotatePageWidgetsResponse,
+  RewordResumeWithAiRequest,
+  CheckApiKeyRequest,
+  CheckApiKeyResponse,
+  GetKeyChecksResponse,
+  KeyChecks,
+  RewordResumeWithAiResponse,
+  PickPageWidgetOptionResponse,
   ExecuteOneClickAutoFillRequest,
   ExecuteOneClickAutoFillResponse,
   GenerateCoverLetterResponse,
@@ -193,6 +199,8 @@ import type {
   CommitBootstrappedProfileResponse,
   SubmissionDetectedNotification,
   SubmissionDetectedResponse,
+  OpenSidePanelTabResponse,
+  SidePanelTabId,
 } from '../messages/contracts.js';
 
 import {
@@ -211,9 +219,13 @@ import {
   getStorageUsageSummary,
   getApiKeysStatus,
   setApiKey,
+  getRawApiKey,
 } from '../storage/index.js';
 
 import { AIGateway } from '../ai/gateway.js';
+import { checkApiKey, type KeyCheckResult } from '../ai/key-check.js';
+import { researchCompany, type CompanyBrief } from '../ai/company-research.js';
+import type { DraftAttempt } from './grounded-answer.js';
 
 /**
  * Encodes binary data as a base64 string in bounded chunks.
@@ -259,6 +271,46 @@ if (typeof chrome !== 'undefined' && chrome.sidePanel && chrome.sidePanel.setPan
     .catch((error) => {
       console.error('Failed to set side panel behavior:', error);
     });
+}
+
+/**
+ * Resolves the browser tab the side panel should attach to when the request does
+ * not originate from a content script.
+ */
+async function resolveActiveTabId(): Promise<number | undefined> {
+  if (typeof chrome === 'undefined' || !chrome.tabs?.query) return undefined;
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return tabs[0]?.id;
+}
+
+/**
+ * Opens the side panel on the requesting tab and records which tab it should show.
+ *
+ * `chrome.sidePanel.open` only succeeds while a user gesture is still active, so this
+ * runs inline in the message handler instead of a deferred task. The destination is
+ * handed to the panel through session storage because the panel may not exist yet
+ * when this call is made.
+ */
+async function openSidePanelOnTab(
+  tab: SidePanelTabId,
+  requestingTabId: number | undefined
+): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.sidePanel?.open) {
+    throw new Error('Side panel API is unavailable');
+  }
+
+  const targetTabId = requestingTabId ?? (await resolveActiveTabId());
+  if (typeof targetTabId !== 'number') {
+    throw new Error('No active tab to attach the side panel to');
+  }
+
+  if (chrome.storage?.session) {
+    await chrome.storage.session.set({
+      [PENDING_SIDEPANEL_TAB_KEY]: { tab, requestedAt: Date.now() },
+    });
+  }
+
+  await chrome.sidePanel.open({ tabId: targetTabId });
 }
 
 /**
@@ -564,6 +616,60 @@ async function maybeAiRefineExtraction(
 /**
  * Triggers application form inspection on the active tab.
  */
+/** Frames that only hold a captcha or a sign-in widget, never the application. */
+const WIDGET_FRAME_HOST = /(^|\.)(google\.com|recaptcha\.net|hcaptcha\.com|challenges\.cloudflare\.com|gstatic\.com|youtube\.com|stripe\.com)$/i;
+
+/**
+ * Scans every frame with form fields separately and merges the forms, biggest first.
+ * Returns null when per-frame scanning is not possible (no scripting access), so the
+ * caller can fall back to a whole-tab message.
+ */
+async function inspectFormsPerFrame(tabId: number): Promise<InspectPageFormsResponse | null> {
+  if (!chrome.scripting?.executeScript) return null;
+  let frames: chrome.scripting.InjectionResult<{ fields: number; url: string }>[];
+  try {
+    frames = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => ({
+        fields: document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select, [role=combobox]').length,
+        url: location.href,
+      }),
+    });
+  } catch {
+    return null;
+  }
+  const candidates = frames
+    .filter((frame) => (frame.result?.fields ?? 0) >= 2)
+    .filter((frame) => {
+      try {
+        return frame.frameId === 0 || !WIDGET_FRAME_HOST.test(new URL(frame.result!.url).hostname);
+      } catch {
+        return frame.frameId === 0;
+      }
+    })
+    .sort((a, b) => (b.result?.fields ?? 0) - (a.result?.fields ?? 0));
+  if (candidates.length === 0) return null;
+
+  const forms: ApplicationForm[] = [];
+  for (const frame of candidates.slice(0, 4)) {
+    const res = await new Promise<InspectPageFormsResponse | null>((resolve) => {
+      chrome.tabs.sendMessage(tabId, { type: 'INSPECT_PAGE_FORMS' }, { frameId: frame.frameId }, (response) => {
+        resolve(chrome.runtime.lastError ? null : (response as InspectPageFormsResponse));
+      });
+    });
+    if (res?.success) forms.push(...res.forms);
+  }
+  if (forms.length === 0) return null;
+  // The application is the form with the most fields; a captcha or newsletter box loses.
+  forms.sort((a, b) => b.fields.length - a.fields.length);
+  const best = forms[0]!.fields.length;
+  return {
+    type: 'INSPECT_PAGE_FORMS_RESULT',
+    success: true,
+    forms: forms.filter((form, index) => index === 0 || form.fields.length >= Math.min(4, best)),
+  };
+}
+
 export async function inspectFormsFromActiveTab(): Promise<InspectPageFormsResponse> {
   const activeTab = await getActiveWebTab();
 
@@ -589,6 +695,11 @@ export async function inspectFormsFromActiveTab(): Promise<InspectPageFormsRespo
   }
 
   try {
+    // Ask each frame that has fields, then put the biggest form first. Asking the whole
+    // tab returned whichever frame answered first, which on Greenhouse was often the
+    // two-field reCAPTCHA frame instead of the application.
+    const perFrame = await inspectFormsPerFrame(tabId);
+    if (perFrame) return perFrame;
     return await sendToContentScriptWithFallback<{ type: 'INSPECT_PAGE_FORMS' }, InspectPageFormsResponse>(
       tabId,
       { type: 'INSPECT_PAGE_FORMS' }
@@ -679,20 +790,26 @@ export async function recordApplicationExecution(
 ): Promise<void> {
   try {
     const profile = await profileRepo.getProfile();
-    const storedJob = await chrome.storage.local.get(STORAGE_KEYS.LAST_JOB_POSTING);
-    const job = storedJob[STORAGE_KEYS.LAST_JOB_POSTING] as JobPosting | undefined;
+    // The job this form is for, not just the last one read: tailoring for Monzo, then
+    // Mercury, then applying to Monzo must log a Monzo application.
+    const forPage = await jobForFormPage(plan.formUrl || '', plan.formPageTitle);
+    const job = forPage.job ?? undefined;
 
-    const companyName = job?.companyName || plan.detectedAts.toUpperCase();
-    const jobTitle = job?.title || 'Job Application';
+    const companyName = job?.companyName || forPage.companyLabel || plan.detectedAts.toUpperCase();
+    const jobTitle = job?.title || roleFromPageTitle(plan.formPageTitle ?? '') || 'Job application';
     const jobPostingUrl = plan.formUrl || job?.url || '';
     const matchedRequirementsScore = job && profile && job.requirements.length > 0
-      ? evaluateJobRequirements(job.requirements, profile).overallMatchScore
+      ? evaluateJobRequirements(job.requirements, profile).overallMatchScore / 100 // records store 0..1
       : 0;
 
     // Check if an existing application record exists for this job
     let app: ApplicationRecord | null = null;
     if (job?.id) {
       app = await appRepo.getApplicationByJobId(job.id);
+    }
+    if (!app && !job && jobPostingUrl) {
+      // No saved job for this form: filling it twice must update one record, not add two.
+      app = (await appRepo.listApplications(200)).find((record) => record.jobPostingUrl === jobPostingUrl) ?? null;
     }
 
     const filledMap: Record<string, string> = { ...(app?.filledValues || {}) };
@@ -791,7 +908,7 @@ async function fetchAndScreenAtsJobs(
           company: company.name,
           platform: company.platform,
           status: 'failed',
-          error: 'Unsupported ATS source.',
+          error: 'ApplyKit cannot read job boards from that site yet.',
         });
         return [];
       }
@@ -813,7 +930,7 @@ async function fetchAndScreenAtsJobs(
           company: company.name,
           platform: company.platform,
           status: 'failed',
-          error: `ATS returned HTTP ${res.status}.`,
+          error: `The job board did not respond (error ${res.status}).`,
         });
         return [];
       }
@@ -903,6 +1020,8 @@ const CONTENT_SCRIPT_ALLOWED_REQUESTS: ReadonlySet<string> = new Set([
   'EXECUTE_ONE_CLICK_AUTO_FILL',
   'OPEN_SIDEPANEL_TAB',
   'SUBMISSION_DETECTED',
+  'ANNOTATE_PAGE_WIDGETS',
+  'PICK_PAGE_WIDGET_OPTION',
 ]);
 
 /**
@@ -945,6 +1064,26 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         };
         sendResponse(pong);
         return false;
+      }
+
+      case 'OPEN_SIDEPANEL_TAB': {
+        openSidePanelOnTab(message.tab, sender.tab?.id)
+          .then(() => {
+            const res: OpenSidePanelTabResponse = {
+              type: 'OPEN_SIDEPANEL_TAB_RESULT',
+              success: true,
+            };
+            sendResponse(res);
+          })
+          .catch((err) => {
+            const res: OpenSidePanelTabResponse = {
+              type: 'OPEN_SIDEPANEL_TAB_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+            sendResponse(res);
+          });
+        return true;
       }
 
       case 'GET_API_KEYS_STATUS': {
@@ -992,15 +1131,20 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
           });
           return true;
         }
-        setApiKey(payload.provider, payload.apiKey)
-          .then(() => {
-            const res: SetApiKeyResponse = {
-              type: 'SET_API_KEY_RESULT',
-              success: true,
-              provider: payload.provider,
-            };
-            sendResponse(res);
-          })
+        (async () => {
+          const key = payload.apiKey.trim();
+          // An empty key removes the stored one; anything else is checked with the
+          // provider first so a wrong key is never saved silently.
+          const check = key ? await checkApiKey(payload.provider, key) : undefined;
+          if (check?.status === 'invalid') {
+            await saveKeyCheck(payload.provider, check);
+            return { type: 'SET_API_KEY_RESULT', success: false, provider: payload.provider, error: check.message, check } satisfies SetApiKeyResponse;
+          }
+          await setApiKey(payload.provider, key);
+          if (check) await saveKeyCheck(payload.provider, check);
+          return { type: 'SET_API_KEY_RESULT', success: true, provider: payload.provider, ...(check ? { check } : {}) } satisfies SetApiKeyResponse;
+        })()
+          .then((res) => sendResponse(res))
           .catch((err) => {
             sendResponse({
               type: 'SET_API_KEY_RESULT',
@@ -1009,6 +1153,43 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               error: err instanceof Error ? err.message : String(err),
             });
           });
+        return true;
+      }
+
+      case 'CHECK_API_KEY': {
+        const payload = message as CheckApiKeyRequest;
+        (async () => {
+          const key = await getRawApiKey(payload.provider);
+          const check: KeyCheckResult = key
+            ? await checkApiKey(payload.provider, key)
+            : { status: 'invalid', message: 'No key is saved for this provider.' };
+          if (key) await saveKeyCheck(payload.provider, check);
+          return { type: 'CHECK_API_KEY_RESULT', provider: payload.provider, check } satisfies CheckApiKeyResponse;
+        })()
+          .then((res) => sendResponse(res))
+          .catch((err) =>
+            sendResponse({
+              type: 'CHECK_API_KEY_RESULT',
+              provider: payload.provider,
+              check: { status: 'unreachable', message: err instanceof Error ? err.message : String(err) },
+            } satisfies CheckApiKeyResponse)
+          );
+        return true;
+      }
+
+      case 'GET_DRAFT_LOG': {
+        chrome.storage.local
+          .get(DRAFT_LOG_KEY)
+          .then((stored) => sendResponse({ type: 'GET_DRAFT_LOG_RESULT', log: (stored[DRAFT_LOG_KEY] as unknown[]) ?? [] }))
+          .catch(() => sendResponse({ type: 'GET_DRAFT_LOG_RESULT', log: [] }));
+        return true;
+      }
+
+      case 'GET_KEY_CHECKS': {
+        chrome.storage.local
+          .get(KEY_CHECKS_STORAGE_KEY)
+          .then((stored) => sendResponse({ type: 'GET_KEY_CHECKS_RESULT', checks: (stored[KEY_CHECKS_STORAGE_KEY] as KeyChecks) ?? {} } satisfies GetKeyChecksResponse))
+          .catch(() => sendResponse({ type: 'GET_KEY_CHECKS_RESULT', checks: {} } satisfies GetKeyChecksResponse));
         return true;
       }
 
@@ -1875,7 +2056,9 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             const evidenceGraph = await evidenceRepo.getEvidenceGraph();
             const savedAnswers = profile.savedAnswers;
             const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
-            const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : [];
+            // Same fallback as the question helper and one-click fill: with no evidence graph
+            // yet, the profile's own claims are still real resume lines to draft from.
+            const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : (profile.claims || []);
 
             const aiAnswerableFields = form.fields.filter((field: ApplicationField) =>
               isAiAnswerableCustomField(field, { includeChoiceFields: true }) &&
@@ -1893,8 +2076,35 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             }
 
             const answers: AiProposedFieldAnswer[] = [];
+            const openJob = form?.url ? (await jobForFormPage(form.url, form.pageTitle)).job : null;
+            const brief = await companyBriefFor(openJob);
 
             for (const field of aiAnswerableFields) {
+              // Free-text questions ("What attracted you to Monzo?") go through the coached,
+              // checked drafter. They used to be skipped unless a word in the question
+              // matched a resume line, which ruled out most open questions.
+              if (!field.options || field.options.length === 0) {
+                const drafted = await draftGroundedAnswer({
+                  question: field.label,
+                  profile,
+                  claims: candidateClaims,
+                  job: openJob,
+                  companyFacts: brief?.facts,
+                  maxLength: field.maxLength,
+                  execute: (request) => aiGateway.executeRequest(request),
+                });
+                if (drafted.ok) {
+                  answers.push({
+                    fieldId: field.id,
+                    answerText: drafted.text,
+                    confidence: drafted.confidence,
+                    supportingClaimIds: drafted.supportingClaimIds,
+                    isGrounded: true,
+                  });
+                }
+                continue;
+              }
+
               const relevantAnswers = savedAnswers.filter((ans) =>
                 field.label.toLowerCase().includes(ans.canonicalKey.toLowerCase()) ||
                 ans.promptPatterns.some((pattern) => field.label.toLowerCase().includes(pattern.toLowerCase()))
@@ -2466,6 +2676,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               maxProjects: payload?.maxProjects,
               templateId: payload?.templateId,
               onePageFit: payload?.onePageFit,
+              mentionCompany: payload?.mentionCompany !== false,
             });
             const textToAudit = [
               tailoredResume.tailoredSummary,
@@ -2489,6 +2700,45 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               success: false,
               error: err instanceof Error ? err.message : String(err),
             });
+          });
+        return true;
+      }
+
+      case 'REWORD_RESUME_WITH_AI': {
+        const payload = message as RewordResumeWithAiRequest;
+        loadTailoringContext(payload.jobId)
+          .then(async ({ profile, job }) => {
+            const { systemPrompt, prompt } = buildResumeRewritePrompt(job, payload.resume);
+            const response = await aiGateway.executeRequest({
+              prompt,
+              systemPrompt,
+              contextType: 'resume_tailoring',
+              // The prompt carries only the job and the resume's own lines.
+              contextPayload: { targetJobTitle: job.title, companyName: job.companyName, requirements: [], experiences: [], projects: [], skills: [] },
+              temperature: 0.2,
+              maxTokens: 3500,
+            });
+            const parsed = parseAndValidateJsonResponse<ResumeRewriteResult>(response.rawText, isResumeRewriteResult);
+            if (!parsed.success || !parsed.data) {
+              throw new Error('The AI reply could not be read. Your resume was left as it was.');
+            }
+            const applied = applyResumeRewrite(payload.resume, parsed.data, profile, job);
+            const qualityAudit = auditResumeQuality(applied.resume, profile, job, applied.resume.templateId || 'modern');
+            const res: RewordResumeWithAiResponse = {
+              type: 'REWORD_RESUME_WITH_AI_RESULT',
+              success: true,
+              tailoredResume: applied.resume,
+              qualityAudit,
+              changes: applied.changes,
+            };
+            sendResponse(res);
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'REWORD_RESUME_WITH_AI_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            } satisfies RewordResumeWithAiResponse);
           });
         return true;
       }
@@ -2796,13 +3046,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             } else if (questionLower.includes('hear about') || questionLower.includes('referral source')) {
               fastPathAnswer = profile.professional.referralSource || (profile.links?.linkedin ? 'LinkedIn' : undefined);
             } else if ((questionLower.includes('authorized') || questionLower.includes('authorization') || questionLower.includes('right to work') || questionLower.includes('eligible to work')) && !questionLower.includes('sponsor')) {
-              if (profile.identity.workAuthorization) {
+              // Only answer legal questions the candidate has answered in their profile.
+              if (profile.identity.workAuthorization?.confirmedByCandidate) {
                 fastPathAnswer = profile.identity.workAuthorization.isAuthorizedInCountry
                   ? 'Yes, I am legally authorized to work in this country.'
                   : 'No, I am not currently authorized to work in this country.';
               }
             } else if (questionLower.includes('sponsor') || questionLower.includes('sponsorship')) {
-              if (profile.identity.workAuthorization) {
+              if (profile.identity.workAuthorization?.confirmedByCandidate) {
                 fastPathAnswer = profile.identity.workAuthorization.requiresSponsorship
                   ? 'Yes, I will require employment visa sponsorship now or in the future.'
                   : 'No, I do not require employment visa sponsorship now or in the future.';
@@ -2814,8 +3065,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             } else if (questionLower.includes('notice') || questionLower.includes('notice period') || questionLower.includes('how much notice')) {
               if (profile.professional.noticePeriodDays != null) {
                 fastPathAnswer = profile.professional.noticePeriodDays === 0
-                  ? 'Immediate — I can start right away without a notice period.'
-                  : `${profile.professional.noticePeriodDays} days notice period.`;
+                  ? 'I can start right away. I have no notice period.'
+                  : `${profile.professional.noticePeriodDays} days.`;
               }
             } else if (questionLower.includes('start date') || (questionLower.includes('start') && (questionLower.includes('when') || questionLower.includes('how soon')))) {
               fastPathAnswer = profile.professional.earliestStartDate || (profile.professional.noticePeriodDays != null ? `${profile.professional.noticePeriodDays} days notice` : undefined);
@@ -2853,7 +3104,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                 answerText: fastPathAnswer.trim(),
                 confidence: 1.0,
                 supportingClaimIds: [],
-                notes: 'Resolved deterministically from verified profile attributes (0ms offline).',
+                notes: 'Taken straight from your profile.',
               });
               return;
             }
@@ -2868,122 +3119,63 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
               sendResponse({
                 type: 'ANSWER_AD_HOC_QUESTION_RESULT',
                 success: false,
-                error: 'No AI provider API key configured. Add a provider key in Settings, or save a reusable answer to enable offline fast-path answering.',
+                error: 'This one needs an AI key to draft. Add one in Settings, or write the answer yourself and save it for next time.',
               });
               return;
             }
 
             const evidenceGraph = await evidenceRepo.getEvidenceGraph();
-            const savedAnswers = profile.savedAnswers || [];
             const evidenceList = evidenceGraph ? Array.from(evidenceGraph.evidenceMap.values()) : [];
             const candidateClaims = evidenceList.length > 0 ? deriveClaimsFromEvidence(evidenceList) : (profile.claims || []);
 
-            // Tokenize question for keyword matching against evidence claims
-            const qTokens = questionLower.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2);
-            const matchedClaims = candidateClaims.filter((claim) => {
-              const stmt = claim.statement.toLowerCase();
-              const tags = (claim.tags || []).map((t) => t.toLowerCase());
-              return qTokens.some((t) => stmt.includes(t) || tags.some((tag) => tag.includes(t)));
+            // Coached prompt, grounding check, one retry with the problems, else nothing.
+            const styleByTone: Record<string, ApplicationAnswerInput['style']> = {
+              ats_aggressive: 'keywords',
+              concise: 'concise',
+              star: 'star',
+              motivational: 'warm',
+              bullets: 'bullets',
+            };
+            const openJob = await loadTailoringContext().then(({ job }) => job).catch(() => null);
+            const brief = await companyBriefFor(openJob);
+            const attempts: DraftAttempt[] = [];
+            const drafted = await draftGroundedAnswer({
+              onAttempt: (attempt) => attempts.push(attempt),
+              companyFacts: brief?.facts,
+              question: payload.question,
+              profile,
+              claims: candidateClaims,
+              job: openJob,
+              maxLength: payload.maxLength,
+              style: styleByTone[payload.tone ?? ''] ?? 'default',
+              candidateNote: payload.userNotes?.trim() || undefined,
+              execute: (request) => aiGateway.executeRequest(request),
             });
 
-            const relevantClaims = matchedClaims.length >= 3
-              ? matchedClaims.slice(0, 10)
-              : [...matchedClaims, ...candidateClaims.slice(0, 10)].filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
-
-            // Build user guidance and tone instructions
-            let userGuidance = '';
-            if (payload.userNotes && payload.userNotes.trim().length > 0) {
-              userGuidance = ` [Candidate's specific perspective/instinct to emphasize: "${payload.userNotes.trim()}"]`;
-            }
-
-            let toneInstruction = '';
-            if (payload.tone === 'star') {
-              toneInstruction = ' Structure the response using the STAR method (Situation, Task, Action, Result).';
-            } else if (payload.tone === 'concise') {
-              toneInstruction = ' Keep the response extremely concise, direct, and factual.';
-            } else if (payload.tone === 'motivational') {
-              toneInstruction = ' Use an engaging, enthusiastic, and forward-looking tone.';
-            } else if (payload.tone === 'bullets') {
-              toneInstruction = ' Format the response using concise, impact-oriented bullet points.';
-            } else if (payload.tone === 'technical') {
-              toneInstruction = ' Frame the answer with senior engineering technical depth, focusing on distributed systems architecture, state isolation, idempotency, failure domains, and practical trade-offs.';
-            } else if (payload.tone === 'ats_aggressive') {
-              toneInstruction = ' Use clear, direct language and mention only relevant skills or outcomes supported by the supplied evidence.';
-            } else {
-              toneInstruction = ' Use clear, direct language grounded in the supplied evidence.';
-            }
-
-            const context: FieldAnsweringContext = {
-              fieldLabel: `${payload.question}${userGuidance}${toneInstruction}${payload.maxLength ? ` (Strict limit: max ${payload.maxLength} characters)` : ''}`,
-              fieldType: 'textarea',
-              relevantAnswers: savedAnswers.slice(0, 5),
-              relevantClaims,
-              writingStyle: getWritingStyleFromProfile(profile),
-              answerLengthPreference: payload.maxLength && payload.maxLength < 200 ? 'short' : 'normal',
-              candidateExperiences: profile.experiences,
-              candidateSkills: profile.skills,
-              candidateEducation: profile.education,
-              candidateSummary: profile.professional?.summary || profile.professional?.headline,
-              fillingStrategy: 'ats_aggressive',
-            };
-
-            const request = buildFieldAnsweringPrompt(context);
-            const response = await aiGateway.executeRequest(request);
-
-            interface FieldAnsweringResult {
-              answerText: string;
-              confidence: number;
-              supportingClaimIds: string[];
-              isGrounded: boolean;
-              notes: string;
-            }
-
-            const parsed = parseAndValidateJsonResponse<FieldAnsweringResult>(
-              response.rawText,
-              isAiFieldAnswerResult
-            );
-
-            if (!parsed.success || !parsed.data) {
+            void logDraft({ question: payload.question, company: openJob?.companyName, facts: brief?.facts.length ?? 0, attempts, outcome: drafted.ok ? (drafted.removed ? 'repaired' : 'accepted') : drafted.draft ? 'needs_review' : 'dropped' });
+            if (!drafted.ok) {
               sendResponse({
                 type: 'ANSWER_AD_HOC_QUESTION_RESULT',
                 success: false,
-                error: 'The answer could not be validated against your profile evidence. Please answer this field manually.',
+                error: drafted.reason,
+                ...(drafted.draft ? { draftText: drafted.draft, problems: plainProblems(drafted.problems ?? [], openJob?.companyName) } : {}),
+                ...(brief && brief.sources.length > 0 ? { companySources: brief.sources.map((source) => ({ ...source })) } : {}),
               });
               return;
-            }
-
-            const canonicalClaimIds = new Set<string>(candidateClaims.map((claim) => claim.id));
-            const supportingClaimIds = parsed.data.supportingClaimIds.filter((id) => canonicalClaimIds.has(id));
-            if (supportingClaimIds.length === 0) {
-              sendResponse({
-                type: 'ANSWER_AD_HOC_QUESTION_RESULT',
-                success: false,
-                error: 'No supporting evidence claim was cited for this answer. Please answer this field manually.',
-              });
-              return;
-            }
-
-            let finalAnswer = sanitizeHumanText(parsed.data.answerText.trim());
-            const confidence = Math.min(1, Math.max(0, parsed.data.confidence));
-
-            // Enforce character limit if specified
-            if (payload.maxLength && finalAnswer.length > payload.maxLength) {
-              const truncated = finalAnswer.slice(0, payload.maxLength);
-              const lastPeriod = truncated.lastIndexOf('.');
-              if (lastPeriod > payload.maxLength * 0.7) {
-                finalAnswer = truncated.slice(0, lastPeriod + 1);
-              } else {
-                finalAnswer = truncated.trim();
-              }
             }
 
             sendResponse({
               type: 'ANSWER_AD_HOC_QUESTION_RESULT',
               success: true,
-              answerText: finalAnswer,
-              confidence,
-              supportingClaimIds,
-              notes: 'Synthesized with AI strictly grounded in verified evidence claims.',
+              answerText: drafted.text,
+              confidence: drafted.confidence,
+              supportingClaimIds: drafted.supportingClaimIds,
+              notes: `${
+                openJob
+                  ? `Drafted from your resume, the ${openJob.companyName} posting${sourceLabels(brief) ? ` and ${sourceLabels(brief)}` : ''}.`
+                  : 'Drafted from your resume.'
+              }${drafted.removed && drafted.removed.length > 0 ? ` One sentence was cut because it said something your resume and the posting don't.` : ''} Read it before using it.`,
+              ...(brief && brief.sources.length > 0 ? { companySources: brief.sources.map((source) => ({ ...source })) } : {}),
             });
           } catch (err) {
             sendResponse({
@@ -3049,6 +3241,53 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
             });
           }
         })();
+        return true;
+      }
+
+      case 'ANNOTATE_PAGE_WIDGETS': {
+        // Only ever acts on the tab and frame that asked, never on a tab named in the payload.
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== 'number') {
+          sendResponse({ type: 'ANNOTATE_PAGE_WIDGETS_RESULT', success: false, annotated: 0, error: 'No tab' } satisfies AnnotatePageWidgetsResponse);
+          return false;
+        }
+        annotatePageWidgets(tabId, sender.frameId)
+          .then((annotated) => {
+            sendResponse({ type: 'ANNOTATE_PAGE_WIDGETS_RESULT', success: true, annotated } satisfies AnnotatePageWidgetsResponse);
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'ANNOTATE_PAGE_WIDGETS_RESULT',
+              success: false,
+              annotated: 0,
+              error: err instanceof Error ? err.message : String(err),
+            } satisfies AnnotatePageWidgetsResponse);
+          });
+        return true;
+      }
+
+      case 'PICK_PAGE_WIDGET_OPTION': {
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== 'number') {
+          sendResponse({ type: 'PICK_PAGE_WIDGET_OPTION_RESULT', success: false, error: 'No tab' } satisfies PickPageWidgetOptionResponse);
+          return false;
+        }
+        pickPageWidgetOption(tabId, sender.frameId, message.selector, message.wanted)
+          .then((result) => {
+            sendResponse({
+              type: 'PICK_PAGE_WIDGET_OPTION_RESULT',
+              success: result.ok,
+              chosenLabel: result.chosenLabel,
+              error: result.ok ? undefined : result.reason,
+            } satisfies PickPageWidgetOptionResponse);
+          })
+          .catch((err) => {
+            sendResponse({
+              type: 'PICK_PAGE_WIDGET_OPTION_RESULT',
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            } satisfies PickPageWidgetOptionResponse);
+          });
         return true;
       }
 
@@ -3156,8 +3395,26 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                   ? deriveClaimsFromEvidence(evidenceList)
                   : (profile.claims || []);
 
+                const openJob = (await jobForFormPage(targetForm.url, targetForm.pageTitle)).job;
+                const brief = await companyBriefFor(openJob);
+                const knownClaimIds = new Set<string>(candidateClaims.map((claim) => claim.id));
                 const answerPromises = aiAnswerableFields.map(async (field) => {
                   try {
+                    if (!field.options || field.options.length === 0) {
+                      const drafted = await draftGroundedAnswer({
+                        question: field.label,
+                        profile,
+                        claims: candidateClaims,
+                        job: openJob,
+                        companyFacts: brief?.facts,
+                        maxLength: field.maxLength,
+                        execute: (request) => aiGateway.executeRequest(request),
+                      });
+                      return drafted.ok
+                        ? { fieldId: field.id, answerText: drafted.text, confidence: drafted.confidence, supportingClaimIds: drafted.supportingClaimIds }
+                        : null;
+                    }
+
                     const relevantAnswers = savedAnswers.filter((ans) =>
                       field.label.toLowerCase().includes(ans.canonicalKey.toLowerCase()) ||
                       ans.promptPatterns.some((pattern) => field.label.toLowerCase().includes(pattern.toLowerCase()))
@@ -3213,13 +3470,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                     if (!parsed.success || !parsed.data) return null;
 
                     const answerText = sanitizeHumanText(parsed.data.answerText.trim());
-                    if (!answerText) return null;
+                    // Same gate as everywhere else: no traceable resume line, no answer.
+                    const supportingClaimIds = parsed.data.supportingClaimIds.filter((id) => knownClaimIds.has(id));
+                    if (!answerText || supportingClaimIds.length === 0) return null;
 
                     return {
                       fieldId: field.id,
                       answerText,
                       confidence: parsed.data.confidence,
-                      supportingClaimIds: parsed.data.supportingClaimIds,
+                      supportingClaimIds,
                     };
                   } catch (err) {
                     console.warn(`Failed to synthesize answer for field ${field.label}:`, err);
@@ -3319,6 +3578,83 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
 /**
  * Helper to retrieve candidate profile, target job, and evidence graph for document tailoring.
  */
+/**
+ * What ApplyKit can find about the open posting's company, for answers that should name
+ * something specific about it. Uses the cache, the company's site, and a Gemini web
+ * search when a Gemini key is saved. Never throws.
+ */
+async function companyBriefFor(job: JobPosting | null | undefined): Promise<CompanyBrief | null> {
+  if (!job?.companyName) return null;
+  try {
+    const geminiKey = await getRawApiKey('gemini').catch(() => null);
+    return await researchCompany(job, { geminiKey });
+  } catch {
+    return null;
+  }
+}
+
+/** "monzo.com" style labels for the sources of company facts. */
+function sourceLabels(brief: CompanyBrief | null): string {
+  if (!brief || brief.facts.length === 0) return '';
+  const hosts = [...new Set(brief.sources.map((source) => {
+    try {
+      return new URL(source.url).hostname.replace(/^www\./, '');
+    } catch {
+      return '';
+    }
+  }).filter((host) => host && !/vertexaisearch|googleusercontent/.test(host)))];
+  if (brief.via.includes('web_search')) return hosts.length > 0 ? `a web search (${hosts.slice(0, 2).join(', ')})` : 'a web search';
+  return hosts[0] ?? 'the company website';
+}
+
+/** Last drafts and what the checker said, kept locally so problems can be looked into. */
+const DRAFT_LOG_KEY = 'applykit_ai_draft_log';
+
+async function logDraft(entry: { question: string; company?: string; facts: number; attempts: DraftAttempt[]; outcome: string }): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(DRAFT_LOG_KEY);
+    const log = ((stored[DRAFT_LOG_KEY] as unknown[]) ?? []).slice(-19);
+    log.push({ at: new Date().toISOString(), ...entry });
+    await chrome.storage.local.set({ [DRAFT_LOG_KEY]: log });
+  } catch {
+    // A log is a convenience.
+  }
+}
+
+/** Checker messages rewritten for the candidate ("your resume", the company's name). */
+function plainProblems(problems: readonly string[], company?: string): string[] {
+  return [...new Set(problems)].map((problem) =>
+    problem
+      .replace(/the resume or the posting/g, company ? `your resume or the ${company} posting` : 'your resume')
+      .replace(/^Name (.+?) and one specific fact about it from the company research or the posting\.$/, 'It never names $1, so it could have been sent to any company.')
+      .replace(/^Name (.+?) and one specific thing from its posting\.$/, 'It never names $1, so it could have been sent to any company.')
+  );
+}
+
+/** Where the last key check per provider is kept. Holds only the outcome, never the key. */
+const KEY_CHECKS_STORAGE_KEY = 'applykit_key_checks';
+
+async function saveKeyCheck(provider: AIProviderName, check: KeyCheckResult): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(KEY_CHECKS_STORAGE_KEY);
+    const checks = { ...((stored[KEY_CHECKS_STORAGE_KEY] as KeyChecks) ?? {}), [provider]: { ...check, checkedAt: new Date().toISOString() } };
+    await chrome.storage.local.set({ [KEY_CHECKS_STORAGE_KEY]: checks });
+  } catch {
+    // The check result is a convenience for the Settings screen.
+  }
+}
+
+/**
+ * The saved job a form page belongs to (see `pickJobForPage`). Null when the form's
+ * address names a company that is not the last job read and no saved job matches it.
+ */
+async function jobForFormPage(pageUrl: string, pageTitle?: string): Promise<ReturnType<typeof pickJobForPage>> {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.LAST_JOB_POSTING);
+  const lastJob = (stored[STORAGE_KEYS.LAST_JOB_POSTING] as JobPosting | undefined) ?? null;
+  const savedJobs = await jobRepo.listJobs(50).catch(() => [] as JobPosting[]);
+  return pickJobForPage(pageUrl, savedJobs, lastJob, pageTitle);
+}
+
 async function loadTailoringContext(jobId?: string) {
   const profile = await profileRepo.getProfile();
   if (!profile) {
@@ -3347,7 +3683,7 @@ async function loadTailoringContext(jobId?: string) {
 }
 
 /**
- * Monitors navigation events to detect ATS confirmation / thank-you pages automatically (Phase 20).
+ * Monitors navigation events to detect ATS confirmation / thank-you pages automatically.
  */
 if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

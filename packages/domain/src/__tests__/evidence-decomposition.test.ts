@@ -2,13 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   parsePlainTextResume,
   createProfileFromParsedResume,
-  decomposeProfileIntoEvidence,
   deriveClaimsFromEvidence,
   buildEvidenceGraph,
   auditEvidenceGraphGrounding,
   createClaimId,
   createEvidenceId,
-  type Evidence,
   type CandidateClaim,
 } from '../index.js';
 
@@ -92,7 +90,9 @@ describe('Evidence & Claim Verification Engine', () => {
 
       expect(parsed.education.length).toBe(1);
       expect(parsed.education[0]?.institution).toBe('Stanford University');
-      expect(parsed.education[0]?.degree).toBe('B.S. in Computer Science');
+      expect(parsed.education[0]?.degree).toBe('B.S.');
+      expect(parsed.education[0]?.fieldOfStudy).toBe('Computer Science');
+      expect(parsed.education[0]?.institution).toBe('Stanford University');
 
       expect(parsed.skills).toContain('TypeScript');
       expect(parsed.skills).toContain('React');

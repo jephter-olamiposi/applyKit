@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { InterviewPrepModal } from '../sidepanel/components/InterviewPrepModal.js';
 import {
@@ -100,7 +100,7 @@ describe('InterviewPrepModal Component Test Suite', () => {
     });
 
     expect(container.textContent).toContain('Distributed Systems Engineer at Canonical');
-    expect(container.textContent).toContain('Evidence grounded');
+    expect(container.textContent).toContain('from your resume');
     expect(container.textContent).toContain('Company focus');
   });
 
@@ -116,7 +116,7 @@ describe('InterviewPrepModal Component Test Suite', () => {
       );
     });
 
-    expect(container.textContent).toContain('Behavioural stories');
+    expect(container.textContent).toContain('Your stories');
     expect(container.textContent).toContain('CloudStream');
     expect(container.textContent).toContain('Engineered low-latency Raft consensus');
     expect(container.textContent).toContain('Copy answer');
@@ -138,7 +138,7 @@ describe('InterviewPrepModal Component Test Suite', () => {
 
     // Switch tab to reverse questions
     const reverseTabBtn = Array.from(container.querySelectorAll('button')).find((btn) =>
-      btn.textContent?.includes('Questions to ask')
+      btn.textContent?.includes('To ask them')
     );
     expect(reverseTabBtn).toBeDefined();
 
@@ -146,7 +146,7 @@ describe('InterviewPrepModal Component Test Suite', () => {
       reverseTabBtn?.click();
     });
 
-    expect(container.textContent).toContain('Questions about architecture, autonomy, and team culture');
+    expect(container.textContent).toContain('Pick two or three');
     expect(container.textContent).toContain('Canonical');
 
     // Click close button

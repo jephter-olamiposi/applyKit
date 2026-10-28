@@ -97,7 +97,7 @@ describe('AI Provider Subsystem & Payload Scoping Suite', () => {
         }),
       });
 
-      const provider = new AnthropicProvider('test_anthropic_key', 'claude-3-5-haiku-20241022', 5000, mockFetch as any);
+      const provider = new AnthropicProvider('test_anthropic_key', undefined, 5000, mockFetch as any);
       const response = await provider.complete<{ recommendation: string; rating: number }>(dummyRequest);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -106,8 +106,13 @@ describe('AI Provider Subsystem & Payload Scoping Suite', () => {
       expect((init.headers as any)['x-api-key']).toBe('test_anthropic_key');
       expect((init.headers as any)['anthropic-version']).toBe('2023-06-01');
 
+      expect((init.headers as any)['anthropic-dangerous-direct-browser-access']).toBe('true');
+
       const body = JSON.parse(init.body as string);
       expect(body.system).toBe(dummyRequest.systemPrompt);
+      // Retired models fail outright, and current Claude models reject custom temperature.
+      expect(body.model).not.toMatch(/claude-3/);
+      expect(body).not.toHaveProperty('temperature');
 
       expect(response.finishReason).toBe('stop');
       expect(response.parsed?.recommendation).toBe('hire');
@@ -144,7 +149,8 @@ describe('AI Provider Subsystem & Payload Scoping Suite', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toContain('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent');
-      expect(url).toContain('key=test_gemini_key');
+      expect(url).not.toContain('test_gemini_key');
+      expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('test_gemini_key');
 
       const body = JSON.parse(init.body as string);
       expect(body.generationConfig.responseMimeType).toBe('application/json');

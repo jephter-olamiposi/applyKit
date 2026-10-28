@@ -5,6 +5,7 @@
  * API charges, tracks token usage metrics, and enforces the Service Worker boundary (ADR-0002).
  */
 
+import { getRawApiKey } from '../storage/credential-store.js';
 import type {
   AIProvider,
   AIProviderName,
@@ -12,8 +13,8 @@ import type {
   AIResponse,
   TokenUsage,
 } from '@applykit/domain';
-import { OpenAIProvider } from './openai-provider.js';
-import { AnthropicProvider } from './anthropic-provider.js';
+import { OpenAIProvider, DEFAULT_OPENAI_MODEL } from './openai-provider.js';
+import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from './anthropic-provider.js';
 import { GeminiProvider } from './gemini-provider.js';
 import { OpenRouterProvider } from './openrouter-provider.js';
 
@@ -100,11 +101,23 @@ export class AIGateway {
    * Resolves the configured secret key for a given provider.
    */
   async getApiKey(provider: AIProviderName): Promise<string | null> {
-    const storage = this.getStorage();
-    const result = await storage.get(STORAGE_KEYS.PROVIDER_KEYS);
-    const keys = (result[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, string>) || {};
-    const key = keys[provider]?.trim();
-    return key && key.length > 0 ? key : null;
+    return this.readKey(provider);
+  }
+
+  /**
+   * Reads one provider key. Settings stores keys AES-GCM encrypted, so in the extension
+   * they are decrypted through the credential store; reading the stored value directly
+   * returned an object and every AI call failed with "trim is not a function". Injected
+   * test storage may still hold plain strings.
+   */
+  private async readKey(provider: AIProviderName): Promise<string | null> {
+    if (!this.customStorage && typeof chrome !== 'undefined' && chrome.storage?.local) {
+      return getRawApiKey(provider);
+    }
+    const result = await this.getStorage().get(STORAGE_KEYS.PROVIDER_KEYS);
+    const value = ((result[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, unknown>) || {})[provider];
+    const key = typeof value === 'string' ? value.trim() : '';
+    return key.length > 0 ? key : null;
   }
 
   /**
@@ -118,9 +131,9 @@ export class AIGateway {
   ): AIProvider {
     switch (provider) {
       case 'openai':
-        return new OpenAIProvider(apiKey, modelName || 'gpt-4o-mini', 30000, customFetch);
+        return new OpenAIProvider(apiKey, modelName || DEFAULT_OPENAI_MODEL, 30000, customFetch);
       case 'anthropic':
-        return new AnthropicProvider(apiKey, modelName || 'claude-3-5-haiku-20241022', 30000, customFetch);
+        return new AnthropicProvider(apiKey, modelName || DEFAULT_ANTHROPIC_MODEL, 30000, customFetch);
       case 'gemini':
         return new GeminiProvider(apiKey, modelName || 'gemini-flash-lite-latest', 15000, customFetch);
       case 'openrouter':
@@ -136,8 +149,7 @@ export class AIGateway {
     customFetch?: typeof fetch
   ): Promise<{ provider: AIProvider; name: AIProviderName }> {
     const storage = this.getStorage();
-    const result = await storage.get([STORAGE_KEYS.PROVIDER_KEYS, STORAGE_KEYS.ACTIVE_PROVIDER]);
-    const keys = (result[STORAGE_KEYS.PROVIDER_KEYS] as Record<string, string>) || {};
+    const result = await storage.get([STORAGE_KEYS.ACTIVE_PROVIDER]);
     const storedActive = result[STORAGE_KEYS.ACTIVE_PROVIDER] as AIProviderName | undefined;
 
     const candidateProviders: AIProviderName[] = [
@@ -150,9 +162,9 @@ export class AIGateway {
     ].filter(Boolean) as AIProviderName[];
 
     // Find the first provider with a non-empty key
-    for (const name of candidateProviders) {
-      const key = keys[name]?.trim();
-      if (key && key.length > 0) {
+    for (const name of [...new Set(candidateProviders)]) {
+      const key = await this.readKey(name);
+      if (key) {
         return {
           provider: this.createProvider(name, key, undefined, customFetch),
           name,

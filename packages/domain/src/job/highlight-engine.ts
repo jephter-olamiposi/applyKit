@@ -11,6 +11,7 @@ import type { Requirement } from './requirement.js';
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
 import { areCompetenciesEquivalent, normalizeCompetencyToken } from './synonyms.js';
+import { formatDateSpan } from '../tailoring/display-format.js';
 
 /**
  * Type of candidate asset recommended for highlighting.
@@ -108,7 +109,7 @@ export function generateHighlightSuggestions(
         id: `project-${project.id}`,
         sourceType: 'project',
         title: project.title,
-        subtitle: project.role ? `Role: ${project.role}` : 'Technical Project',
+        subtitle: project.role ? project.role : 'Project',
         relevanceScore: Math.max(normalizedScore, 20), // Baseline floor for relevant project
         matchedRequirementsCount: matchedCompetencies.size,
         keyCompetenciesMatched: matchedList,
@@ -163,8 +164,8 @@ export function generateHighlightSuggestions(
       suggestions.push({
         id: `experience-${exp.id}`,
         sourceType: 'work_experience',
-        title: `${exp.title} at ${exp.company}`,
-        subtitle: `${exp.startDate} – ${exp.isCurrent ? 'Present' : exp.endDate || 'N/A'}`,
+        title: exp.company ? `${exp.title}, ${exp.company}` : exp.title,
+        subtitle: formatDateSpan(exp.startDate, exp.endDate, exp.isCurrent),
         relevanceScore: Math.max(normalizedScore, 25),
         matchedRequirementsCount: matchedCompetencies.size,
         keyCompetenciesMatched: matchedList,

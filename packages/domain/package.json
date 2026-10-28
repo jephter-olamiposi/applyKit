@@ -38,5 +38,11 @@
     "docx": "^9.8.1",
     "mammoth": "^1.13.0",
     "pdfjs-dist": "^6.3.289"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "jszip": "^3.10.2"
   }
 }

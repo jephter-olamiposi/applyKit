@@ -8,7 +8,6 @@
 import {
   type CandidateProfile,
   type ProfileId,
-  createProfileId,
 } from '@applykit/domain';
 import type { IProfileRepository } from './interfaces.js';
 import type { CandidateProfileSummary } from '../messages/contracts.js';

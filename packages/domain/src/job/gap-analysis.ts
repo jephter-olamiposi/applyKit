@@ -11,7 +11,6 @@ import type { Requirement } from './requirement.js';
 import type { RequirementMatch } from './matching.js';
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
-import { areCompetenciesEquivalent } from './synonyms.js';
 
 /**
  * Impact level of an identified qualification gap.
@@ -84,17 +83,34 @@ export function analyzeQualificationGaps(
     const isStronglyPreferred = req.importance === 'strongly_preferred';
     const isHighPriority = isMandatory || isStronglyPreferred;
 
-    // Case 1: Unmatched requirement (Complete omission)
+    const label = req.normalizedSkillOrCompetency;
+
+    // Case 1: nothing in the profile or work history supports this requirement.
     if (!match || !match.isMatched) {
-      if (isHighPriority) {
+      const yearsOnly = req.category === 'experience_level' && req.yearsRequired !== undefined && match?.candidateYears !== undefined;
+      if (yearsOnly) {
+        const have = match!.candidateYears!;
+        const diff = Math.max(0, req.yearsRequired! - have);
+        gaps.push({
+          requirementId: req.id,
+          category: 'experience_shortfall',
+          severity: isMandatory && diff >= 2 ? 'critical' : isHighPriority ? 'moderate' : 'minor',
+          rawRequirementText: req.rawText,
+          competency: label,
+          candidateYears: have,
+          requiredYears: req.yearsRequired,
+          explanation: `They ask for ${req.yearsRequired}+ years. Your dated work history adds up to about ${have}.`,
+          recommendation: 'Lead with your most senior, highest-impact work so scope makes up for time.',
+        });
+      } else if (isHighPriority) {
         gaps.push({
           requirementId: req.id,
           category: 'hard_gap',
           severity: isMandatory ? 'critical' : 'moderate',
           rawRequirementText: req.rawText,
-          competency: req.normalizedSkillOrCompetency,
-          explanation: `Mandatory qualification '${req.normalizedSkillOrCompetency}' is not listed in your verified skills or claims.`,
-          recommendation: `Add relevant experience or evidence demonstrating ${req.normalizedSkillOrCompetency}, or address this gap directly in your cover letter.`,
+          competency: label,
+          explanation: `Nothing in your resume mentions ${label}.`,
+          recommendation: `If you have done this, add a bullet that shows it. If not, it is worth one honest line in your cover letter.`,
         });
       } else {
         gaps.push({
@@ -102,55 +118,46 @@ export function analyzeQualificationGaps(
           category: 'soft_gap',
           severity: 'minor',
           rawRequirementText: req.rawText,
-          competency: req.normalizedSkillOrCompetency,
-          explanation: `Preferred qualification '${req.normalizedSkillOrCompetency}' was not found in your profile.`,
-          recommendation: `Highlight adjacent technologies or rapid-learning capabilities that compensate for this preference.`,
+          competency: label,
+          explanation: `Nice to have, and not in your resume: ${label}.`,
+          recommendation: 'Optional. Mention related work if you have it.',
         });
       }
       continue;
     }
 
-    // Case 2: Candidate matches the skill, but check for Years of Experience Shortfall
+    // Case 2: matched, but fewer years than asked. The matcher derives years from the
+    // candidate's dated roles, so use its figure rather than a self-reported skill value.
     if (req.yearsRequired !== undefined && req.yearsRequired > 0) {
-      const candidateSkill = profile.skills.find((s) =>
-        areCompetenciesEquivalent(s.name, req.normalizedSkillOrCompetency) ||
-        areCompetenciesEquivalent(s.normalizedName, req.normalizedSkillOrCompetency)
-      );
-
-      const candidateYears = candidateSkill?.yearsOfExperience ?? 0;
-
+      const candidateYears = match.candidateYears ?? 0;
       if (candidateYears < req.yearsRequired) {
-        const diff = req.yearsRequired - candidateYears;
+        const diff = Math.round((req.yearsRequired - candidateYears) * 10) / 10;
         const severity: GapSeverity = isMandatory && diff >= 2 ? 'critical' : isHighPriority ? 'moderate' : 'minor';
-
         gaps.push({
           requirementId: req.id,
           category: 'experience_shortfall',
           severity,
           rawRequirementText: req.rawText,
-          competency: req.normalizedSkillOrCompetency,
+          competency: label,
           candidateYears,
           requiredYears: req.yearsRequired,
-          explanation: `Role requires ${req.yearsRequired} years of ${req.normalizedSkillOrCompetency}, but your profile records ${candidateYears} years.`,
-          recommendation: `Emphasize depth, velocity, or high-impact accomplishments with ${req.normalizedSkillOrCompetency} to offset the ${diff}-year seniority gap.`,
+          explanation: `They ask for ${req.yearsRequired}+ years of ${label}. Your roles that mention it add up to about ${candidateYears}.`,
+          recommendation: `Put your strongest ${label} work first so depth makes up for the ${diff}-year difference.`,
         });
       }
     }
 
-    // Case 3: Matched in profile skills, but zero evidence in EvidenceGraph (Unsubstantiated Claim)
+    // Case 3: matched only through the skills list, with no bullet that shows the work.
     const hasEvidence = match.matchedEvidenceIds.length > 0;
-    if (!hasEvidence) {
-      // Check if evidence graph exists and is checked
-      const severity: GapSeverity = isMandatory ? 'moderate' : 'minor';
-
+    if (!hasEvidence && req.category !== 'experience_level') {
       gaps.push({
         requirementId: req.id,
         category: 'unsubstantiated_claim',
-        severity,
+        severity: isMandatory ? 'moderate' : 'minor',
         rawRequirementText: req.rawText,
-        competency: req.normalizedSkillOrCompetency,
-        explanation: `Skill '${req.normalizedSkillOrCompetency}' is listed in your profile but lacks linked resume or document evidence.`,
-        recommendation: `Link specific project bullet points or past roles to '${req.normalizedSkillOrCompetency}' to raise confidence to 100%.`,
+        competency: label,
+        explanation: `${label} is in your skills list, but no bullet shows you using it.`,
+        recommendation: `Add one bullet that shows ${label} in real work. Recruiters look for proof, not a list.`,
       });
     }
   }
@@ -159,13 +166,22 @@ export function analyzeQualificationGaps(
   const moderateGapsCount = gaps.filter((g) => g.severity === 'moderate').length;
   const minorGapsCount = gaps.filter((g) => g.severity === 'minor').length;
 
-  let summary = 'Profile matches all required qualifications with verified evidence.';
+  // A years requirement the candidate nearly meets is not "missing", but the screen still
+  // lists it as unmet, so the summary names it rather than leaving the counts not adding up.
+  const nearYears = gaps.find((g) => g.severity !== 'critical' && g.requiredYears !== undefined && g.candidateYears !== undefined && g.candidateYears < g.requiredYears);
+  const nearYearsNote = nearYears
+    ? ` You are also close on experience: they ask for ${nearYears.requiredYears}+ years and you have about ${nearYears.candidateYears}.`
+    : '';
+
+  let summary = 'You meet every listed requirement, and your resume shows it.';
   if (criticalGapsCount > 0) {
-    summary = `Identified ${criticalGapsCount} critical qualification gap(s) on required criteria that may affect application viability.`;
+    summary = `${criticalGapsCount} required ${criticalGapsCount === 1 ? 'item is' : 'items are'} missing from your resume.${nearYearsNote}`;
+  } else if (nearYears) {
+    summary = nearYearsNote.trim();
   } else if (moderateGapsCount > 0) {
-    summary = `Profile covers core requirements, with ${moderateGapsCount} moderate gap(s) or shortfalls worth addressing.`;
+    summary = `You cover the core requirements. ${moderateGapsCount} ${moderateGapsCount === 1 ? 'item needs' : 'items need'} stronger proof.`;
   } else if (minorGapsCount > 0) {
-    summary = `Strong overall match. ${minorGapsCount} minor preference gap(s) detected.`;
+    summary = `Only missing ${minorGapsCount} nice-to-have ${minorGapsCount === 1 ? 'item' : 'items'}.`;
   }
 
   return {

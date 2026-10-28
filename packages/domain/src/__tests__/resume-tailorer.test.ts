@@ -201,7 +201,7 @@ describe('Dynamic Resume Section & Bullet Selector Suite', () => {
     expect(tailored.tailoredSummary).toContain('React');
     expect(tailored.tailoredSummary).toContain('reducing LCP by 45%');
     // Human-sounding summary: no company flattery or self-praise boilerplate.
-    expect(tailored.tailoredSummary).not.toContain('Acme SaaS');
+    expect(tailored.tailoredSummary).toMatch(/Looking to bring this work to Acme SaaS\.$/);
     expect(tailored.tailoredSummary).not.toMatch(/Proven track record|Committed to delivering|verified engineering experience/i);
   });
 

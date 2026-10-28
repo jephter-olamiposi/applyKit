@@ -44,9 +44,18 @@ function blobToDataUrl(blob: Blob): Promise<string> {
  *
  * @param blob The Blob object containing file data (e.g. PDF, text, markdown).
  * @param rawFilename Proposed filename.
+ * @param folder Optional folder under Downloads, such as "ApplyKit/Monzo - Senior Backend Engineer".
  */
-export async function downloadBlob(blob: Blob, rawFilename: string): Promise<void> {
+export async function downloadBlob(blob: Blob, rawFilename: string, folder?: string): Promise<void> {
   const filename = sanitizeDownloadFilename(rawFilename);
+  // chrome.downloads accepts a path relative to Downloads. Each folder segment is cleaned
+  // on its own so a company name can never climb out of Downloads ("..") or add a drive.
+  const folderPath = (folder ?? '')
+    .split('/')
+    .map((segment) => segment.replace(/[<>:"\\|?*\x00-\x1F]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+$/, ''))
+    .filter(Boolean)
+    .join('/');
+  const downloadPath = folderPath ? `${folderPath}/${filename}` : filename;
 
   // 1. Preferred Extension Path: Use chrome.downloads.download
   if (
@@ -60,7 +69,7 @@ export async function downloadBlob(blob: Blob, rawFilename: string): Promise<voi
         chrome.downloads.download(
           {
             url: dataUrl,
-            filename,
+            filename: downloadPath,
             saveAs: false, // Save directly to user's standard Downloads folder
           },
           (downloadId) => {

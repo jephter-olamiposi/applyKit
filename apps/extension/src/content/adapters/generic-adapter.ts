@@ -31,10 +31,19 @@ export class GenericJobSiteAdapter implements JobSiteAdapter {
     const ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content')?.trim();
     let companyName = ogSiteName || '';
     if (!companyName) {
+      // Most job pages are titled "<role> at <company>" ("Job Application for Software
+      // Engineer at PlanetScale"); the company follows the last " at ".
+      const pageTitle = doc.title.replace(/\s*[|·–—-]\s*(careers?|jobs?)\b.*$/i, '').replace(/\s*[|·].*$/, '').trim();
+      const atIndex = pageTitle.toLowerCase().lastIndexOf(' at ');
+      const fromTitle = atIndex >= 0 ? pageTitle.slice(atIndex + 4).trim() : '';
+      if (fromTitle && fromTitle.length <= 60 && /^[A-Z0-9]/.test(fromTitle)) companyName = fromTitle;
+    }
+    if (!companyName) {
       // Derive from hostname: "careers.airbnb.com" -> "Airbnb"
       const domainParts = url.hostname.replace(/^www\./, '').split('.');
       if (domainParts.length >= 2) {
-        const candidate = domainParts[0] === 'careers' || domainParts[0] === 'jobs' ? domainParts[1] : domainParts[0];
+        // Skip labels that name the jobs section, not the company ("apply.acme.com").
+        const candidate = /^(careers?|jobs?|apply|boards?|job-boards|hire|talent|work)$/i.test(domainParts[0] ?? '') ? domainParts[1] : domainParts[0];
         if (candidate) {
           companyName = candidate.charAt(0).toUpperCase() + candidate.slice(1);
         }
@@ -68,7 +77,7 @@ export class GenericJobSiteAdapter implements JobSiteAdapter {
       url: url.href,
       title,
       companyName,
-      location: 'Remote / Unspecified',
+      location: '',
       workplaceType,
       employmentType: 'full_time',
       rawDescription: cleanText,

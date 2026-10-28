@@ -114,7 +114,46 @@ describe('5-Gate Job Eligibility Verifier Suite (SKILL.md Phase 2)', () => {
       expect(report.verdict).toBe('CONDITIONAL');
       const geoCheck = report.checks.find((c) => c.gate === 'geography');
       expect(geoCheck?.status).toBe('conditional');
-      expect(geoCheck?.reason).toContain('Perk trap detected');
+      expect(geoCheck?.reason).toContain('not a remote role');
+    });
+  });
+
+  describe('Gate 1: Geography from real location fields (captured 2026-10-24)', () => {
+    const geo = (description: string, location: string) =>
+      verifyJobEligibility(createMockJob(description, location), baseProfile).checks.find((c) => c.gate === 'geography')!;
+
+    it('blocks "Remote within Canada or United States" for a candidate in Nigeria', () => {
+      const check = geo('Banking for startups.', 'San Francisco, CA, New York, NY, Portland, OR, or Remote within Canada or United States');
+      expect(check.status).toBe('blocked');
+      expect(check.verbatimQuote).toContain('Remote within Canada or United States');
+      expect(check.reason).toContain('Nigeria');
+    });
+
+    it('marks a UK-only role as check-first when the posting offers relocation', () => {
+      const check = geo(
+        "We can help you relocate to the UK. We're open to distributed working within the UK.",
+        'Cardiff, London or Remote (UK)'
+      );
+      expect(check.status).toBe('conditional');
+      expect(check.verbatimQuote).toContain('relocate');
+    });
+
+    it('blocks a UK-only role that offers no relocation', () => {
+      expect(geo('Build payments.', 'Remote (UK)').status).toBe('blocked');
+    });
+
+    it('passes regional remote roles that include the candidate', () => {
+      expect(geo('Build things.', 'Remote (EMEA)').status).toBe('passed');
+      expect(geo('Build things.', 'Remote, Global').status).toBe('passed');
+      expect(geo('Build things.', 'Remote').status).toBe('passed');
+    });
+
+    it('lets an explicit "anywhere" outrank an office address', () => {
+      expect(geo('Our HQ is in Berlin, but you can work from anywhere in the world.', 'Berlin').status).toBe('passed');
+    });
+
+    it('does not read ordinary words as places', () => {
+      expect(geo('Join us and help us grow. Tell us about your work.', 'Remote').status).toBe('passed');
     });
   });
 

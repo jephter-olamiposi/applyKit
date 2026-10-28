@@ -1775,3 +1775,291 @@ Live verification against active ATS boards (such as Holepunch and Tether on Rec
 - Authentic, human-sounding screening answers free of repetitive AI corporate jargon.
 - Ability to develop and test the extension sidepanel directly in standard browser environments.
 
+
+---
+
+## ADR-0049: Side Panel Routing Handoff and Least-Privilege Manifest
+
+### Status
+Accepted
+
+### Context
+The in-page hub offers an "Attach tailored resume PDF" control on file inputs. It sent
+`OPEN_SIDEPANEL_TAB` to the service worker, but the request was allow-listed without a
+contract, had no handler, and named a tab (`tailor`) that the side panel cannot render,
+so the control silently did nothing. The `activeTab` permission was also broader than the
+product needs because it duplicated `host_permissions`.
+
+### Decision
+1. Declare `SIDE_PANEL_TAB_IDS` in the message layer and derive both the side panel's
+   `TabId` and the `OPEN_SIDEPANEL_TAB` validator from it, so the service worker cannot
+   accept a destination the panel is unable to render.
+2. Handle the request in the service worker with `chrome.sidePanel.open`, invoked inline
+   because Chrome only permits the call while the originating user gesture is active.
+3. Hand the destination to the panel through `chrome.storage.session` under
+   `applykit_pending_sidepanel_tab`, consumed and removed on mount, with a 60 second
+   expiry so a stale hint cannot redirect a later panel open.
+4. Keep content-script injection in all frames so application forms nested in an iframe
+   remain inspectable, but mount the floating hub and submission observer only in the
+   top frame to avoid one badge per nested frame.
+5. Remove `activeTab`; keep `scripting` because the fallback injector uses
+   `chrome.scripting.executeScript`. Keep `'wasm-unsafe-eval'`: the PDF layout engine
+   (yoga, bundled with `@react-pdf/renderer`) is WebAssembly, and without it every resume
+   and cover letter PDF fails with a CSP `CompileError`. It permits compiling bundled
+   WebAssembly only; `'unsafe-eval'` remains forbidden.
+6. Bundle the content script once through esbuild as an IIFE and drop the duplicate Vite
+   entry that was overwritten immediately afterwards.
+
+### Consequences
+- The attach-resume control opens the side panel on the tailoring tab as intended.
+- Session storage holds only transient routing state, so purge semantics are unchanged
+  and no candidate data is written outside profile storage.
+- Nested frames keep form coverage without duplicating page-level UI.
+- PDF export keeps working; a security test pins the exact CSP so the directive is not
+  removed again by accident.
+- The service worker and side panel share `chunks/domain.js`; chunk names reflect the
+  package they contain rather than an arbitrary shared module.
+
+## ADR-0050: Plain-language side panel, honest resume output, and confirmed work permit answers
+
+### Context
+The side panel had a long row of tabs, internal terms (evidence graph, EV tiers, gates, dry run)
+in the copy, and a dark, glowing visual style that read as generated rather than designed.
+Resume and cover letter output had three honesty problems: the parser filled missing
+fields with placeholders ("Company", "University"), interview stories closed on invented
+results, and work permit answers were filled from defaults the candidate never chose.
+Two AI defaults pointed at models that are retired or scheduled for removal.
+
+### Decision
+1. Reduce primary navigation to four tabs (Job, Resume, Apply, Tracker), with Profile and
+   Settings as header utilities. Each screen leads with one primary action.
+2. Restyle the panel and the in-page hub with a small token set (light by default,
+   `prefers-color-scheme` dark), flat surfaces, radius 8px or less, no gradients, blur, or
+   uppercase labels. Copy is written in second person, short sentences, no jargon.
+3. The parser leaves unknown fields empty instead of inventing placeholders. Exporters skip
+   empty parts rather than printing separators around nothing.
+4. The resume audit gains `no_placeholders` and `facts_traceable` checks; a resume that
+   fails either is capped below the pass score. Summaries and cover letters are built from
+   the candidate's own lines, and the fact-checker flags sentences that add facts the
+   resume does not state.
+5. Interview prep STAR stories use only the resume for situation and action. The result is
+   either a number the resume already states or an explicit prompt for the candidate.
+6. Work authorization and sponsorship answers are filled only when the candidate set them
+   (`WorkAuthorization.confirmedByCandidate`). Otherwise the field is left for review.
+7. Default models move to `claude-haiku-5-5` and `gpt-6-luna`, without `temperature`, and
+   OpenAI calls use `max_completion_tokens`.
+
+### Consequences
+- Fewer, clearer screens; UI tests assert on the new copy.
+- Some resumes show fewer fields than before, because missing data now stays missing.
+- Existing profiles without `confirmedByCandidate` stop auto-answering permit questions
+  until the candidate confirms them in Profile. This is intentional.
+- Model defaults need revisiting as providers retire models.
+
+## ADR-0051: Drive React dropdowns from the page world, and read eligibility from location fields
+
+### Context
+Testing against live Greenhouse, Ashby, and Lever boards (2026-10-24) showed that most
+Greenhouse employers now use the job-boards.greenhouse.io layout. On it ApplyKit found no
+location, read the application form's labels as job requirements, and treated every
+dropdown as a text box. Those dropdowns are react-select components: their options live
+only in React state, and they ignore synthetic mouse and keyboard events, so a content
+script can neither list nor pick them. The old option search also scanned the whole page
+and would have picked from Greenhouse's always-present phone-country list.
+
+The same test showed the eligibility gate only knew literal phrases like "US only", so
+"Remote within Canada or United States" and "Cardiff, London or Remote (UK)" passed for a
+candidate in Nigeria; that headings such as "What else will help you be successful" and
+"What's the job to be done?" leaked duties and nice-to-haves into required requirements;
+and that half of the default watchlist pointed at boards that return 404.
+
+### Decision
+1. The service worker runs two fixed functions in the page's MAIN world with
+   `chrome.scripting.executeScript` (background/page-widgets.ts): one copies each
+   react-select's options onto its input as `data-applykit-options`, the other calls the
+   component's own `selectOption`. They act only on the tab and frame that asked, take no
+   code from the page, and match options exactly (then case-insensitively), never
+   "closest". Content scripts reach them through `ANNOTATE_PAGE_WIDGETS` and
+   `PICK_PAGE_WIDGET_OPTION`, both scans tag before crawling, and a pick that cannot be
+   made is reported as a failure instead of typing text into the box.
+2. Custom dropdown option searches are scoped to the dropdown's own listbox or question.
+3. The Greenhouse adapters read `.job__title`, `.job__location`, `.job__description`,
+   and `form#application-form.application--form`.
+4. Eligibility resolves places (countries, US states, Canadian provinces, EMEA, Africa,
+   "anywhere") from the location field and from location-rule sentences
+   (job/geo-regions.ts). A binding mismatch blocks; a mismatch with relocation or visa
+   help offered is "check first"; unknown places never block.
+5. Section headings are classified with wording from real postings; benefits, process,
+   and stack sections are consumed, and lists under unknown headings are kept only when
+   they read like qualifications.
+6. The planner never proposes a dropdown value that is not one of its options, maps a
+   confirmed sponsorship need onto sentence-style right-to-work options, and shows the
+   option label (not the profile value) in the review list.
+7. The watchlist only contains boards that answered with open roles on 2026-10-24.
+
+### Consequences
+- Greenhouse dropdowns are filled the way a click would fill them, verified in Chromium
+  with the built extension and a real react-select form.
+- The page-world functions depend on react-select's internal shape (`selectOption`,
+  `options`). If Greenhouse changes component library the tagger finds nothing, fields
+  are listed without options, and the planner leaves them for the candidate.
+- Watchlist slugs will drift as companies change ATS; failed boards are reported per source.
+
+## ADR-0052: Facts in generated documents come only from the candidate's jobs
+
+### Context
+Running the built extension end to end with a real resume (uploaded as a PDF) showed:
+years of experience were set to "roles x 2"; a "— Rust" stack tag on a role heading was
+stored as the job's location; a middle name was put in the last-name field; PDF line wraps
+split each bullet into fragments and a wrapped "projects." was read as a section heading,
+dropping the last job; summaries and letters said "mostly in Go" for a candidate whose jobs
+are all in Rust, because Go was in the skills list; headings were letter-spaced and words
+hyphenated in PDFs, so text extraction read "EX PERIENCE" and "produc-tion"; the PDF.js
+worker was only copied by the packaging script; and every resume download had one name.
+
+### Decision
+1. Years of experience are merged date ranges of dated roles, nothing else.
+2. Role headings keep a stack tag as technologies and accept a location only when it names
+   a known place. Names split into first, middle, and last.
+3. Wrapped PDF lines are rejoined before parsing; headings must start with a capital and
+   not end a sentence.
+4. "Mostly in ..." and summary stacks use only technologies the candidate's roles show
+   (evidencedStack), never skills-list-only entries or concepts. Matches backed only by the
+   skills list are labeled "Listed only" in the fit view.
+5. Letters weight bullets from the employer's domain; "Freelance" reads "As a freelancer".
+6. PDFs use no letter spacing and no automatic hyphenation.
+7. The Vite build copies the PDF.js worker, so an unpacked `dist` matches the store zip.
+8. Files keep the pipeline-spec name ("First_Last_Resume.pdf") and are saved under
+   "Downloads/ApplyKit/<Company> - <Role>/".
+
+## ADR-0053: Coached, checked AI answers and per-job AI rewording
+
+**Status:** Accepted (2026-10-25)
+
+**Context.** AI answers to application questions were written from a thin prompt and only loosely checked. The model invented numbers, claimed tools that sat only in the skills list, used stock phrases, and cut answers mid-sentence at a field's limit. Resumes were tailored per job deterministically but never reworded toward the posting's language. Separately, the gateway read encrypted keys as plain strings, so every AI call failed once a key was saved through Settings.
+
+**Decision.**
+- `answer-coach.ts` holds one voice guide (plain, first person, short sentences, concrete results, no dashes) and a playbook per kind of question (about me, why this role, why this company, a challenge, salary, and others), with fictional worked examples.
+- Every drafted answer goes through `draftGroundedAnswer`: draft, then check every number, tool, and name against the resume and the open posting. A tool found only in the skills list may not be claimed as experience. Anything off goes back to the model once with the exact problems; a second failure drops the draft and tells the candidate to answer it themselves.
+- If a question names a different company than the open posting, the posting is left out, so one employer's facts cannot appear in another's answer.
+- Answers are fitted to the page's `maxLength` on a sentence boundary.
+- "Reword for this job" asks the model to reword the tailored summary and bullets. Each bullet is checked against its own original (no new numbers, tools, or names, no large growth); a failing line keeps its original wording, and the candidate sees each change and why any was refused.
+- The gateway reads keys through `getRawApiKey`.
+
+**Consequences.** More drafts are refused, by design. AI wording can only rephrase what the resume already says. The playbooks and checks are pure functions with unit tests, so the behaviour is pinned without calling a real model.
+
+## ADR-0054: A form is matched to its own job, and bugs found in a full run
+
+**Status:** Accepted (2026-10-25)
+
+**Context.** A full run as a candidate (three postings tailored, then a form filled) turned up these problems:
+- Forms were tied to the last job read, so going back to apply to an earlier job logged and drafted for the wrong company.
+- The tracker showed "5000% Match".
+- The board put unsubmitted applications under "Applied".
+- The form summary listed one field as both "will fill" and "answer yourself".
+- "dynamic codec negotiation" was flagged as a buzzword, and the auto-fix deleted the word.
+- The Word cover letter ran the sign-off onto one line.
+- The PDF letter set "Best," flush under the last line of the letter.
+
+**Decision.**
+- `pickJobForPage` picks the saved job a form belongs to: same address (or its apply step) first, then the company board name in an ATS address, then the last job read, but only when the address names no other company.
+- Tracker records store the match as 0..1. Older records that stored 0..100 are read as they are.
+- The board has a "To submit" column.
+- "Answer these yourself" lists the required fields the planner will not fill.
+- "dynamic" counts as fluff only about a person or workplace. The check and the auto-fix share one pattern. An answer may quote a banned word inside a phrase the candidate wrote.
+- Letter sign-offs are split into lines (Word) and into blocks on blank lines (PDF).
+
+**Consequences.** On a page with no company in its address, the last job read is still used.
+
+## ADR-0055: The in-page bar shows only on application forms; better job matching and summaries
+
+**Status:** Accepted (2026-10-25)
+
+**Context.** The "Fill this form" bar appeared on every page that looked job-related, including job search results, careers listings, and postings with no form. A form on a company careers site, or on a page whose title names the company, still fell back to the last job read. The tailored summary could miss every competency the posting asks for even when the resume showed one.
+
+**Decision.**
+- `hasApplicationForm` decides whether the bar shows. A page counts when it has a resume upload, or a name, an email and an application-only question ("LinkedIn", "work authorization"), or, on a known ATS host, a name plus a few fields. Login, sign-up, search, newsletter and contact forms do not count. The check repeats every 2 seconds, so a form that appears after "Apply" brings the bar up.
+- Forms carry the page title. `pickJobForPage` also matches a company's own careers host ("careers.monzo.com") and a company named in the title. A title naming a company with no saved job ("... at Northwind Payments") logs under that name. Filling the same unsaved form twice updates one tracker record.
+- The summary adds a kind of system the posting asks for ("distributed systems") when one of the candidate's bullets spells out every word of it. A skills-list entry or a loose synonym does not count.
+
+**Consequences.** The bar no longer shows on postings before the candidate opens the form; the side panel still works there.
+
+## ADR-0056: Keys are checked before saving; the answer writer and remaining screens
+
+**Status:** Accepted (2026-10-25)
+
+**Context.** A wrong AI key was saved without complaint, and the candidate only found out when a draft failed later. A full pass over every screen and modal, in light and dark mode, turned up these problems:
+- 19 primary buttons drew dark text on the dark accent (a theme token mix-up).
+- 29 panels used a heavy grey meant for overlays.
+- Interview prep opened behind the tracker drawer, and built its stories from an empty profile because the tracker never passed one in.
+- The in-page answer writer lowercased the question, so a company named in it was missed. It ignored the field's character limit and used off-brand colours.
+- Side panel requests that call the AI timed out at 20 seconds, though a draft plus a corrected draft can take longer.
+
+**Decision.**
+- `checkApiKey` calls each provider's free, read-only endpoint (list models, or key info) with the key in a header. A rejected key is not saved and the reason is shown next to the field. A key that is out of quota, or that cannot be checked right now, is saved with a note. Settings shows the last result per provider ("Works", "Rejected", "Out of quota") with a "Check" link. Only the outcome is stored, never the key.
+- Button and panel colours use `--on-accent` and `--surface-2`.
+- The prep modal sits above the drawer, loads the profile and evidence itself, and gives each story a different question.
+- The answer writer keeps the question as written, passes the field's limit, places its pill inside the field's corner, stays inside the viewport, closes on Escape, and only writes into the page on "Use this answer".
+- AI requests get longer timeouts in the bridge, and a timeout reads as plain language.
+- The tracker drawer uses plain labels ("I submitted it", "Got an offer"). A form with no saved job takes its role from the page title.
+
+**Consequences.** Saving a key takes a second or two longer. A provider that is down at save time does not block saving.
+
+## ADR-0057: One frame answers per message, company research for "why us" answers, next-step cards
+
+**Status:** Accepted (2026-10-25)
+
+**Context.** On a real Greenhouse page the side panel said "No application form on this page" and read the job as "Content". The content script runs in every frame, Chrome takes the first frame to answer, and the reCAPTCHA frame (a two-field form and a "Content" heading) often answered first. Answers to "why this company" questions only had the posting to draw on, so they came out generic. The resume header read "lagos, lagos, Nigeria". Several screens ended without a clear next action.
+
+**Decision.**
+- Reading a job is answered only by the top frame. Form scans run per frame through `chrome.scripting` and are merged, biggest form first; captcha and payment widget frames are skipped. Filling runs only in the frame whose address the plan was built from. Other messages are answered by the frame that has a result, and the top frame waits briefly before giving an empty answer.
+- `researchCompany` collects short facts about the hiring company from its own site (title, description, headings) and, when a Gemini key is saved, from a Gemini Google Search with its sources. Only the company name, role and the company's own web address leave the browser. Web text is cleaned, lines aimed at the reader or the model are dropped, and the result is cached per company for 14 days.
+- Those facts go into the prompt as fenced `<company_research>` data and count as company facts for the checker. A "why us" or "background and why" answer that never names the company is sent back once with that problem. Two-part questions get their own playbook. The question helper shows where the company facts came from.
+- Resume headers drop repeated place names and capitalize lowercase ones. A generic job page takes the company from a "<role> at <company>" title.
+- Each screen ends with a `NextStep` card: resume to application (or cover letter), application to Tracker, no form found to "Scan again", Tracker to the next job.
+
+**Consequences.** A first "why us" draft for a new company takes a few seconds longer while the company is looked up. Without a Gemini key, only the company's own site is used.
+
+## ADR-0058: The answer checker repairs and reports instead of dropping; summaries read like a person wrote them
+
+**Status:** Accepted (2026-10-26)
+
+**Context.** With the real Gemini key, the in-page writer showed "The AI kept adding things your resume does not say" and an empty box. The checker treated any problem as fatal. Real models also:
+- cite resume line ids in slightly different forms,
+- add facts they already know about well-known companies,
+- use names the candidate typed in their own note.
+
+Each of these threw away a draft that was mostly right, and the candidate could not see why. The resume summary read as machine-written, with a subjectless "At CoreServe, engineered ..." fragment and no tie to the job.
+
+**Decision.**
+- The prompt tells the model not to use outside knowledge about the company, only the research and the posting.
+- Wrong citation ids no longer reject a draft; the lines used are worked out from shared words.
+- Names in the question and the candidate's note count as allowed.
+- When the checker flags a term, the sentence carrying it is cut and the rest re-checked before another model call is spent. The candidate is told a sentence was cut.
+- When a draft still cannot pass, the side panel and the in-page writer show it with the exact problems to fix ("Check this before using it"). Form filling never uses such a draft.
+- Recent drafts and checker results are kept locally (last 20), and Settings can copy them, so failures can be looked into with real data. A live test (`__tests__/live/answer-eval.test.ts`) runs the drafter against the real API with the developer's own key and resume.
+- The summary is now: role and years with the kind of systems and stack; the strongest line for this job, verb first, with where it was done, preferring the posting's industry; and an optional line naming the company ("Name {company} in my summary", on by default, following the resume cheat sheet). A new audit check covers naming the company, and the check names follow the cheat sheet's wording.
+
+**Consequences.** Candidates sometimes see a draft with warnings instead of nothing. They decide, and the warnings say what to fix.
+
+## ADR-0059: Codebase clean-up and an unused-code guard
+
+**Status:** Accepted (2026-10-26)
+
+**Context.** After many iterations the code carried a lot of dead weight:
+- 707 of 1,010 rules in `sidepanel.css` matched no element any more (5,100 lines).
+- Around 20 exported functions were never called (an old "human answer pipeline", writing-style learners, ID helpers).
+- 84 unused imports and locals.
+- An unused message barrel file.
+- Planning labels ("Phase 20") in comments.
+- A stale plan document and a committed release zip at the repository root.
+- Three packages used but not declared in their workspace `package.json`.
+
+**Decision.**
+- Unused CSS rules are removed by a script that checks every class against the TypeScript and HTML sources, including classes built from prefixes (`risk-${level}`). Every side panel screen was screenshotted in light and dark mode before and after, and the pixel diff showed no change.
+- Unused functions, imports and locals are removed. `noUnusedLocals` is now on in `tsconfig.base.json`, so new dead code fails the build.
+- Exported functions that are unused in the product but covered by tests stay as public domain API.
+- `pdfjs-dist` and `esbuild` are declared in the extension, and `react` (peer) and `jszip` (dev) in the domain package. The lock file gains only those entries.
+- The root keeps what a reader needs: README, docs, scripts. Release zips are build output and are ignored.
+
+**Consequences.** `sidepanel.css` is down from 7,180 to 2,105 lines. Unused code now shows up as a compile error instead of piling up.

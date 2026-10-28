@@ -1,7 +1,7 @@
 /**
  * @fileoverview Anthropic Claude Messages API Provider.
  *
- * Implements Claude 3.5 Sonnet / Haiku integration.
+ * Calls the Claude Messages API.
  * Invariant: Invoked exclusively from Extension Service Worker.
  */
 
@@ -13,6 +13,13 @@ import type {
   TokenUsage,
 } from '@applykit/domain';
 import { BaseHttpProvider } from './base-provider.js';
+
+/**
+ * Default Claude model. claude-3-5-haiku-20241022 was retired on February 19, 2026, so
+ * requests to it fail. Sampling parameters are omitted because Claude 4.7 and later reject
+ * a non-default temperature; output is steered through the prompt instead.
+ */
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-5-5';
 
 interface AnthropicMessageResponse {
   content: Array<{
@@ -28,7 +35,7 @@ interface AnthropicMessageResponse {
 
 export class AnthropicProvider extends BaseHttpProvider {
   readonly id = 'anthropic';
-  readonly displayName = 'Anthropic Claude (3.5 Haiku / Sonnet)';
+  readonly displayName = 'Anthropic Claude';
   readonly capabilities: AIProviderCapabilities = {
     supportsStreaming: true,
     supportsJsonSchema: false,
@@ -38,7 +45,7 @@ export class AnthropicProvider extends BaseHttpProvider {
 
   constructor(
     apiKey: string,
-    modelName = 'claude-3-5-haiku-20241022',
+    modelName = DEFAULT_ANTHROPIC_MODEL,
     timeoutMs = 30000,
     customFetch?: typeof fetch
   ) {
@@ -51,7 +58,6 @@ export class AnthropicProvider extends BaseHttpProvider {
     const body: Record<string, unknown> = {
       model: this.modelName,
       max_tokens: request.maxTokens ?? 2500,
-      temperature: request.temperature ?? 0.1,
       messages: [{ role: 'user', content: request.prompt }],
     };
 
@@ -65,7 +71,9 @@ export class AnthropicProvider extends BaseHttpProvider {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey,
         'anthropic-version': '2023-06-01',
-        'dangerously-allow-browser': 'true',
+        // Required by the Anthropic API for requests that carry a browser Origin header,
+        // which extension service worker requests do. The key never leaves the worker.
+        'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify(body),
     });

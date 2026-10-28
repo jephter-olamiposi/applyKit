@@ -121,7 +121,8 @@ describe('Evidence-Grounded Interview Prep & STAR Story Synthesizer', () => {
     const star = bq.starStory;
     expect(star).toBeDefined();
     expect(star?.situation).toContain('CloudStream Systems');
-    expect(star?.task).toContain('optimizing and architecting');
+    expect(star?.task).toBe('Say what you were asked to deliver and why it mattered (you used Go, Kafka, Linux).');
+    expect(star?.result).not.toMatch(/measurable impact|successfully delivered/i);
     expect(star?.action).toContain('Architected Raft consensus engine');
     expect(star?.verifiedEvidenceIds).toContain(ev1.id);
   });

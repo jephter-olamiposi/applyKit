@@ -116,8 +116,9 @@ describe('Tailoring Exporters Suite', () => {
     expect(md).toContain('[LinkedIn](https://linkedin.com/in/sam)');
     expect(md).toContain('## Professional Summary');
     expect(md).toContain('Proven software architect with 8+ years');
-    expect(md).toContain('## Technical Skills');
-    expect(md).toContain('Core Competencies:** TypeScript, Node.js, Distributed Systems');
+    expect(md).toContain('## Skills');
+    expect(md).toMatch(/TypeScript, Node.js, Distributed Systems/);
+    expect(md).not.toContain('Preferred Qualifications');
     expect(md).toContain('## Professional Experience');
     expect(md).toContain('### Principal Engineer | CloudVentures');
     expect(md).toContain('- Scaled core ingestion service to 20M events per second.');
@@ -132,7 +133,7 @@ describe('Tailoring Exporters Suite', () => {
 
     expect(txt).toContain('SAM ALTMAN');
     expect(txt).toContain('PROFESSIONAL SUMMARY');
-    expect(txt).toContain('TECHNICAL SKILLS');
+    expect(txt).toContain('SKILLS');
     expect(txt).toContain('PROFESSIONAL EXPERIENCE');
     expect(txt).toContain('NOTABLE PROJECTS');
     expect(txt).toContain('EDUCATION');

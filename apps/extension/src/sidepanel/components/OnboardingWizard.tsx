@@ -143,8 +143,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [addressLine1, setAddressLine1] = useState('');
   const [postalCode, setPostalCode] = useState('');
 
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [requiresSponsorship, setRequiresSponsorship] = useState(false);
+  // '' = not answered. Unanswered questions are left for the candidate on every form.
+  const [isAuthorized, setIsAuthorized] = useState<'yes' | 'no' | ''>('');
+  const [requiresSponsorship, setRequiresSponsorship] = useState<'yes' | 'no' | ''>('');
   const [visaStatus, setVisaStatus] = useState('');
 
   const [targetSalaryMin, setTargetSalaryMin] = useState<number | string>('');
@@ -164,6 +165,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
   // Execution & Status State
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isCheckingKey, setIsCheckingKey] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ---------------------------------------------------------------------------
@@ -176,7 +178,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const handleParseResume = async (rawOverride?: string, fileNameOverride?: string) => {
     const raw = (rawOverride ?? resumeText).trim();
     if (!raw) {
-      setErrorMsg('Please upload a resume file or paste your resume text first.');
+      setErrorMsg('Add your resume file or paste the text first.');
       return;
     }
 
@@ -252,7 +254,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       }
 
     } catch (err) {
-      setErrorMsg('Resume parsing notice: ' + (err instanceof Error ? err.message : String(err)));
+      setErrorMsg('Could not read the resume: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsParsing(false);
     }
@@ -312,7 +314,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         });
 
         if (!res?.success) {
-          throw new Error(res?.error || 'Resume evidence indexing failed.');
+          throw new Error(res?.error || 'the file could not be read.');
         }
         setIngestStats({
           evidenceCount: bootstrapped.evidence.length,
@@ -327,7 +329,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         }
       }
     } catch (err) {
-      setErrorMsg('Resume parsing notice: ' + (err instanceof Error ? err.message : String(err)));
+      setErrorMsg('Could not read the resume: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsParsing(false);
     }
@@ -369,7 +371,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const handleStep2Next = (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
-      setErrorMsg('Please provide your first name, last name, and contact email.');
+      setErrorMsg('Add your first name, last name and email.');
       return;
     }
     setErrorMsg(null);
@@ -384,7 +386,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setErrorMsg(null);
     if (!skipApiKey && apiKey.trim().length > 0) {
       try {
-        await sendToBackground<
+        // The service worker checks the key with the provider before saving it, so a
+        // mistyped key is caught here rather than on the first draft.
+        setIsCheckingKey(true);
+        const res = await sendToBackground<
           { type: 'SET_API_KEY'; provider: AIProviderName; apiKey: string },
           SetApiKeyResponse
         >({
@@ -392,8 +397,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           provider: selectedProvider,
           apiKey: apiKey.trim(),
         });
+        setIsCheckingKey(false);
+        if (!res.success) {
+          setErrorMsg(`${res.error || 'That key did not work.'} You can also skip this and add a key later in Settings.`);
+          return;
+        }
       } catch (err) {
-        setErrorMsg('Failed to save API key: ' + (err instanceof Error ? err.message : String(err)));
+        setIsCheckingKey(false);
+        setErrorMsg('Could not save the key: ' + (err instanceof Error ? err.message : String(err)));
         return;
       }
     }
@@ -467,8 +478,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             postalCode: postalCode.trim() || undefined,
           },
           workAuthorization: {
-            isAuthorizedInCountry: isAuthorized,
-            requiresSponsorship,
+            isAuthorizedInCountry: isAuthorized === 'yes',
+            requiresSponsorship: requiresSponsorship === 'yes',
+            confirmedByCandidate: isAuthorized !== '' && requiresSponsorship !== '',
             visaStatus: visaStatus.trim() || undefined,
             authorizedCountries: country.trim() ? [country.trim()] : [],
           },
@@ -507,7 +519,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       });
 
       if (!res.success) {
-        throw new Error(res.error || 'Failed to save candidate profile aggregate.');
+        throw new Error(res.error || 'your profile could not be saved.');
       }
 
       // Mark onboarding completed in Chrome local storage
@@ -517,7 +529,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
       onComplete();
     } catch (err) {
-      setErrorMsg('Onboarding error: ' + (err instanceof Error ? err.message : String(err)));
+      setErrorMsg('Something went wrong: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSubmitting(false);
     }
@@ -528,12 +540,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {/* Header Banner */}
       <div className="onboarding-header">
         <div className="onboarding-brand">
-          <div className="onboarding-logo-icon" aria-hidden="true">A</div>
           <div>
-            <h2 className="onboarding-title">Welcome to ApplyKit</h2>
-            <p className="onboarding-tagline">
-              Local-first &bull; Evidence-backed &bull; Candidate controlled
-            </p>
+            <h2 className="onboarding-title">Set up ApplyKit</h2>
+            <p className="onboarding-tagline">Takes about two minutes. Everything stays in this browser.</p>
           </div>
         </div>
         {onCancel && (
@@ -552,21 +561,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 2 ? 'step-active' : ''} ${currentStep > 2 ? 'step-done' : ''}`}>
           <div className="step-circle">2</div>
-          <span className="step-label">Profile</span>
+          <span className="step-label">Details</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 3 ? 'step-active' : ''} ${currentStep > 3 ? 'step-done' : ''}`}>
           <div className="step-circle">3</div>
-          <span className="step-label">Provider</span>
+          <span className="step-label">AI (optional)</span>
         </div>
         <div className="step-divider" />
         <div className={`step-item ${currentStep >= 4 ? 'step-active' : ''}`}>
           <div className="step-circle">4</div>
-          <span className="step-label">Ready</span>
+          <span className="step-label">Done</span>
         </div>
       </div>
 
-      {errorMsg && <div className="onboarding-error-alert" role="alert">{errorMsg}</div>}
+      {/* Step 3 shows its key error under the key field instead. */}
+      {errorMsg && currentStep !== 3 && <div className="onboarding-error-alert" role="alert">{errorMsg}</div>}
 
       {/* =========================================================================
           STEP 1: Resume Upload & Fast Decomposition (Hero Step)
@@ -575,9 +585,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         <div className="onboarding-step-content">
           <div className="step-heading-row">
             <div>
-              <h3 className="step-title">Upload or paste your resume</h3>
+              <h3 className="step-title">Start with your resume</h3>
               <p className="step-desc">
-                ApplyKit grounds everything in your verified experience. Upload or paste your CV to extract your contact details, work history, skills, and links in seconds.
+                ApplyKit only ever uses what's in your resume, so this is the one thing it needs. Drop the file in or paste the text.
               </p>
             </div>
             <button
@@ -587,7 +597,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={handleSampleResume}
               disabled={isParsing}
             >
-              Use sample resume
+              Try a sample resume
             </button>
           </div>
 
@@ -609,12 +619,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               style={{ display: 'none' }}
               onChange={handleFileUpload}
             />
-            <div className="resume-dropzone-icon" aria-hidden="true">PDF</div>
+            
             <p className="resume-dropzone-title">
-              {resumeFileName ? `Selected: ${resumeFileName}` : 'Drop your resume file here, or click to browse'}
+              {resumeFileName ? resumeFileName : 'Drop your resume here, or click to choose a file'}
             </p>
             <p className="resume-dropzone-sub">
-              Supports .pdf or .docx resumes, plus .png, .jpg, .txt, .md, or .json CVs (local extraction)
+              PDF, Word, image or text. It's read on your computer, not uploaded.
             </p>
           </div>
 
@@ -622,10 +632,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           <div className="form-group" style={{ marginTop: '4px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label className="form-label" htmlFor="resume-textarea" style={{ margin: 0 }}>
-                Or Paste Plain Text Resume Below
+                Or paste the text
               </label>
               {resumeText.trim() && (
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
                   {resumeText.trim().split(/\s+/).length} words
                 </span>
               )}
@@ -634,7 +644,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               id="resume-textarea"
               className="form-textarea"
               rows={7}
-              placeholder="Paste plain text resume, work experience bullets, or achievements here..."
+              placeholder="Or paste your resume text here"
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
             />
@@ -655,7 +665,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={handleSkipToManual}
               disabled={isParsing}
             >
-              Manual profile entry
+              Type my details instead
             </button>
             <button
               type="button"
@@ -664,7 +674,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={() => handleParseResume()}
               disabled={isParsing || !resumeText.trim()}
             >
-              {isParsing ? 'Extracting resume...' : 'Continue to profile review'}
+              {isParsing ? 'Reading your resume...' : 'Continue'}
             </button>
           </div>
         </div>
@@ -677,21 +687,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         <div className="onboarding-step-content">
           <div className="step-heading-row">
             <div>
-              <h3 className="step-title">Review your profile</h3>
+              <h3 className="step-title">Check your details</h3>
               <p className="step-desc">
-                We pre-filled these details from your resume. Review and fill any missing information to guarantee 100% accurate autofill.
+                Filled in from your resume. Fix anything that's off; these go straight into application forms.
               </p>
             </div>
           </div>
 
           {ingestStats && (
             <div className="ingest-stats-pill" style={{ margin: '0 0 4px 0' }}>
-              Resume decomposed into {ingestStats.evidenceCount} evidence items and {ingestStats.claimsCount} verified claims.
+              Read {ingestStats.evidenceCount} lines from your resume.
             </div>
           )}
           {reviewWarnings.length > 0 && (
             <div className="resume-review-warning" role="status">
-              <strong>Review before saving:</strong>
+              <strong>Please check:</strong>
               <ul>
                 {reviewWarnings.map((warning) => <li key={warning}>{warning}</li>)}
               </ul>
@@ -702,7 +712,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             {/* Identity Group */}
             <div className="form-row-grid">
               <div className="form-group">
-                <label className="form-label" htmlFor="first-name">Legal First Name *</label>
+                <label className="form-label" htmlFor="first-name">First name *</label>
                 <input
                   id="first-name"
                   type="text"
@@ -714,7 +724,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="last-name">Legal Last Name *</label>
+                <label className="form-label" htmlFor="last-name">Last name *</label>
                 <input
                   id="last-name"
                   type="text"
@@ -729,7 +739,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
             <div className="form-row-grid">
               <div className="form-group">
-                <label className="form-label" htmlFor="email">Email Address *</label>
+                <label className="form-label" htmlFor="email">Email *</label>
                 <input
                   id="email"
                   type="email"
@@ -741,12 +751,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="phone">Phone Number (with Country Code)</label>
+                <label className="form-label" htmlFor="phone">Phone, with country code</label>
                 <input
                   id="phone"
                   type="tel"
                   className="form-input"
-                  placeholder="+1 (555) 019-2834"
+                  placeholder="Include the country code, e.g. +234"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                 />
@@ -754,7 +764,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="headline">Professional Headline / Current Role</label>
+              <label className="form-label" htmlFor="headline">Current role</label>
               <input
                 id="headline"
                 type="text"
@@ -785,7 +795,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 </datalist>
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="state-province">State / Province</label>
+                <label className="form-label" htmlFor="state-province">State or region</label>
                 <input
                   id="state-province"
                   type="text"
@@ -810,7 +820,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="postal-code">Postal / Zip Code</label>
+                <label className="form-label" htmlFor="postal-code">Postcode</label>
                 <input
                   id="postal-code"
                   type="text"
@@ -823,7 +833,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="street-address">Street Address (Optional)</label>
+              <label className="form-label" htmlFor="street-address">Street address (optional)</label>
               <input
                 id="street-address"
                 type="text"
@@ -836,27 +846,33 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
             {/* Work Authorization Card */}
             <div className="work-auth-card" style={{ marginTop: '4px' }}>
-              <h4 className="work-auth-title">Work authorization</h4>
-              <label className="checkbox-row">
-                <input
-                  id="work-auth-checkbox"
-                  type="checkbox"
-                  checked={isAuthorized}
-                  onChange={(e) => setIsAuthorized(e.target.checked)}
-                />
-                <span>Legally authorized to work in resident country</span>
+              <h4 className="work-auth-title">Work permit</h4>
+              <p className="ui-subtle" style={{ marginBottom: 8 }}>
+                Leave these as “Not answered” and ApplyKit will skip them on forms so you answer them yourself.
+              </p>
+              <label className="form-group">
+                <span className="form-label">Can you legally work in the country you live in?</span>
+                <select id="work-auth-select" className="ui-select" value={isAuthorized} onChange={(e) => setIsAuthorized(e.target.value as 'yes' | 'no' | '')}>
+                  <option value="">Not answered</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
               </label>
-              <label className="checkbox-row">
-                <input
-                  id="sponsor-checkbox"
-                  type="checkbox"
-                  checked={requiresSponsorship}
-                  onChange={(e) => setRequiresSponsorship(e.target.checked)}
-                />
-                <span>Requires employer visa sponsorship now or in the future</span>
+              <label className="form-group">
+                <span className="form-label">Will you need visa sponsorship, now or later?</span>
+                <select
+                  id="sponsor-select"
+                  className="ui-select"
+                  value={requiresSponsorship}
+                  onChange={(e) => setRequiresSponsorship(e.target.value as 'yes' | 'no' | '')}
+                >
+                  <option value="">Not answered</option>
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
               </label>
               <div className="form-group" style={{ marginTop: '8px' }}>
-                <label className="form-label" htmlFor="visa-status">Visa Classification / Status (Optional)</label>
+                <label className="form-label" htmlFor="visa-status">Visa or citizenship status (optional)</label>
                 <input
                   id="visa-status"
                   type="text"
@@ -871,7 +887,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             {/* Compensation & Availability */}
             <div className="form-row-grid">
               <div className="form-group">
-                <label className="form-label" htmlFor="target-salary">Target Minimum Salary (Annual)</label>
+                <label className="form-label" htmlFor="target-salary">Lowest yearly salary you would accept</label>
                 <input
                   id="target-salary"
                   type="number"
@@ -902,18 +918,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
             <div className="form-row-grid">
               <div className="form-group">
-                <label className="form-label" htmlFor="notice-days">Notice Period (Days)</label>
+                <label className="form-label" htmlFor="notice-days">Notice period in days</label>
                 <input
                   id="notice-days"
                   type="number"
                   className="form-input"
-                  placeholder="e.g. 14 (0 for immediate)"
+                  placeholder="0 if you can start now"
                   value={noticePeriodDays}
                   onChange={(e) => setNoticePeriodDays(e.target.value)}
                 />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="earliest-start">Earliest Start Date</label>
+                <label className="form-label" htmlFor="earliest-start">Earliest start</label>
                 <input
                   id="earliest-start"
                   type="text"
@@ -927,7 +943,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
             {/* Web Links */}
             <div className="form-group">
-              <label className="form-label" htmlFor="linkedin-url">LinkedIn Profile URL</label>
+              <label className="form-label" htmlFor="linkedin-url">LinkedIn</label>
               <input
                 id="linkedin-url"
                 type="url"
@@ -940,7 +956,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
             <div className="form-row-grid">
               <div className="form-group">
-                <label className="form-label" htmlFor="github-url">GitHub Profile URL</label>
+                <label className="form-label" htmlFor="github-url">GitHub</label>
                 <input
                   id="github-url"
                   type="url"
@@ -951,7 +967,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="portfolio-url">Portfolio / Blog URL</label>
+                <label className="form-label" htmlFor="portfolio-url">Website</label>
                 <input
                   id="portfolio-url"
                   type="url"
@@ -969,10 +985,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 className="btn-secondary"
                 onClick={() => setCurrentStep(1)}
               >
-                Back to resume
+                Back
               </button>
               <button type="submit" className="btn-primary">
-                Continue to AI setup
+                Continue
               </button>
             </div>
           </form>
@@ -984,19 +1000,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           ========================================================================= */}
       {currentStep === 3 && (
         <div className="onboarding-step-content">
-          <h3 className="step-title">Provider key configuration</h3>
+          <h3 className="step-title">Add an AI key (optional)</h3>
           <p className="step-desc">
-            ApplyKit keeps your API keys strictly isolated inside the Extension Service Worker (ADR-0002). Webpages and scripts have zero access.
+            Everything works without one. A key lets ApplyKit draft answers to open questions on forms. It's stored encrypted in this browser and web pages can't read it.
           </p>
 
           {/* Gemini setup callout */}
           <div className="free-gemini-box">
             <div className="free-gemini-header">
-              <span className="free-gemini-icon" aria-hidden="true"></span>
               <div>
-                <h4 className="free-gemini-title">Recommended: Google Gemini (free tier)</h4>
+                <h4 className="free-gemini-title">Easiest: a free Google Gemini key</h4>
                 <p className="free-gemini-desc">
-                  Google AI Studio offers a free tier (15 requests/minute) with zero credit card required.
+                  Google AI Studio gives free keys, no card needed.
                 </p>
               </div>
             </div>
@@ -1011,7 +1026,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           </div>
 
           <div className="form-group" style={{ marginTop: '12px' }}>
-            <label className="form-label" htmlFor="onboarding-provider-select">Select AI Provider</label>
+            <label className="form-label" htmlFor="onboarding-provider-select">Provider</label>
             <select
               id="onboarding-provider-select"
               className="form-select"
@@ -1019,16 +1034,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onChange={(e) => setSelectedProvider(e.target.value as AIProviderName)}
               disabled={skipApiKey}
             >
-              <option value="gemini">Google Gemini (Recommended & Free)</option>
-              <option value="openai">OpenAI (GPT-4o, GPT-4o-mini)</option>
-              <option value="anthropic">Anthropic (Claude 3.5 Sonnet)</option>
-              <option value="openrouter">OpenRouter (Unified Multi-Model)</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic Claude</option>
+              <option value="openrouter">OpenRouter</option>
             </select>
           </div>
 
           <div className="form-group">
             <div className="label-with-toggle">
-              <label className="form-label" htmlFor="onboarding-api-key">API Key</label>
+              <label className="form-label" htmlFor="onboarding-api-key">API key</label>
               <button
                 type="button"
                 className="btn-toggle-mask"
@@ -1042,11 +1057,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               id="onboarding-api-key"
               type={showApiKey ? 'text' : 'password'}
               className="form-input"
-              placeholder={skipApiKey ? 'Skipped for now' : 'Paste API Key (e.g. AIzaSy... or sk-...)'}
+              placeholder={skipApiKey ? 'Skipped' : 'Paste your key'}
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                if (errorMsg) setErrorMsg(null);
+              }}
               disabled={skipApiKey}
+              aria-invalid={Boolean(errorMsg)}
+              aria-describedby={errorMsg ? 'onboarding-key-error' : undefined}
             />
+            {errorMsg && (
+              <p id="onboarding-key-error" className="key-field-error" role="alert">
+                {errorMsg}
+              </p>
+            )}
           </div>
 
           {/* Local Rules Only / Skip Checkbox */}
@@ -1057,7 +1082,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 checked={skipApiKey}
                 onChange={(e) => setSkipApiKey(e.target.checked)}
               />
-              <span>Skip for now (I will configure my API key later in Settings)</span>
+              <span>Skip this. I can add a key later in Settings.</span>
             </label>
           </div>
 
@@ -1073,8 +1098,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               type="button"
               className="btn-primary"
               onClick={handleStep3Next}
+              disabled={isCheckingKey}
             >
-              Review and complete
+              {isCheckingKey ? 'Checking your key...' : 'Review and complete'}
             </button>
           </div>
         </div>
@@ -1086,16 +1112,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {currentStep === 4 && (
         <div className="onboarding-step-content">
           <div className="celebration-box">
-            <h3 className="celebration-title">You're All Set!</h3>
+            <h3 className="celebration-title">You're set up</h3>
             <p className="celebration-subtitle">
-              ApplyKit is configured and ready to assist with your real job applications.
+              Here's what ApplyKit will use. You can change any of it in Profile.
             </p>
           </div>
 
           <div className="summary-checklist">
             <div className="checklist-item">
               <div>
-                <strong>Candidate Identity:</strong> {firstName} {lastName} ({email})
+                <strong>You:</strong> {firstName} {lastName} ({email})
               </div>
             </div>
             {city && (
@@ -1107,33 +1133,30 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             )}
             <div className="checklist-item">
               <div>
-                <strong>Work Authorization:</strong> {isAuthorized ? 'Authorized in resident country' : 'Not confirmed'}{requiresSponsorship ? ' (Sponsorship required)' : ''}
+                <strong>Work permit:</strong>{' '}
+                {isAuthorized === '' || requiresSponsorship === ''
+                  ? 'Not answered. You can answer later in Profile.'
+                  : `${isAuthorized === 'yes' ? 'Can work where you live' : 'Cannot work where you live'}, ${requiresSponsorship === 'yes' ? 'needs sponsorship' : 'no sponsorship needed'}`}
               </div>
             </div>
             <div className="checklist-item">
               <div>
-                <strong>Master Resume & Evidence:</strong> {ingestStats ? `${ingestStats.evidenceCount} verified evidence items & ${ingestStats.claimsCount} claims` : (resumeText ? 'Master resume loaded' : 'Clean profile aggregate')}
+                <strong>Resume:</strong> {ingestStats ? `${ingestStats.evidenceCount} lines read` : resumeText ? 'Added' : 'Not added yet'}
               </div>
             </div>
             <div className="checklist-item">
               <div>
-                <strong>AI Provider:</strong> {skipApiKey || !apiKey ? 'Offline / Local rules mode' : `${selectedProvider.toUpperCase()} configured`}
-              </div>
-            </div>
-            <div className="checklist-item">
-              <div>
-                <strong>Submission Hard Gate:</strong> Programmatically enabled (Zero autonomous submit hazard)
+                <strong>AI:</strong> {skipApiKey || !apiKey ? 'Not set up (everything else still works)' : 'Key saved'}
               </div>
             </div>
           </div>
 
           <div className="quick-tip-card">
-            <h4>How to use ApplyKit</h4>
+            <h4>How it works</h4>
             <ol>
-              <li>Navigate to any job posting on Greenhouse, Workday, Lever, or Ashby.</li>
-              <li>Click <strong>Extract Job</strong> in the Side Panel to parse requirements.</li>
-              <li>Inspect <strong>Match & Gap Analysis</strong> to review evidence fit.</li>
-              <li>Click <strong>Form Inspector</strong> to generate a safe, human-reviewed dry-run plan.</li>
+              <li>Open a job posting and press <strong>Read the job on this page</strong>.</li>
+              <li>See how you fit, then get a resume tailored to it.</li>
+              <li>On the application form, press <strong>Fill the form</strong>. You always press Submit yourself.</li>
             </ol>
           </div>
 
@@ -1152,7 +1175,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               onClick={handleFinishOnboarding}
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Saving setup...' : 'Open workspace'}
+              {isSubmitting ? 'Saving...' : 'Open workspace'}
             </button>
           </div>
         </div>

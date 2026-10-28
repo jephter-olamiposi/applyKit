@@ -11,11 +11,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   detectAtsPlatform,
   generateElementSelector,
-  extractElementLabel,
-  isElementRequired,
-  extractNativeSelectOptions,
   isSubmitElement,
-  crawlFormContainer,
   inspectPageForms,
 } from '../content/form-crawler.js';
 

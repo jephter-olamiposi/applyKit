@@ -60,7 +60,7 @@ describe('Tether-style posting extraction', () => {
     expect(posting.companyName).toContain('Example');
     expect(posting.workplaceType).toBe('remote');
     // Array jobLocation must produce a combined location string
-    expect(posting.location).toBe('London, England, GB; New York, NY, US');
+    expect(posting.location).toBe('London, England, GB; New York, NY, US; Remote');
     // Standalone-<p> requirements ("Proven experience...", "Past contributions...")
     const rawTexts = posting.requirements.map((r) => r.rawText);
     expect(rawTexts.some((t) => t.includes('Proven experience in Node.js'))).toBe(true);

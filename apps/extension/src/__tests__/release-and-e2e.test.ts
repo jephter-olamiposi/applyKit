@@ -35,7 +35,6 @@ import {
   type JobPosting,
   type Evidence,
   type ApplicationForm,
-  type ApplicationField,
   type ExecutionOptions,
 } from '@applykit/domain';
 import {
@@ -61,7 +60,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const EXTENSION_ROOT = path.resolve(__dirname, '..', '..');
 const ROOT_DIR = path.resolve(EXTENSION_ROOT, '..', '..');
-const DIST_DIR = path.join(EXTENSION_ROOT, 'dist');
 const RELEASE_DIR = path.join(ROOT_DIR, 'dist-release');
 
 describe('Release Readiness, Packaging & End-to-End Suite', () => {

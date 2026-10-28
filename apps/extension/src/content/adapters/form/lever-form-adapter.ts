@@ -40,12 +40,14 @@ export class LeverFormAdapter implements AtsFormAdapter {
 
   matches(url: URL, doc: Document): boolean {
     const host = url.hostname.toLowerCase();
-    if (host.includes('jobs.lever.co') || host.includes('lever.co')) {
+    if (host === 'lever.co' || host.endsWith('.lever.co')) {
       return true;
     }
 
+    // Generic ids such as form#application-form are used by many custom career sites, so
+    // only Lever-specific markers count. A wrong vendor label sends the wrong field rules.
     return Boolean(
-      doc.querySelector('.lever-form, form#application-form, [data-qa="lever-application"], .application-page')
+      doc.querySelector('.lever-form, [data-qa="lever-application"], form[action*="lever.co"], [src*="lever.co"]')
     );
   }
 

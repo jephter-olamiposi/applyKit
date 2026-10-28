@@ -73,6 +73,8 @@ export interface ApplicationForm {
   readonly authBarrier?: AuthBarrierInfo;
   readonly stepProgression?: StepProgressionInfo;
   readonly validationErrors?: readonly AtsValidationMessage[];
+  /** The page's title, used to tell which saved job the form belongs to. */
+  readonly pageTitle?: string;
   readonly inspectedAt: string;
 }
 

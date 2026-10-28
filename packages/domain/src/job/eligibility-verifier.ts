@@ -9,6 +9,7 @@
 
 import type { JobPosting } from './job-posting.js';
 import type { CandidateProfile } from '../candidate/profile.js';
+import { canonicalCountry, describePlaces, findPlaces, isEmptyPlaceSet, placesInclude, type PlaceSet } from './geo-regions.js';
 
 /**
  * High-level verdict determining whether the candidate can legally and practically hold the role.
@@ -61,100 +62,117 @@ function extractSentences(text?: string): string[] {
     .filter((s) => s.length > 5);
 }
 
+/** Relocation or visa help that turns a country mismatch into "check first". */
+const RELOCATION_OFFER = /\b(?:help\s+(?:you\s+)?relocat\w*|relocation\s+(?:support|assistance|package)|we\s+(?:can|will|do)\s+sponsor|sponsor\s+visas?|visa\s+sponsorship\s+(?:is\s+)?(?:available|offered|provided))\b/i;
+const RELOCATION_DENIAL = /\b(?:(?:unable|not\s+able)\s+to\s+(?:offer\s+)?(?:sponsor|relocat)|(?:cannot|can't|do\s+not|don't|will\s+not|won't)\s+(?:offer\s+)?(?:sponsor|relocat)|no\s+(?:visa\s+)?sponsorship|without\s+(?:visa\s+)?sponsorship|not\s+(?:offer|provide)\w*\s+(?:visa\s+)?sponsorship)\b/i;
+
+/** Description phrases that bind a job to the places named right after them. */
+const STRICT_PLACE_RULE = /\b(?:must\s+(?:be\s+)?(?:based|located|living|reside|live)\s+in|open\s+only\s+to\s+(?:residents|candidates)\s+(?:of|in)|restricted\s+to\s+(?:residents|candidates)\s+(?:of|in)|(?:only\s+)?(?:hire|hiring)\s+(?:only\s+)?in\s+the\s+following|remote\s+(?:only\s+)?(?:within|in)|(?:distributed\s+)?working\s+within|apply\s+only\s+if\s+you\s+are\s+(?:located|based)\s+in)\b([^.!?\n]*)/i;
+const ONLY_RULE = /\b([A-Za-z. ]{2,40}?)\s+only\b/;
+const ANYWHERE_RULE = /\b(?:work\s+from\s+anywhere(?!\s+\d)|anywhere\s+in\s+the\s+world|hir(?:e|ing)\s+(?:globally|worldwide|anywhere)|remote[-\s,(]+(?:global|worldwide|anywhere))\b/i;
+const LOOSE_PLACE_RULE = /\b(?:based|located)\s+in\b([^.!?\n]*)/i;
+
 /**
  * Evaluates Gate 1: Geography.
- * Checks for explicit country, state, or regional residence restrictions.
+ *
+ * Reads the places a posting is open to from its location field ("Remote (UK)",
+ * "Remote within Canada or United States", "San Francisco, CA") and from sentences that
+ * state a location rule, then checks the candidate's country against them. A place the
+ * resolver does not know is ignored, so unfamiliar wording never blocks anyone.
  */
 function checkGeographyGate(job: JobPosting, profile: CandidateProfile): GateCheckResult {
-  const candidateCountry = profile.identity.location?.country?.trim().toLowerCase() || '';
-  const candidateCity = profile.identity.location?.city?.trim().toLowerCase() || '';
-  const text = `${job.location} ${job.rawDescription}`;
-  const sentences = extractSentences(text);
+  const candidateCountryRaw = profile.identity.location?.country?.trim() || '';
+  const candidateCountry = canonicalCountry(candidateCountryRaw);
+  const sentences = extractSentences(job.rawDescription);
+  const relocationSentence = sentences.find((sentence) => RELOCATION_OFFER.test(sentence) && !RELOCATION_DENIAL.test(sentence));
 
-  // Common geographic gating regexes
-  const strictLocationRegexes = [
-    /\b(?:must\s+be\s+based\s+in|must\s+reside\s+in|open\s+only\s+to\s+residents\s+of|please\s+apply\s+only\s+if\s+you\s+are\s+located\s+in|hire\s+in\s+the\s+following\s+countries|restricted\s+to\s+residents\s+of)\b\s*[:\-]?\s*([^.!?\n]+)/i,
-    /\b(?:us\s+or\s+canada\s+only|us\s+only|uk\s+only|eu\s+only|north\s+america\s+only)\b/i,
-  ];
+  // "Work from anywhere 4 weeks a year" is a perk for office-country staff, not a remote policy.
+  const perkTrap = sentences.find((sentence) => /work\s+from\s+anywhere\s+\d+\s+(?:days|weeks|months)/i.test(sentence));
+
+  const restrictions: { quote: string; places: PlaceSet; strict: boolean }[] = [];
+  const locationPlaces = findPlaces(job.location || '');
+  if (!isEmptyPlaceSet(locationPlaces)) restrictions.push({ quote: job.location, places: locationPlaces, strict: true });
 
   for (const sentence of sentences) {
-    for (const regex of strictLocationRegexes) {
-      if (regex.test(sentence)) {
-        const sentenceLower = sentence.toLowerCase();
-
-        // Check if candidate's country is explicitly included
-        if (candidateCountry && sentenceLower.includes(candidateCountry)) {
-          return {
-            gate: 'geography',
-            status: 'passed',
-            verbatimQuote: sentence,
-            reason: `Candidate country (${profile.identity.location?.country}) is explicitly permitted.`,
-          };
-        }
-
-        // Any explicit residency requirement excludes countries not named in the
-        // sentence; do not treat an unrecognized country as globally eligible.
-        if (regex === strictLocationRegexes[0]) {
-          return {
-            gate: 'geography',
-            status: 'blocked',
-            verbatimQuote: sentence,
-            reason: `Role requires residency in a listed location, and the candidate is based in ${profile.identity.location?.country || 'an unlisted country'}.`,
-          };
-        }
-
-        // If posting specifies US-only and candidate is not in US
-        const isUsOnly = /\b(us\s+only|united\s+states\s+only|u\.s\.\s+only)\b/i.test(sentence);
-        if (isUsOnly && candidateCountry !== 'united states' && candidateCountry !== 'usa' && candidateCountry !== 'us') {
-          return {
-            gate: 'geography',
-            status: 'blocked',
-            verbatimQuote: sentence,
-            reason: 'Role requires residency in the United States.',
-          };
-        }
-
-        // If posting specifies UK-only and candidate is not in UK
-        const isUkOnly = /\b(uk\s+only|united\s+kingdom\s+only)\b/i.test(sentence);
-        if (isUkOnly && candidateCountry !== 'united kingdom' && candidateCountry !== 'uk' && candidateCountry !== 'great britain') {
-          return {
-            gate: 'geography',
-            status: 'blocked',
-            verbatimQuote: sentence,
-            reason: 'Role requires residency in the United Kingdom.',
-          };
-        }
-
-        // If posting specifies EU-only
-        const isEuOnly = /\b(eu\s+only|european\s+union\s+only)\b/i.test(sentence);
-        if (isEuOnly) {
-          return {
-            gate: 'geography',
-            status: 'conditional',
-            verbatimQuote: sentence,
-            reason: 'Role specifies EU residency; candidate must confirm European entity eligibility.',
-          };
-        }
-      }
+    if (sentence === perkTrap) continue;
+    if (ANYWHERE_RULE.test(sentence)) {
+      restrictions.push({ quote: sentence, places: { countries: new Set(), regions: new Set(['global']) }, strict: false });
+      continue;
+    }
+    const strict = sentence.match(STRICT_PLACE_RULE);
+    const only = sentence.match(ONLY_RULE);
+    const loose = sentence.match(LOOSE_PLACE_RULE);
+    const strictPlaces = strict ? findPlaces(strict[1] ?? '') : null;
+    const onlyPlaces = only ? findPlaces(only[1] ?? '') : null;
+    if (strictPlaces && !isEmptyPlaceSet(strictPlaces)) restrictions.push({ quote: sentence, places: strictPlaces, strict: true });
+    else if (onlyPlaces && !isEmptyPlaceSet(onlyPlaces)) restrictions.push({ quote: sentence, places: onlyPlaces, strict: true });
+    else if (loose) {
+      const loosePlaces = findPlaces(loose[1] ?? '');
+      if (!isEmptyPlaceSet(loosePlaces)) restrictions.push({ quote: sentence, places: loosePlaces, strict: false });
     }
   }
 
-  // Check for eligibility trap: "Work from anywhere N days/weeks a year"
-  for (const sentence of sentences) {
-    if (/work\s+from\s+anywhere\s+\d+\s+(?:days|weeks|months)/i.test(sentence)) {
+  // An explicit "anywhere" in the posting overrides an office address in the location field.
+  const global = restrictions.find((item) => item.places.regions.has('global'));
+  if (global && !perkTrap) {
+    return { gate: 'geography', status: 'passed', verbatimQuote: global.quote, reason: 'The posting is open to candidates anywhere.' };
+  }
+
+  if (restrictions.length === 0) {
+    if (perkTrap) {
       return {
         gate: 'geography',
         status: 'conditional',
-        verbatimQuote: sentence,
-        reason: 'Perk trap detected: "Work from anywhere N days" typically applies only to existing office-country employees.',
+        verbatimQuote: perkTrap,
+        reason: '"Work from anywhere" here is a few weeks a year for existing staff, not a remote role.',
       };
     }
+    return { gate: 'geography', status: 'passed', reason: 'The posting does not limit where you can live.' };
   }
 
+  if (!candidateCountry) {
+    return {
+      gate: 'geography',
+      status: 'conditional',
+      verbatimQuote: restrictions[0]!.quote,
+      reason: `The role is limited to ${describePlaces(restrictions[0]!.places)}. Add your country in Profile so ApplyKit can check.`,
+    };
+  }
+
+  const included = restrictions.find((item) => placesInclude(item.places, candidateCountry));
+  const binding = restrictions.find((item) => item.strict && !placesInclude(item.places, candidateCountry));
+  if (included && !binding) {
+    return {
+      gate: 'geography',
+      status: perkTrap ? 'conditional' : 'passed',
+      verbatimQuote: included.quote,
+      reason: `The role is open to people in ${candidateCountry}.`,
+    };
+  }
+
+  const blocker = binding ?? restrictions[0]!;
+  const where = describePlaces(blocker.places);
+  if (relocationSentence) {
+    return {
+      gate: 'geography',
+      status: 'conditional',
+      verbatimQuote: relocationSentence,
+      reason: `The role is in ${where}, not ${candidateCountry}, but the posting offers relocation or visa help.`,
+    };
+  }
+  if (!binding) {
+    return {
+      gate: 'geography',
+      status: 'conditional',
+      verbatimQuote: blocker.quote,
+      reason: `The posting mentions ${where}. Check whether people in ${candidateCountry} can apply.`,
+    };
+  }
   return {
     gate: 'geography',
-    status: 'passed',
-    reason: 'No fatal geographic residency blockers identified in posting.',
+    status: 'blocked',
+    verbatimQuote: blocker.quote,
+    reason: `The role is only open to people in ${where}, and you are in ${candidateCountry}.`,
   };
 }
 
@@ -246,7 +264,6 @@ function checkEntityGate(job: JobPosting, _profile: CandidateProfile): GateCheck
  */
 function checkTimezoneGate(job: JobPosting, profile: CandidateProfile): GateCheckResult {
   const sentences = extractSentences(job.rawDescription);
-  const locationText = `${job.location} ${job.rawDescription}`;
 
   for (const sentence of sentences) {
     if (

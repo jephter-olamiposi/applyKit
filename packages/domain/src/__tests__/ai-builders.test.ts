@@ -5,7 +5,6 @@ import {
   buildFieldAnsweringPrompt,
   buildResumeTailoringPrompt,
   buildCoverLetterPrompt,
-  cleanJsonText,
   parseAndValidateJsonResponse,
   type JobExtractionContext,
   type RequirementMatchingContext,

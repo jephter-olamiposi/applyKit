@@ -6,16 +6,19 @@
  * with direct links to verified evidence nodes in the CandidateProfile and EvidenceGraph (ADR-0004).
  */
 
+import { evidencedStack } from './evidenced-stack.js';
+import { extractTechnologies } from '../evidence/parser.js';
 import type { JobPosting } from '../job/job-posting.js';
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { WorkExperience } from '../candidate/experience.js';
 import type { CandidateProject } from '../candidate/project.js';
 import type { EvidenceGraph } from '../evidence/evidence-graph.js';
 import type { EvidenceId } from '../types/ids.js';
-import { areCompetenciesEquivalent, normalizeCompetencyToken } from '../job/synonyms.js';
+import { areCompetenciesEquivalent, normalizeCompetencyToken, findCompetencyPhrases, getCompetencySynonyms } from '../job/synonyms.js';
+import type { Requirement } from '../job/requirement.js';
 import type { WritingStyleProfile } from '../ai/writing-style.js';
 import { applyWritingQualityPassSync } from '../ai/human-answer-pipeline.js';
-import type { CandidateSkill, SkillCategory } from '../candidate/skill.js';
+import type { SkillCategory } from '../candidate/skill.js';
 import { categorizeSkill } from '../candidate/skill.js';
 import type {
   TailoredResume,
@@ -50,6 +53,8 @@ export interface ResumeTailoringOptions {
   readonly templateId?: ResumeTemplateId;
   /** Candidate's writing style for natural human voice. */
   readonly writingStyle?: WritingStyleProfile;
+  /** End the summary with a line naming the company applied to. Defaults to true. */
+  readonly mentionCompany?: boolean;
 }
 
 /**
@@ -62,6 +67,60 @@ function textMentionsCompetency(text: string, competency: string): boolean {
     return false;
   }
   return normText.includes(normComp) || areCompetenciesEquivalent(normText, normComp);
+}
+
+/**
+ * The technologies and domains a requirement names, expanded with synonyms. A sentence
+ * such as "Experience with Kafka or another message queue" yields kafka, rabbitmq, nats,
+ * and so on, so bullets that show any of them count toward the requirement.
+ */
+function requirementTerms(req: Requirement): ReadonlySet<string> {
+  const terms = new Set<string>();
+  const phrases = findCompetencyPhrases(`${req.normalizedSkillOrCompetency} ${req.rawText}`);
+  const seeds = phrases.length > 0 ? phrases : [normalizeCompetencyToken(req.normalizedSkillOrCompetency)];
+  for (const seed of seeds) {
+    if (!seed) continue;
+    for (const synonym of getCompetencySynonyms(seed)) terms.add(synonym);
+  }
+  return terms;
+}
+
+/** Whole-word test of any term against text. */
+function mentionsAny(text: string, terms: ReadonlySet<string>): boolean {
+  const haystack = ` ${normalizeCompetencyToken(text)} `;
+  for (const term of terms) {
+    if (term && haystack.includes(` ${term} `)) return true;
+  }
+  return false;
+}
+
+/** True when a skill is one of the things a requirement asks for. */
+function skillSatisfiesRequirement(skillName: string, req: Requirement, terms: ReadonlySet<string>): boolean {
+  if (areCompetenciesEquivalent(skillName, req.normalizedSkillOrCompetency)) return true;
+  const token = normalizeCompetencyToken(skillName);
+  for (const term of terms) {
+    if (areCompetenciesEquivalent(token, term)) return true;
+  }
+  return false;
+}
+
+/** Industry wording used in the summary, keyed by the synonym cluster that detects it. */
+const DOMAIN_LABELS: ReadonlyArray<{ seed: string; label: string }> = [
+  { seed: 'fintech', label: 'payments' },
+  { seed: 'healthtech', label: 'healthcare' },
+  { seed: 'ecommerce', label: 'e-commerce' },
+];
+
+/** Joins ["a", "b", "c"] as "a, b and c". */
+function joinNatural(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/** Sorts roles newest first: current roles, then by start date. Recruiters read resumes this way. */
+function byRecency(a: { isCurrent: boolean; startDate: string }, b: { isCurrent: boolean; startDate: string }): number {
+  if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+  return (b.startDate || '').localeCompare(a.startDate || '');
 }
 
 /**
@@ -140,10 +199,19 @@ export function tailorCandidateResume(
   const matchedPreferredSet = new Set<string>();
   const matchedAllSet = new Set<string>();
 
+  const termsByRequirement = new Map(job.requirements.map((req) => [req.id, requirementTerms(req)] as const));
+  // Words from the posting's own description ("ledger", "payouts") that also describe a
+  // domain, so bullets about that kind of work rank higher even when no bullet names a
+  // listed requirement.
+  const descriptionTerms = new Set<string>();
+  for (const phrase of findCompetencyPhrases(job.rawDescription || '')) {
+    for (const synonym of getCompetencySynonyms(phrase)) descriptionTerms.add(synonym);
+  }
+
   for (const skill of profile.skills) {
     let matched = false;
     for (const req of job.requirements) {
-      if (areCompetenciesEquivalent(skill.name, req.normalizedSkillOrCompetency)) {
+      if (skillSatisfiesRequirement(skill.name, req, termsByRequirement.get(req.id) ?? new Set())) {
         matched = true;
         matchedAllSet.add(skill.name);
         if (req.importance === 'required' || req.importance === 'strongly_preferred') {
@@ -170,11 +238,11 @@ export function tailorCandidateResume(
   // Dynamically group candidate skills into standard domain buckets
   const categoryDefinitions: Array<{ label: string; matches: (cat: SkillCategory) => boolean }> = [
     { label: 'Languages', matches: (cat) => cat === 'language' },
-    { label: 'Frameworks & Runtimes', matches: (cat) => cat === 'framework' || cat === 'library' },
-    { label: 'Databases & Storage', matches: (cat) => cat === 'database' },
+    { label: 'Frameworks', matches: (cat) => cat === 'framework' || cat === 'library' },
+    { label: 'Databases', matches: (cat) => cat === 'database' },
     { label: 'Cloud & DevOps', matches: (cat) => cat === 'cloud_infrastructure' || cat === 'devops_tool' },
-    { label: 'Architecture & Systems', matches: (cat) => cat === 'architecture_pattern' },
-    { label: 'Core Competencies', matches: (cat) => cat === 'domain_expertise' || cat === 'testing_qa' || cat === 'methodology' || cat === 'soft_skill' },
+    { label: 'Systems & APIs', matches: (cat) => cat === 'architecture_pattern' },
+    { label: 'Other', matches: (cat) => cat === 'domain_expertise' || cat === 'testing_qa' || cat === 'methodology' || cat === 'soft_skill' },
   ];
 
   const domainCategories: TailoredSkillCategory[] = [];
@@ -206,10 +274,12 @@ export function tailorCandidateResume(
 
   const unallocated = profile.skills.filter((s) => !allocatedSkillNames.has(s.name)).map((s) => s.name);
   if (unallocated.length > 0) {
-    domainCategories.push({
-      category: 'Additional Proficiencies',
-      skills: unallocated,
-    });
+    const other = domainCategories.find((c) => c.category === 'Other');
+    if (other) {
+      domainCategories[domainCategories.indexOf(other)] = { category: 'Other', skills: [...other.skills, ...unallocated] };
+    } else {
+      domainCategories.push({ category: 'Other', skills: unallocated });
+    }
   }
 
   const tailoredSkills: TailoredSkillsGroup = {
@@ -235,10 +305,14 @@ export function tailorCandidateResume(
       let bulletScore = 0;
 
       for (const req of job.requirements) {
-        if (textMentionsCompetency(bullet, req.normalizedSkillOrCompetency)) {
+        const terms = termsByRequirement.get(req.id) ?? new Set<string>();
+        if (textMentionsCompetency(bullet, req.normalizedSkillOrCompetency) || mentionsAny(bullet, terms)) {
           matchedReqs.push(req.normalizedSkillOrCompetency);
           bulletScore += req.importance === 'required' || req.importance === 'strongly_preferred' ? 10 : 5;
         }
+      }
+      if (mentionsAny(bullet, descriptionTerms)) {
+        bulletScore += 6;
       }
 
       // Boost bullets with quantified metrics (+8 points for proven impact)
@@ -270,7 +344,7 @@ export function tailorCandidateResume(
     // Match technologies used
     for (const tech of exp.technologiesUsed) {
       for (const req of job.requirements) {
-        if (areCompetenciesEquivalent(tech, req.normalizedSkillOrCompetency)) {
+        if (skillSatisfiesRequirement(tech, req, termsByRequirement.get(req.id) ?? new Set())) {
           expScore += req.importance === 'required' || req.importance === 'strongly_preferred' ? 8 : 4;
           break;
         }
@@ -296,15 +370,17 @@ export function tailorCandidateResume(
     });
   }
 
-  // Sort experiences descending by relevanceScore, then chronological start date
-  tailoredExperiences.sort((a, b) => {
-    if (b.relevanceScore !== a.relevanceScore) {
-      return b.relevanceScore - a.relevanceScore;
-    }
-    return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
-  });
-
-  const finalExperiences = tailoredExperiences.slice(0, maxExperiences);
+  // Roles stay newest first. Reordering jobs by relevance makes a resume look like it is
+  // hiding something; relevance is expressed by which bullets lead each role instead.
+  // When space is limited, the least relevant older roles are the ones dropped.
+  tailoredExperiences.sort(byRecency);
+  const keptIds = new Set(
+    [...tailoredExperiences]
+      .sort((a, b) => b.relevanceScore - a.relevanceScore || byRecency(a, b))
+      .slice(0, maxExperiences)
+      .map((exp) => exp.experienceId)
+  );
+  const finalExperiences = tailoredExperiences.filter((exp) => keptIds.has(exp.experienceId));
 
   // Rank and filter candidate projects based on requirement overlap
   const tailoredProjects: TailoredProject[] = [];
@@ -321,7 +397,8 @@ export function tailorCandidateResume(
       let bulletScore = 0;
 
       for (const req of job.requirements) {
-        if (textMentionsCompetency(bullet, req.normalizedSkillOrCompetency)) {
+        const terms = termsByRequirement.get(req.id) ?? new Set<string>();
+        if (textMentionsCompetency(bullet, req.normalizedSkillOrCompetency) || mentionsAny(bullet, terms)) {
           matchedReqs.push(req.normalizedSkillOrCompetency);
           bulletScore += req.importance === 'required' || req.importance === 'strongly_preferred' ? 10 : 5;
         }
@@ -342,9 +419,10 @@ export function tailorCandidateResume(
       projScore += bulletScore;
     }
 
+    if (mentionsAny(`${proj.title} ${proj.description}`, descriptionTerms)) projScore += 4;
     for (const tech of proj.technologiesUsed) {
       for (const req of job.requirements) {
-        if (areCompetenciesEquivalent(tech, req.normalizedSkillOrCompetency)) {
+        if (skillSatisfiesRequirement(tech, req, termsByRequirement.get(req.id) ?? new Set())) {
           projScore += req.importance === 'required' || req.importance === 'strongly_preferred' ? 8 : 4;
           break;
         }
@@ -371,61 +449,17 @@ export function tailorCandidateResume(
   tailoredProjects.sort((a, b) => b.relevanceScore - a.relevanceScore);
   const finalProjects = tailoredProjects.slice(0, maxProjects);
 
-  // Synthesize an evidence-grounded professional summary.
-  // Written as plain resume prose: role, honest tenure, one real result, core stack.
-  // No self-praise, no company flattery, and no internal terms such as "verified".
-  const candidateTitle = profile.professional.currentTitle || profile.professional.headline || job.title;
-  const computedYears = calculateVerifiedExperienceYears(profile.experiences);
-  const declaredYears = profile.professional.totalYearsOfExperience ?? 0;
-  const verifiedYears = Math.max(computedYears, declaredYears);
-  const topSkills = tailoredSkills.matchedRequired.length > 0
-    ? tailoredSkills.matchedRequired.slice(0, 4).join(', ')
-    : profile.skills.slice(0, 4).map((s) => s.name).join(', ');
+  const tailoredSummary = composeSummary(profile, tailoredSkills, finalExperiences, job, options?.mentionCompany ?? true);
 
-  // Find the top quantified accomplishment bullet from experiences or projects
-  let topAccomplishment = '';
-  for (const exp of finalExperiences) {
-    for (const h of exp.rankedHighlights) {
-      if (/\b(\d+[%kKmMbB]?|\$\d+|\d+\+)\b/.test(h.text)) {
-        topAccomplishment = h.text.replace(/\.$/, '');
-        break;
-      }
-    }
-    if (topAccomplishment) break;
-  }
-
-  if (!topAccomplishment && finalExperiences[0]?.rankedHighlights[0]) {
-    topAccomplishment = finalExperiences[0].rankedHighlights[0].text.replace(/\.$/, '');
-  }
-
-  const yearsPhrase = verifiedYears >= 3
-    ? ` with ${verifiedYears} years of experience`
-    : '';
-  const summaryParts: string[] = [`${candidateTitle}${yearsPhrase}.`];
-
-  const achievementSentence = toSummaryAchievement(topAccomplishment);
-  if (achievementSentence) {
-    summaryParts.push(achievementSentence);
-  }
-
-  if (topSkills.length > 0) {
-    summaryParts.push(`Core stack: ${topSkills}.`);
-  }
-
-  let tailoredSummary = summaryParts.join(' ');
-  tailoredSummary = normalizeTechOrthography(tailoredSummary);
-
-  // Apply writing quality pass if writing style provided
-  if (options?.writingStyle) {
-    const { cleanedText } = applyWritingQualityPassSync(tailoredSummary, options.writingStyle);
-    tailoredSummary = cleanedText;
-  }
+  const finalSummary = options?.writingStyle
+    ? applyWritingQualityPassSync(tailoredSummary, options.writingStyle).cleanedText
+    : tailoredSummary;
 
   const selectedTemplate = options?.templateId || 'modern';
   const preliminaryResume: TailoredResume = {
     targetJobTitle: job.title,
     companyName: job.companyName,
-    tailoredSummary,
+    tailoredSummary: finalSummary,
     skills: tailoredSkills,
     experiences: finalExperiences,
     projects: finalProjects,
@@ -439,4 +473,180 @@ export function tailorCandidateResume(
     ...preliminaryResume,
     qualityAudit,
   };
+}
+
+/**
+ * Kinds of system the posting asks for ("Distributed Systems") that one of
+ * the candidate's own bullets spells out, every word in the same bullet ("Engineered a
+ * distributed multiplayer system"). A skills-list entry alone does not count, and loose
+ * synonyms do not either, because the summary states these as the candidate's work.
+ */
+function evidencedConcepts(profile: CandidateProfile, asked: readonly string[], limit: number): string[] {
+  const bullets = profile.experiences
+    .flatMap((exp) => exp.highlights)
+    .concat(profile.projects.flatMap((project) => [...project.highlights, project.description]))
+    .map((text) => new Set(normalizeCompetencyToken(text).split(' ').filter(Boolean).map((word) => word.slice(0, 5))));
+  const out: string[] = [];
+  for (const skill of asked) {
+    if (out.length >= limit) break;
+    if (extractTechnologies(skill).length > 0) continue;
+    const words = normalizeCompetencyToken(skill).split(' ').filter((word) => word.length > 2);
+    if (words.length === 0 || words.length > 3) continue;
+    if (bullets.some((stems) => words.every((word) => stems.has(word.slice(0, 5))))) out.push(skill.toLowerCase());
+  }
+  return out;
+}
+
+/** Past-tense opening verbs a resume bullet starts with ("Built", "Designed"). */
+const PAST_VERB = /^(?:[A-Z][a-z]+ed|Built|Led|Wrote|Ran|Made|Drove|Won|Grew|Cut|Shipped|Set|Took|Brought|Rebuilt|Held|Kept|Sold|Taught|Spun|Stood|Overhauled)\b/;
+
+
+/** "at CoreServe", or "as a freelancer" for freelance and self-employed work. */
+function whereDone(company: string | undefined): string {
+  if (!company) return '';
+  return /freelanc|self[- ]employed|independent|contract(or)?$/i.test(company) ? ' as a freelancer' : ` at ${company}`;
+}
+
+/**
+ * Turns one of the candidate's bullets into a summary clause: its own verb and object,
+ * minus a trailing tool list (the first sentence already names the stack) and any second
+ * clause after a semicolon. Only removes words; never adds any.
+ */
+function bulletClause(text: string): { verb: string; rest: string } | undefined {
+  let line = text.trim().replace(/[.;]+$/, '');
+  if (!PAST_VERB.test(line)) return undefined;
+  line = line.split(/;\s+/)[0]!;
+  const tool = line.search(/,?\s+(?:using|with|in|on)\s+(?:[A-Z][\w.+#-]*)(?:,\s*[A-Z][\w.+#-]*)*(?:,?\s+and\s+[A-Z][\w.+#-]*)?\s*$/);
+  if (tool > 45) line = line.slice(0, tool);
+  // Long lines are cut at a phrase boundary ("..., and automate order confirmation") so
+  // the summary stays readable; dropping a trailing phrase never adds a claim.
+  if (line.length > 110) {
+    const head = line.slice(0, 110);
+    const comma = head.lastIndexOf(', ');
+    const and = head.search(/ and (?=[a-z])(?![\s\S]* and [a-z])/);
+    const cut = comma > 50 ? comma : and > 50 ? and : -1;
+    if (cut > 0) line = line.slice(0, cut);
+  }
+  const [verb, ...rest] = line.split(' ');
+  return verb && rest.length > 2 ? { verb, rest: rest.join(' ') } : undefined;
+}
+
+/**
+ * Writes the summary the way a person would, in up to four short sentences:
+ * 1. Role, years, the kind of systems, and the stack the posting asks for.
+ * 2. Their strongest line for this job, in their own words, with where they did it.
+ * 3. A second line with a number, when the first had none.
+ * 4. Optionally, the company they are applying to.
+ *
+ * Every fact comes from the profile. Sentence 2 used to open "At CoreServe, engineered
+ * ...", a fragment with no subject that read as machine-written; now the verb leads and
+ * the employer follows ("Most recently designed ... at CoreServe.").
+ */
+function composeSummary(
+  profile: CandidateProfile,
+  skills: TailoredSkillsGroup,
+  experiences: readonly TailoredExperience[],
+  job: Pick<JobPosting, 'companyName' | 'rawDescription'>,
+  mentionCompany: boolean
+): string {
+  const latest = experiences[0];
+  const role = (profile.professional.currentTitle || latest?.title || profile.professional.headline || '').trim();
+  const years = Math.floor(
+    Math.max(calculateVerifiedExperienceYears(profile.experiences), profile.professional.totalYearsOfExperience ?? 0)
+  );
+
+  const allWork = profile.experiences
+    .flatMap((exp) => [exp.title, ...exp.highlights, ...exp.technologiesUsed])
+    .concat(profile.projects.flatMap((project) => [project.title, project.description]))
+    .join(' \n ');
+  const domains = DOMAIN_LABELS.filter(({ seed }) => mentionsAny(allWork, getCompetencySynonyms(seed))).map(({ label }) => label);
+
+  // Only technologies the candidate's jobs show, led by the ones this posting asks for.
+  const stack = evidencedStack(profile, [...skills.matchedRequired, ...skills.matchedPreferred], 3);
+
+  // A kind of system the posting asks for and the candidate's bullets show joins the list
+  // ("payments, e-commerce and distributed systems"), so the summary speaks to this job.
+  const concepts = evidencedConcepts(
+    profile,
+    [...skills.matchedRequired, ...skills.matchedPreferred].filter((skill) => /\bsystems?$/i.test(skill.trim())),
+    1
+  );
+  const systemKinds = [...domains.slice(0, 2), ...concepts.map((concept) => concept.replace(/\s*systems?$/, ''))].filter(
+    (kind, index, all) => kind && all.indexOf(kind) === index
+  );
+  const work = systemKinds.length > 0 ? `${joinNatural(systemKinds)} systems` : 'software';
+  const stackPhrase = stack.length > 0 ? ` in ${joinNatural(stack)}` : '';
+  const opener = role || 'Software Engineer';
+  const sentences = [
+    years >= 2
+      ? `${opener} with ${years} years of experience building ${work}${stackPhrase}.`
+      : `${opener} building ${work}${stackPhrase}.`,
+  ];
+
+  // Each role's first ranked bullet is its best match for this job; across the three most
+  // recent roles take the strongest, breaking ties toward a measurable result.
+  // Words that carry meaning in the posting ("payments", "clusters", "ledger"), so a line
+  // about the same kind of work beats one that only shares a tool.
+  const postingWords = new Set(
+    (job.rawDescription ?? '')
+      .toLowerCase()
+      .match(/[a-z][a-z-]{5,}/g)
+      ?.map((word) => word.slice(0, 6)) ?? []
+  );
+  const overlap = (text: string) => {
+    const words = new Set((text.toLowerCase().match(/[a-z][a-z-]{5,}/g) ?? []).map((word) => word.slice(0, 6)));
+    let shared = 0;
+    for (const word of words) if (postingWords.has(word)) shared += 1;
+    return Math.min(1.5, shared / 4);
+  };
+  // The industry the posting is in (a bank, a health company): a line from the same
+  // industry is the one a recruiter there wants to read first.
+  const postingDomains = DOMAIN_LABELS.filter(({ seed }) => mentionsAny(`${job.rawDescription ?? ''}`, getCompetencySynonyms(seed)));
+  const domainBonus = (text: string) =>
+    postingDomains.some(({ seed }) => mentionsAny(text, getCompetencySynonyms(seed))) ? 1.5 : 0;
+  const candidates = experiences
+    .slice(0, 4)
+    .flatMap((exp, index) => exp.rankedHighlights.slice(0, 2).map((top, rank) => ({ exp, index, rank, top })))
+    .map(({ exp, index, rank, top }) => ({
+      exp,
+      index,
+      text: top.text,
+      hasNumber: QUANTIFIED_METRIC_REGEX.test(top.text),
+      score:
+        top.matchedRequirements.length +
+        (QUANTIFIED_METRIC_REGEX.test(top.text) ? 0.5 : 0) +
+        overlap(top.text) +
+        domainBonus(top.text) -
+        rank * 0.25 -
+        index * 0.1,
+    }))
+    .filter((item) => toSummaryAchievement(item.text) !== undefined);
+  const ranked = [...candidates].sort((a, b) => b.score - a.score);
+  const pick = ranked[0];
+
+  if (pick) {
+    const clause = bulletClause(pick.text);
+    if (!clause) {
+      sentences.push(toSummaryAchievement(pick.text)!);
+    } else {
+      // Two results from two employers in one plain sentence reads like a person wrote it;
+      // a lone "At X, engineered ..." fragment did not. Prefer a second line with a number.
+      const others = ranked.filter((item) => item !== pick && item.exp.company !== pick.exp.company);
+      // A second line only when it is about as relevant, or has a number to show.
+      const second = others.find((item) => item.hasNumber) ?? others.find((item) => item.score >= pick.score - 0.5);
+      const secondClause = second ? bulletClause(second.text) : undefined;
+      const first = `${clause.verb} ${clause.rest}${whereDone(pick.exp.company)}`;
+      const combined = secondClause
+        ? `${first}, and ${secondClause.verb.toLowerCase()} ${secondClause.rest}${whereDone(second!.exp.company)}.`
+        : '';
+      sentences.push(combined && combined.length <= 200 ? combined : `${first}.`);
+    }
+  }
+
+  // The cheat sheet's "include the company name": one plain line of intent, no praise.
+  if (mentionCompany && job.companyName && !/^company$/i.test(job.companyName)) {
+    sentences.push(`Looking to bring this work to ${job.companyName}.`);
+  }
+
+  return normalizeTechOrthography(sentences.join(' '));
 }

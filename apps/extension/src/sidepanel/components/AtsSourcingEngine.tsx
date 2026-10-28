@@ -7,13 +7,15 @@
  * - A registry of unauthenticated ATS board endpoints supports zero-overhead probes.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { sendToBackground } from '../../messages/bridge.js';
+import type { GetCandidateProfileResponse } from '../../messages/contracts.js';
 import type { CandidateProfile, SearchDork, AtsPlatformId } from '@applykit/domain';
 import { generateAtsSearchDorks, DIRECT_ATS_REGISTRY, buildDirectAtsApiUrl } from '@applykit/domain';
 
 interface AtsSourcingEngineProps {
-  /** Verified candidate profile aggregate used to seed roles and skills. */
-  profile: CandidateProfile | null;
+  /** Candidate profile used to seed roles and skills; loaded from storage when omitted. */
+  profile?: CandidateProfile | null;
   /** Whether the panel starts expanded. */
   initialExpanded?: boolean;
 }
@@ -22,9 +24,19 @@ interface AtsSourcingEngineProps {
  * Interactive direct ATS sourcing console and dork generator.
  */
 export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
-  profile,
+  profile: providedProfile,
   initialExpanded = false,
 }) => {
+  const [loadedProfile, setLoadedProfile] = useState<CandidateProfile | null>(null);
+  useEffect(() => {
+    if (providedProfile) return;
+    sendToBackground<{ type: 'GET_CANDIDATE_PROFILE' }, GetCandidateProfileResponse>({ type: 'GET_CANDIDATE_PROFILE' })
+      .then((res) => {
+        if (res?.profile) setLoadedProfile(res.profile);
+      })
+      .catch(() => undefined);
+  }, [providedProfile]);
+  const profile = providedProfile ?? loadedProfile;
   const [isExpanded, setIsExpanded] = useState<boolean>(initialExpanded);
   const [freshnessDays, setFreshnessDays] = useState<number>(14);
   const [customRole, setCustomRole] = useState<string>('');
@@ -88,13 +100,13 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
         }}
       >
         <div>
-          <h3 className="ats-card-title">Search job boards</h3>
+          <h3 className="ats-card-title">Search Google for openings</h3>
           <p className="ats-card-sub">
-            Target unindexed and worldwide remote roles on Ashby, Greenhouse, and Lever.
+            Ready-made Google searches that find fresh roles on Ashby, Greenhouse, Lever and company sites.
           </p>
         </div>
         <button type="button" className="ats-toggle-link">
-          {isExpanded ? 'Collapse' : 'Open tools'}
+          {isExpanded ? 'Hide' : 'Show'}
         </button>
       </div>
 
@@ -103,7 +115,7 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
           <div className="ats-controls">
             <div className="ats-field">
               <label className="ats-label" htmlFor="sourcing-freshness">
-                Posting freshness
+                Posted in the
               </label>
               <select
                 id="sourcing-freshness"
@@ -183,7 +195,7 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
               }}
             >
               <span className="ats-endpoints-title">
-                ATS board endpoints ({DIRECT_ATS_REGISTRY.length} platforms)
+                Open a company's job list directly
               </span>
               <span className="ats-endpoints-toggle">
                 {showDirectEndpoints ? 'Hide' : 'Show'}
@@ -209,7 +221,7 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
                     type="text"
                     className="ats-input"
                     aria-label="Company slug"
-                    placeholder="Company slug, e.g. stripe"
+                    placeholder="Company name as in its job board link, e.g. stripe"
                     value={testSlug}
                     onChange={(e) => setTestSlug(e.target.value)}
                   />
@@ -219,7 +231,7 @@ export const AtsSourcingEngine: React.FC<AtsSourcingEngineProps> = ({
                       className="btn-primary-sm"
                       onClick={() => handleOpenSearch(directApiUrl)}
                     >
-                      Probe API
+                      Open job list
                     </button>
                   )}
                 </div>

@@ -8,7 +8,7 @@
  * the Extension Service Worker background context. Content scripts never invoke these methods.
  */
 
-import type { AIProvider, AIRequest, AIResponse, FinishReason, TokenUsage, AIProviderCapabilities } from '@applykit/domain';
+import type { AIProvider, AIRequest, AIResponse, AIProviderCapabilities } from '@applykit/domain';
 import { parseAndValidateJsonResponse } from '@applykit/domain';
 
 export abstract class BaseHttpProvider implements AIProvider {

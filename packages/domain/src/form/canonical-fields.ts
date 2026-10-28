@@ -437,6 +437,16 @@ export function classifyFormField(attrs: RawFieldAttributes): FieldClassificatio
 
   // Text corpus to check in priority order
   const labelText = (attrs.label || attrs.ariaLabel || '').trim();
+
+  // "Spell out your name how it's pronounced" and "share your pronouns" mention a name
+  // but are not asking for it. Only the candidate can answer them.
+  if (/\b(pronounc\w*|phonetic\w*|pronouns?)\b/i.test(labelText)) {
+    return {
+      canonicalKey: 'custom_question',
+      confidence: 0.3,
+      rationale: 'Asks how to say a name or which pronouns to use; left for the candidate.',
+    };
+  }
   const nameText = `${attrs.name || ''} ${attrs.id || ''} ${attrs.dataAutomationId || ''}`
     .replace(/[\[\]_.-]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -691,7 +701,9 @@ export function resolveProfileValueForField(
     case 'identity.workAuthorization.isAuthorizedInCountry':
     case 'workauthorization.isauthorized':
     case 'workauthorization.isAuthorized':
-      return profile.identity.workAuthorization
+      // Legal answers are only filled once the candidate has stated them; a wrong guess
+      // here can disqualify an application or misstate the candidate's status.
+      return profile.identity.workAuthorization?.confirmedByCandidate
         ? profile.identity.workAuthorization.isAuthorizedInCountry
           ? 'Yes'
           : 'No'
@@ -702,7 +714,7 @@ export function resolveProfileValueForField(
     case 'identity.workAuthorization.requiresSponsorship':
     case 'workauthorization.requiressponsorship':
     case 'workauthorization.requiresSponsorship':
-      return profile.identity.workAuthorization
+      return profile.identity.workAuthorization?.confirmedByCandidate
         ? profile.identity.workAuthorization.requiresSponsorship
           ? 'Yes'
           : 'No'

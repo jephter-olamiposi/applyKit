@@ -11,7 +11,7 @@ import type { ActionId, FieldId, PlanId } from '../types/ids.js';
 import { createActionId, createPlanId } from '../types/ids.js';
 import type { CandidateProfile } from '../candidate/profile.js';
 import type { ApplicationForm } from './form-schema.js';
-import type { ApplicationField } from './application-field.js';
+import type { ApplicationField, SelectOption } from './application-field.js';
 import type { BrowserAction, BrowserActionType } from './browser-action.js';
 import { validateBrowserActionSafety } from './browser-action.js';
 import type { DryRunAction, RiskLevel } from './dry-run.js';
@@ -27,7 +27,7 @@ export interface SkippedFormField {
   readonly fieldId: FieldId;
   readonly label: string;
   readonly selector: string;
-  readonly reason: 'honeypot_trap' | 'no_profile_value' | 'unsupported_input' | 'user_excluded';
+  readonly reason: 'honeypot_trap' | 'no_profile_value' | 'no_matching_option' | 'unsupported_input' | 'user_excluded';
   readonly description: string;
 }
 
@@ -50,6 +50,8 @@ export interface DryRunPlan {
   readonly id: PlanId;
   readonly formId: string;
   readonly formUrl: string;
+  /** The form page's title, kept so the tracker can tell which job it was for. */
+  readonly formPageTitle?: string;
   readonly detectedAts: string;
   readonly actions: readonly DryRunAction[];
   readonly skippedFields: readonly SkippedFormField[];
@@ -191,6 +193,25 @@ export interface PlanGenerationOptions {
 }
 
 /**
+ * Maps a confirmed sponsorship need onto sentence-style right-to-work options, such as
+ * Monzo's "I'd need Monzo to sponsor my visa to work in this location". Only the
+ * sponsorship case is mapped: telling "citizen" from "permanent visa" from "temporary
+ * visa" needs facts the profile does not hold, so those stay with the candidate.
+ */
+function matchDescriptiveAuthorizationOption(
+  field: ApplicationField,
+  profile: CandidateProfile
+): SelectOption | undefined {
+  const auth = profile.identity.workAuthorization;
+  if (!auth?.confirmedByCandidate || auth.requiresSponsorship !== true) return undefined;
+  if (!/\b(right to work|work authori[sz]ation|authori[sz]ed to work|visa|sponsor)\w*/i.test(field.label)) return undefined;
+  const sponsorOptions = (field.options ?? []).filter(
+    (option) => /\bsponsor/i.test(option.label) && !/\b(no|not|don't|do not|without|won't|will not)\b[^.]*\bsponsor/i.test(option.label)
+  );
+  return sponsorOptions.length === 1 ? sponsorOptions[0] : undefined;
+}
+
+/**
  * Deterministically resolves candidate values for specialized custom questions
  * such as skill self-ratings, remote experience checks, or location fallbacks.
  *
@@ -205,16 +226,6 @@ export function resolveCustomFieldDeterministicValue(
   const label = (field.label || '').toLowerCase();
   const options = field.options ?? [];
 
-  const findOption = (candidate: string): string | undefined => {
-    const normalized = candidate.trim().toLowerCase();
-    if (normalized.length === 0) return undefined;
-    const match = options.find(
-      (option) =>
-        option.value.trim().toLowerCase() === normalized ||
-        option.label.trim().toLowerCase() === normalized
-    );
-    return match ? match.value || match.label : undefined;
-  };
 
   const findAffirmativeOption = (): string | undefined => {
     const match = options.find(
@@ -309,6 +320,18 @@ export function resolveCustomFieldDeterministicValue(
     (label.includes('work') || label.includes('working') || label.includes('located') || label.includes('from') || label.includes('live'))
   ) {
     return profile.identity.location?.country || undefined;
+  }
+
+  // "From where do you intend to work?" asks for a fact; "Where would you like to be
+  // based?" asks for a preference between the employer's offices and is left alone.
+  if (
+    field.fieldType !== 'select' &&
+    field.fieldType !== 'radio' &&
+    !/\b(would you like|prefer|willing)\b/.test(label) &&
+    /\b(from where do you (intend|plan) to work|where do you (intend|plan) to work( from)?|where will you (be )?work(ing)? from|where (are you|do you) (currently )?(live|located|based)|where do you live|current location)\b/.test(label)
+  ) {
+    const place = [profile.identity.location?.city, profile.identity.location?.country].filter(Boolean).join(', ');
+    return place || undefined;
   }
 
   if (label.includes('companies') && (label.includes('how many') || label.includes('worked for'))) {
@@ -444,26 +467,52 @@ export function generateDryRunPlan(
     let targetValue = resolvedValue;
     let targetSelector = field.selector;
     let actionDescription = `Fill "${resolvedValue}" into ${field.label || 'field'}`;
+    // What the candidate will see on the page. For a choice field that is the option's
+    // label ("I'd need Monzo to sponsor my visa..."), not the profile value behind it ("No").
+    let shownValue = resolvedValue;
 
     if (field.fieldType === 'select' || field.fieldType === 'multiselect') {
       actionType = 'select_option';
       if (field.options && field.options.length > 0) {
         const match = matchFieldOption(field.options, resolvedValue);
-        if (match.matchedOption) {
-          targetValue = match.matchedOption.value;
-          actionDescription = `Select "${match.matchedOption.label}" for ${field.label}`;
+        const chosen = match.matchedOption ?? matchDescriptiveAuthorizationOption(field, profile);
+        if (!chosen) {
+          // The answer must be one of the dropdown's own options. "No" is not an answer to
+          // "Please confirm your Right to Work status" when every option is a sentence.
+          skippedFields.push({
+            fieldId: field.id,
+            label: field.label,
+            selector: field.selector,
+            reason: 'no_matching_option',
+            description: `None of the options matches "${resolvedValue}". Choose this one yourself.`,
+          });
+          continue;
         }
+        targetValue = chosen.value;
+        shownValue = chosen.label;
+        actionDescription = `Select "${chosen.label}" for ${field.label}`;
       }
     } else if (field.fieldType === 'radio') {
       actionType = 'click';
       if (field.options && field.options.length > 0) {
         const match = matchFieldOption(field.options, resolvedValue);
+        if (!match.matchedOption) {
+          skippedFields.push({
+            fieldId: field.id,
+            label: field.label,
+            selector: field.selector,
+            reason: 'no_matching_option',
+            description: `None of the choices matches "${resolvedValue}". Choose this one yourself.`,
+          });
+          continue;
+        }
         if (match.matchedOption) {
           const escapedVal = match.matchedOption.value.replace(/"/g, '\\"');
           targetSelector = field.selector.startsWith('input')
             ? `${field.selector}[value="${escapedVal}"]`
             : `${field.selector} input[value="${escapedVal}"]`;
           targetValue = match.matchedOption.value;
+          shownValue = match.matchedOption.label;
           actionDescription = `Select radio choice "${match.matchedOption.label}" for ${field.label}`;
         }
       }
@@ -511,8 +560,8 @@ export function generateDryRunPlan(
 
     // Formulate diff explanation and link grounding evidence
     const diffExplanation = field.currentValue && field.currentValue.trim().length > 0
-      ? `Replace existing "${field.currentValue}" with candidate profile value "${resolvedValue}"`
-      : `Insert candidate profile value "${resolvedValue}" into empty field`;
+      ? `Replace existing "${field.currentValue}" with "${shownValue}"`
+      : `Insert "${shownValue}" into empty field`;
 
     const sourceEvidenceTitle = resolveEvidenceSourceTitle(field);
 
@@ -520,8 +569,9 @@ export function generateDryRunPlan(
       id: createActionId(),
       action: browserAction,
       fieldId: field.id,
+      fieldLabel: field.label || undefined,
       currentValue: field.currentValue || '',
-      candidateValueUsed: resolvedValue,
+      candidateValueUsed: shownValue,
       confidence: field.confidenceScore,
       riskLevel,
       userConfirmed: !requiresUserConfirmation,
@@ -553,6 +603,7 @@ export function generateDryRunPlan(
     id: createPlanId(),
     formId: form.id,
     formUrl: form.url,
+    ...(form.pageTitle ? { formPageTitle: form.pageTitle } : {}),
     detectedAts: form.detectedAts,
     actions,
     skippedFields,
@@ -717,6 +768,7 @@ export function withAiProposedFieldAnswers(
       id: createActionId(),
       action: browserAction,
       fieldId: field.id,
+      fieldLabel: field.label || undefined,
       currentValue: field.currentValue || '',
       candidateValueUsed: answer.answerText,
       confidence: Math.min(1, Math.max(0, answer.confidence)),

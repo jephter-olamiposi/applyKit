@@ -8,6 +8,7 @@
 
 import type { CandidateProfile } from '../candidate/profile.js';
 import { getPreferredOrLegalName } from '../candidate/identity.js';
+import { formatDegree, joinPresent, formatDateSpan, formatPlace } from './display-format.js';
 import type { TailoredResume, TailoredCoverLetter } from './tailoring-types.js';
 
 /**
@@ -16,7 +17,7 @@ import type { TailoredResume, TailoredCoverLetter } from './tailoring-types.js';
 function formatLocation(profile: CandidateProfile): string {
   const loc = profile.identity.location;
   if (!loc) return '';
-  return [loc.city, loc.stateOrProvince, loc.country].filter(Boolean).join(', ');
+  return formatPlace([loc.city, loc.stateOrProvince, loc.country]);
 }
 
 /**
@@ -54,23 +55,17 @@ export function exportResumeAsMarkdown(
   lines.push(resume.tailoredSummary);
   lines.push('');
 
-  lines.push('## Technical Skills');
-  if (resume.skills.matchedRequired.length > 0) {
-    lines.push(`- **Core Competencies:** ${resume.skills.matchedRequired.join(', ')}`);
-  }
-  if (resume.skills.matchedPreferred.length > 0) {
-    lines.push(`- **Preferred Qualifications:** ${resume.skills.matchedPreferred.join(', ')}`);
-  }
-  if (resume.skills.additionalSkills.length > 0) {
-    lines.push(`- **Additional Proficiencies:** ${resume.skills.additionalSkills.join(', ')}`);
+  lines.push('## Skills');
+  for (const group of skillGroups(resume)) {
+    lines.push(`- **${group.category}:** ${group.skills.join(', ')}`);
   }
   lines.push('');
 
   lines.push('## Professional Experience');
   for (const exp of resume.experiences) {
-    const dates = `${exp.startDate} – ${exp.isCurrent ? 'Present' : exp.endDate || 'N/A'}`;
-    lines.push(`### ${exp.title} | ${exp.company}`);
-    lines.push(`*${dates}*`);
+    const dates = formatDateSpan(exp.startDate, exp.endDate, exp.isCurrent);
+    lines.push(`### ${joinPresent([exp.title, exp.company], ' | ')}`);
+    if (dates) lines.push(`*${dates}*`);
     for (const h of exp.rankedHighlights) {
       lines.push(`- ${h.text}`);
     }
@@ -96,7 +91,7 @@ export function exportResumeAsMarkdown(
     lines.push('## Education');
     for (const edu of profile.education) {
       const year = edu.endDate ? ` (${edu.endDate.slice(0, 4)})` : '';
-      lines.push(`- **${edu.degree} in ${edu.fieldOfStudy}** – ${edu.institution}${year}`);
+      lines.push(`- **${formatDegree(edu)}**${edu.institution ? ` – ${edu.institution}` : ''}${year}`);
     }
     lines.push('');
   }
@@ -135,25 +130,19 @@ export function exportResumeAsPlainText(
   lines.push(resume.tailoredSummary);
   lines.push('');
 
-  lines.push('TECHNICAL SKILLS');
+  lines.push('SKILLS');
   lines.push('----------------------------------------');
-  if (resume.skills.matchedRequired.length > 0) {
-    lines.push(`Core Competencies: ${resume.skills.matchedRequired.join(', ')}`);
-  }
-  if (resume.skills.matchedPreferred.length > 0) {
-    lines.push(`Preferred Qualifications: ${resume.skills.matchedPreferred.join(', ')}`);
-  }
-  if (resume.skills.additionalSkills.length > 0) {
-    lines.push(`Additional Skills: ${resume.skills.additionalSkills.join(', ')}`);
+  for (const group of skillGroups(resume)) {
+    lines.push(`${group.category}: ${group.skills.join(', ')}`);
   }
   lines.push('');
 
   lines.push('PROFESSIONAL EXPERIENCE');
   lines.push('----------------------------------------');
   for (const exp of resume.experiences) {
-    const dates = `${exp.startDate} - ${exp.isCurrent ? 'Present' : exp.endDate || 'N/A'}`;
-    lines.push(`${exp.title.toUpperCase()} | ${exp.company}`);
-    lines.push(dates);
+    const dates = formatDateSpan(exp.startDate, exp.endDate, exp.isCurrent);
+    lines.push(joinPresent([exp.title.toUpperCase(), exp.company], ' | '));
+    if (dates) lines.push(dates);
     for (const h of exp.rankedHighlights) {
       lines.push(`* ${h.text}`);
     }
@@ -180,7 +169,7 @@ export function exportResumeAsPlainText(
     lines.push('----------------------------------------');
     for (const edu of profile.education) {
       const year = edu.endDate ? ` (${edu.endDate.slice(0, 4)})` : '';
-      lines.push(`* ${edu.degree} in ${edu.fieldOfStudy} - ${edu.institution}${year}`);
+      lines.push(`* ${formatDegree(edu)}${edu.institution ? ` - ${edu.institution}` : ''}${year}`);
     }
     lines.push('');
   }
@@ -245,4 +234,16 @@ export function exportCoverLetterAsPlainText(
   lines.push(coverLetter.fullText);
 
   return lines.join('\n');
+}
+
+/**
+ * Skill lines for text exports: grouped by kind when categories exist, otherwise a single
+ * "Skills" line. Job-posting terms such as "Preferred Qualifications" never appear on the
+ * candidate's own resume.
+ */
+function skillGroups(resume: TailoredResume): ReadonlyArray<{ category: string; skills: readonly string[] }> {
+  const groups = resume.skills.domainCategories?.filter((group) => group.skills.length > 0) ?? [];
+  if (groups.length > 0) return groups;
+  const all = [...resume.skills.matchedRequired, ...resume.skills.matchedPreferred, ...resume.skills.additionalSkills];
+  return all.length > 0 ? [{ category: 'Skills', skills: all }] : [];
 }

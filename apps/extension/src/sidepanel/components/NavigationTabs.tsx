@@ -1,161 +1,71 @@
 /**
- * @fileoverview Streamlined 5-stage pipeline navigation component for ApplyKit Side Panel.
+ * @fileoverview Primary navigation for the side panel.
  *
- * Implements candidate-centric workflow navigation:
- * 1. Find Jobs (current-page extraction and sourced opportunities)
- * 2. Review Matches (requirements and evidence-backed fit)
- * 3. Tailor Resume (resume, letter, and evidence review)
- * 4. Prepare Application (form preparation and safety review)
- * 5. Track (saved applications and statuses)
- *
- * Provides a clear progression bar where each step naturally leads to the next,
- * eliminating cognitive overload from 10 unranked tabs.
+ * Four tabs that follow how a person applies for a job: look at the job, get the resume
+ * ready, fill the application, keep track of it. Profile and settings live in the header
+ * because they are set up once, not used on every application.
  */
 
 import React from 'react';
+import type { SidePanelTabId } from '../../messages/contracts.js';
 
-export type TabId =
-  | 'overview'
-  | 'sourced_feed'
-  | 'review_matches'
-  | 'tailor_resume'
-  | 'cover_letter'
-  | 'evidence'
-  | 'prepare_application'
-  | 'track'
-  | 'profile'
-  | 'settings';
+/**
+ * Destinations the navigation bar can select.
+ *
+ * Re-exported from the message contracts so the panel and the service worker
+ * cannot disagree about which tabs exist.
+ */
+export type TabId = SidePanelTabId;
+
+/** The four top-level sections shown in the tab bar. */
+export type PrimarySection = 'job' | 'resume' | 'apply' | 'tracker';
+
+interface SectionDefinition {
+  readonly id: PrimarySection;
+  readonly label: string;
+  readonly defaultTab: TabId;
+  readonly memberTabs: readonly TabId[];
+}
+
+const SECTIONS: readonly SectionDefinition[] = [
+  { id: 'job', label: 'Job', defaultTab: 'overview', memberTabs: ['overview', 'review_matches', 'sourced_feed'] },
+  { id: 'resume', label: 'Resume', defaultTab: 'tailor_resume', memberTabs: ['tailor_resume', 'cover_letter'] },
+  { id: 'apply', label: 'Apply', defaultTab: 'prepare_application', memberTabs: ['prepare_application'] },
+  { id: 'tracker', label: 'Tracker', defaultTab: 'track', memberTabs: ['track'] },
+];
+
+/** Returns the top-level section a tab belongs to, or undefined for profile and settings. */
+export function sectionForTab(tab: TabId): PrimarySection | undefined {
+  return SECTIONS.find((section) => section.memberTabs.includes(tab))?.id;
+}
 
 interface NavigationTabsProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
 }
 
-interface PipelineStep {
-  id: string;
-  stepNumber: number;
-  label: string;
-  defaultTab: TabId;
-  memberTabs: readonly TabId[];
-  subTabs: readonly { id: TabId; label: string }[];
-}
-
-const PIPELINE_STEPS: readonly PipelineStep[] = [
-  {
-    id: 'step_source',
-    stepNumber: 1,
-    label: 'Find Jobs',
-    defaultTab: 'overview',
-    memberTabs: ['overview', 'sourced_feed'],
-    subTabs: [
-      { id: 'overview', label: 'Extract Current Job' },
-      { id: 'sourced_feed', label: 'Search Jobs' },
-    ],
-  },
-  {
-    id: 'step_verify',
-    stepNumber: 2,
-    label: 'Review Matches',
-    defaultTab: 'review_matches',
-    memberTabs: ['review_matches'],
-    subTabs: [
-      { id: 'review_matches', label: 'Fit & Eligibility' },
-    ],
-  },
-  {
-    id: 'step_tailor',
-    stepNumber: 3,
-    label: 'Tailor Resume',
-    defaultTab: 'tailor_resume',
-    memberTabs: ['tailor_resume', 'cover_letter', 'evidence'],
-    subTabs: [
-      { id: 'tailor_resume', label: 'Resume' },
-      { id: 'cover_letter', label: 'Cover Letter' },
-      { id: 'evidence', label: 'Evidence' },
-    ],
-  },
-  {
-    id: 'step_fill',
-    stepNumber: 4,
-    label: 'Prepare Application',
-    defaultTab: 'prepare_application',
-    memberTabs: ['prepare_application'],
-    subTabs: [
-      { id: 'prepare_application', label: 'Application Form' },
-    ],
-  },
-  {
-    id: 'step_track',
-    stepNumber: 5,
-    label: 'Track',
-    defaultTab: 'track',
-    memberTabs: ['track'],
-    subTabs: [],
-  },
-];
-
 /**
- * Renders the streamlined 5-step pipeline navigation and contextual subtabs.
+ * Renders the tab bar. Selecting a tab that is already active keeps the current sub-view.
  */
 export const NavigationTabs: React.FC<NavigationTabsProps> = ({ activeTab, onTabChange }) => {
-  const currentStep = PIPELINE_STEPS.find((step) => step.memberTabs.includes(activeTab));
+  const current = sectionForTab(activeTab);
 
   return (
-    <div className="pipeline-nav-container">
-      {/* Primary pipeline navigation keeps one candidate task visible at a time. */}
-      <nav className="pipeline-steps-bar" role="tablist" aria-label="Application Pipeline">
-        {PIPELINE_STEPS.map((step) => {
-          const isActive = currentStep?.id === step.id;
-          return (
-            <button
-              key={step.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={`pipeline-step-btn ${isActive ? 'pipeline-step-active' : ''}`}
-              onClick={() => onTabChange(step.defaultTab)}
-            >
-              <span className="step-num">{step.stepNumber}</span>
-              <span className="step-label">{step.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* Contextual Sub-Tabs (when active step has secondary views) */}
-      {currentStep && currentStep.subTabs.length > 0 && (
-        <div className="pipeline-subtabs-bar">
-          {currentStep.subTabs.map((sub) => {
-            const isSubActive = activeTab === sub.id;
-            return (
-              <button
-                key={sub.id}
-                type="button"
-                className={`pipeline-subtab-btn ${isSubActive ? 'subtab-active' : ''}`}
-                onClick={() => onTabChange(sub.id)}
-              >
-                {sub.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Quick return banner if on Profile or Settings */}
-      {!currentStep && (activeTab === 'profile' || activeTab === 'settings') && (
-        <div className="utility-active-banner">
-          <span className="utility-title">
-            {activeTab === 'profile' ? 'Candidate profile' : 'Extension settings'}
-          </span>
-          <button
-            type="button"
-            className="btn-return-pipeline"
-            onClick={() => onTabChange('overview')}
-          >
-            &larr; Return to Application Pipeline
-          </button>
-        </div>
-      )}
-    </div>
+    <nav className="ui-tabs" role="tablist" aria-label="Sections">
+      {SECTIONS.map((section) => (
+        <button
+          key={section.id}
+          type="button"
+          role="tab"
+          className="ui-tab"
+          aria-selected={current === section.id}
+          onClick={() => {
+            if (current !== section.id) onTabChange(section.defaultTab);
+          }}
+        >
+          {section.label}
+        </button>
+      ))}
+    </nav>
   );
 };

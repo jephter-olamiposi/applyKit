@@ -14,7 +14,7 @@ import {
   generateDryRunPlan,
   createEmptyProfile,
 } from '../index.js';
-import type { ApplicationForm, CandidateProfile } from '../index.js';
+import type { ApplicationForm } from '../index.js';
 import { createFieldId, createProfileId } from '../types/ids.js';
 
 describe('sanitizeHumanText & Anti-AI Post-Processing Guardrails', () => {

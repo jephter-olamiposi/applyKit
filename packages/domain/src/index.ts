@@ -42,6 +42,7 @@ export * from './job/eligibility-verifier.js';
 export * from './job/sourcing-dork-generator.js';
 export * from './job/opportunity-ranker.js';
 export * from './job/ats-feed-harvester.js';
+export * from './job/job-for-page.js';
 
 export * from './form/field-type.js';
 export * from './form/canonical-fields.js';
@@ -68,6 +69,8 @@ export * from './ai/field-answering.js';
 export * from './ai/writing-style.js';
 export * from './ai/human-answer-pipeline.js';
 export * from './ai/writing-style-learner.js';
+export * from './ai/answer-coach.js';
+export * from './ai/resume-rewrite.js';
 
 export * from './tailoring/index.js';
 

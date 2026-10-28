@@ -28,7 +28,6 @@ import {
   type ClaimType,
   type Evidence,
   type AiProposedFieldAnswer,
-  type ApplicationField,
 } from '@applykit/domain';
 import { AIGateway } from '../../ai/gateway.js';
 
@@ -49,6 +48,7 @@ function makeProfile(): CandidateProfile {
         isAuthorizedInCountry: false,
         requiresSponsorship: false,
         authorizedCountries: ['Nigeria'],
+          confirmedByCandidate: true,
       },
     },
     professional: {
@@ -427,6 +427,7 @@ describe('Yes/No, checkbox, and option-extra fields (synthetic form)', () => {
           isAuthorizedInCountry: false,
           requiresSponsorship: false,
           authorizedCountries: ['Nigeria'],
+          confirmedByCandidate: true,
         },
         demographics: {
           gender: 'Male',
@@ -475,6 +476,7 @@ describe('Yes/No, checkbox, and option-extra fields (synthetic form)', () => {
           isAuthorizedInCountry: false,
           requiresSponsorship: false,
           authorizedCountries: ['Nigeria'],
+          confirmedByCandidate: true,
         },
       },
     };

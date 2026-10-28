@@ -237,13 +237,6 @@ export async function setApiKey(provider: AIProviderName, apiKey: string): Promi
 }
 
 /**
- * Removes a provider API key from storage.
- */
-export async function removeApiKey(provider: AIProviderName): Promise<boolean> {
-  return setApiKey(provider, '');
-}
-
-/**
  * Retrieves the decrypted API key for outbound provider requests.
  *
  * INVARIANT: This function MUST ONLY be called within the Extension Service Worker.

@@ -22,7 +22,6 @@ import {
   createJobPostingId,
   createApplicationId,
   createEvidenceId,
-  createClaimId,
   createApplicationRecord,
   type CandidateProfile,
   type JobPosting,
@@ -49,7 +48,6 @@ import {
   calculateElementClickCoordinates,
   dispatchRealisticPointerSequence,
   typeTextProgressively,
-  sleep,
 } from '../content/pacing-engine.js';
 
 // Resolve directory paths for file inspection
@@ -116,9 +114,13 @@ describe('Security, Compliance & Anti-Detection Suite', () => {
 
     it('enforces strict self-hosted Content Security Policy without unsafe-eval or remote origins', () => {
       expect(manifest.content_security_policy).toBeDefined();
+      // 'wasm-unsafe-eval' only allows compiling bundled WebAssembly. The PDF layout
+      // engine (yoga) is WebAssembly, so removing it breaks resume and letter export.
+      // Plain 'unsafe-eval' stays forbidden.
       expect(manifest.content_security_policy.extension_pages).toBe(
         "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
       );
+      expect(manifest.content_security_policy.extension_pages).not.toMatch(/'unsafe-eval'/);
     });
 
     it('does not request high-risk or unnecessary surveillance permissions', () => {

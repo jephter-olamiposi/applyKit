@@ -76,7 +76,7 @@ export function categorizeSkill(name: string): SkillCategory {
     return 'language';
   }
   if (
-    /^(?:react|react\.?js|react-native|vue|vue\.?js|angular|svelte|next\.?js|nuxt|express|express\.?js|nestjs|django|flask|fastapi|spring|spring\s+boot|rails|ruby\s+on\s+rails|axum|tokio|actix|grpc|graphql|apollo|egui|tauri|redux|zustand|tailwind|tailwindcss|electron|bootstrap)$/i.test(lower)
+    /^(?:react|react\.?js|react[-\s]native|node|node\.?js|nodejs|deno|bun|flutter|vue|vue\.?js|angular|svelte|next\.?js|nuxt|express|express\.?js|nestjs|django|flask|fastapi|spring|spring\s+boot|rails|ruby\s+on\s+rails|axum|tokio|actix|apollo|egui|tauri|redux|zustand|tailwind|tailwindcss|electron|bootstrap)$/i.test(lower)
   ) {
     return 'framework';
   }
@@ -87,7 +87,7 @@ export function categorizeSkill(name: string): SkillCategory {
     return 'database';
   }
   if (
-    /^(?:aws|gcp|google\s+cloud|azure|docker|kubernetes|k8s|terraform|ci\/cd|linux|serverless|nginx|prometheus|grafana|datadog|helm|cloudflare|ansible|pulumi|lambda)$/i.test(lower) ||
+    /^(?:aws|gcp|google\s+cloud|azure|docker|kubernetes|k8s|terraform|ci\/cd|linux|serverless|nginx|prometheus|grafana|datadog|helm|cloudflare|ansible|pulumi|lambda|heroku|vercel|netlify|ecs|fly\.io)$/i.test(lower) ||
     /infrastructure|cloud|devops/i.test(lower)
   ) {
     return 'cloud_infrastructure';
@@ -98,7 +98,7 @@ export function categorizeSkill(name: string): SkillCategory {
     return 'devops_tool';
   }
   if (
-    /^(?:system\s+design|distributed\s+systems|microservices|event-driven(?:\s+architecture)?|domain-driven(?:\s+design)?|rest|restful(?:\s+apis)?|high\s+concurrency|concurrency|multithreading|websockets?|pub\/sub|message\s+queues?|kafka|rabbitmq|observability|financial\s+systems|idempotency|signaling)$/i.test(lower) ||
+    /^(?:system\s+design|distributed\s+systems|microservices|event-driven(?:\s+architecture)?|domain-driven(?:\s+design)?|rest|restful(?:\s+apis)?|high\s+concurrency|concurrency|multithreading|websockets?|pub\/sub|message\s+queues?|kafka|rabbitmq|nats|grpc|graphql|observability|financial\s+systems|idempotency|signaling)$/i.test(lower) ||
     /architecture|distributed/i.test(lower)
   ) {
     return 'architecture_pattern';

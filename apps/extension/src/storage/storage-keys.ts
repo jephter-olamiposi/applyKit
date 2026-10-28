@@ -14,3 +14,19 @@ export const APPLYKIT_STORAGE_KEYS = [
   'applykit_sourced_opportunities',
   'applykit_onboarding_completed',
 ] as const;
+
+/**
+ * `chrome.storage.session` key carrying a side panel destination requested from a page.
+ *
+ * Session storage is used rather than `local` because the value is transient routing
+ * state: it never touches disk and is gone when the browser closes.
+ */
+export const PENDING_SIDEPANEL_TAB_KEY = 'applykit_pending_sidepanel_tab';
+
+/**
+ * Maximum age of a pending destination before it is treated as stale.
+ *
+ * Without an expiry, a hint left behind by an earlier request could redirect the
+ * panel the next time the candidate opens it for an unrelated posting.
+ */
+export const PENDING_SIDEPANEL_TAB_TTL_MS = 60_000;

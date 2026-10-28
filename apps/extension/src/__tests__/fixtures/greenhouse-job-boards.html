@@ -1,0 +1,48 @@
+<!--
+  Structure of a job-boards.greenhouse.io posting and application form, captured from a
+  live page on 2026-10-24 with styling and per-site text removed. The description text
+  is written for this fixture. Keep the class names and element nesting: they are what
+  the Greenhouse adapters must handle.
+-->
+<html>
+<head><title>Job Application for Backend Engineer at Scale at Northwind Payments</title></head>
+<body>
+<div class="job__header"><div class="job__title"><h1 class="section-header section-header--large font-primary">Backend Engineer at Scale</h1><div class="job__location"><div>Remote (UK)</div></div></div><button type="button" class="btn btn--rectangle" aria-label="Apply">Apply</button></div>
+<div class="job__description body">
+  <p>Northwind runs a ledger for small businesses.</p>
+  <h3>What you will need</h3>
+  <ul>
+    <li>5+ years of backend engineering experience.</li>
+    <li>Strong proficiency in Go.</li>
+    <li>Experience with PostgreSQL in production.</li>
+  </ul>
+  <h3>Nice to have</h3>
+  <ul><li>Experience with Kubernetes.</li></ul>
+</div>
+<form method="get" action="/northwind/jobs/1" id="application-form" class="application--form">
+  <div class="application--questions">
+    <div class="field-wrapper"><div class="text-input-wrapper"><div class="input-wrapper"><label id="first_name-label" for="first_name" class="label label">First Name<span>*</span></label><input id="first_name" class="input input__single-line" aria-label="First Name" aria-required="true" type="text" autocomplete="given-name" value=""></div></div></div>
+    <div class="field-wrapper"><div class="text-input-wrapper"><div class="input-wrapper"><label id="last_name-label" for="last_name" class="label label">Last Name<span>*</span></label><input id="last_name" class="input input__single-line" aria-label="Last Name" aria-required="true" type="text" autocomplete="family-name" value=""></div></div></div>
+    <div class="field-wrapper"><div class="text-input-wrapper"><div class="input-wrapper"><label id="email-label" for="email" class="label label">Email<span>*</span></label><input id="email" class="input input__single-line" aria-label="Email" aria-required="true" type="text" autocomplete="email" value=""></div></div></div>
+    <div><fieldset class="phone-input"><legend class="visually-hidden">Phone</legend>
+      <div class="phone-input__country"><div class="select"><div class="select__container"><label id="country-label" for="country" class="label select__label">Country</label><div class="select-shell"><div><div class="select__control"><div class="select__value-container"><div class="select__input-container"><input class="select__input" autocomplete="off" id="country" type="text" aria-expanded="false" aria-haspopup="true" aria-labelledby="country-label" aria-required="false" role="combobox" value=""></div></div></div></div></div></div></div></div>
+      <div class="phone-input__phone"><div class="text-input-wrapper"><div class="input-wrapper"><label id="phone-label" for="phone" class="label label">Phone</label>
+        <div class="iti"><div class="iti__country-container"><button type="button" class="iti__selected-country" aria-label="Select country"></button>
+          <div id="iti-0__dropdown-content" class="iti__dropdown-content iti__hide" role="dialog"><div class="iti__search-input-wrapper"><input id="iti-0__search-input" type="search" class="iti__search-input" placeholder="Search" role="combobox" aria-controls="iti-0__country-listbox"></div>
+            <ul id="iti-0__country-listbox" class="iti__country-list" role="listbox"><li role="option" class="iti__country">Afghanistan+93</li><li role="option" class="iti__country">Nigeria+234</li><li role="option" class="iti__country">United Kingdom+44</li></ul>
+          </div></div>
+          <input id="phone" class="input input__single-line iti__tel-input" aria-label="Phone" aria-required="false" type="tel" value="" autocomplete="off"></div>
+      </div></div></div>
+    </fieldset></div>
+    <div class="field-wrapper"><div role="group" aria-labelledby="upload-label-resume" class="file-upload"><div id="upload-label-resume" class="label upload-label">Resume/CV</div><div class="file-upload__wrapper"><button type="button" class="btn btn--rectangle">Attach</button><label class="visually-hidden" for="resume">Attach</label><input id="resume" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf"></div></div></div>
+  </div>
+  <div class="application--questions"><hr>
+    <div class="field-wrapper"><div class="text-input-wrapper"><div class="input-wrapper"><label id="question_1-label" for="question_1" class="label label">LinkedIn Profile</label><input id="question_1" class="input input__single-line" aria-label="LinkedIn Profile" aria-required="false" type="text" value=""></div></div></div>
+    <div class="field-wrapper field-wrapper--multiline"><div class="text-input-wrapper"><div class="input-wrapper input-wrapper__multi-line"><label id="question_2-label" for="question_2" class="label label">Why are you interested in this role?<span>*</span></label><textarea id="question_2" class="input input__multi-line" aria-label="Why are you interested in this role?" aria-required="true"></textarea></div></div></div>
+    <div class="field-wrapper"><div class="select"><div class="select__container"><label id="question_3-label" for="question_3" class="label select__label">Please confirm your right to work in the location where this job is advertised.<span>*</span></label><div class="select-shell"><div><div class="select__control"><div class="select__value-container"><div class="select__placeholder">Select...</div><div class="select__input-container"><input class="select__input" id="question_3" type="text" aria-expanded="false" aria-haspopup="true" aria-labelledby="question_3-label" aria-required="true" role="combobox" value=""></div></div></div></div><input required="" class="" value=""></div></div></div></div>
+    <div class="field-wrapper"><div class="select"><div class="select__container"><label id="question_4-label" for="question_4" class="label select__label">Where would you like to be based?<span>*</span></label><div class="select-shell"><div><div class="select__control"><div class="select__value-container"><div class="select__placeholder">Select...</div><div class="select__input-container"><input class="select__input" id="question_4" type="text" aria-expanded="false" aria-haspopup="true" aria-labelledby="question_4-label" aria-required="true" role="combobox" value=""></div></div></div></div><input required="" class="" value=""></div></div></div></div>
+  </div>
+  <div class="application--submit"><button type="submit" class="btn btn--rectangle">Submit application</button></div>
+</form>
+</body>
+</html>

@@ -16,6 +16,7 @@ import type { JobPosting } from './job-posting.js';
 import type { JobPostingEmploymentType, WorkplaceType } from './job-posting.js';
 import { createJobPostingId } from '../types/ids.js';
 import { verifyJobEligibility } from './eligibility-verifier.js';
+import { extractSalaryFromDescription } from './salary-extractor.js';
 
 /**
  * Supported ATS platforms with unauthenticated public board APIs.
@@ -85,31 +86,34 @@ export interface WatchlistCompany {
  * Curated directory of remote-friendly tech employers hiring on Greenhouse, Ashby, and Lever.
  */
 export const DEFAULT_WATCHLIST_COMPANIES: readonly WatchlistCompany[] = [
-  // Ashby Platforms
+  // Every slug below answered with open roles on its public board API on 2026-10-24.
+  // Companies move between ATS vendors, so a board that later 404s is reported as a
+  // failed source in the feed rather than silently dropped.
+
+  // Ashby
   { name: 'Linear', slug: 'linear', platform: 'ashby', category: 'infra_devtools' },
-  { name: 'Vercel', slug: 'vercel', platform: 'ashby', category: 'infra_devtools' },
-  { name: 'Supabase', slug: 'supabase', platform: 'ashby', category: 'infra_devtools' },
+  { name: 'Supabase', slug: 'supabase', platform: 'ashby', category: 'remote_first' },
   { name: 'Ramp', slug: 'ramp', platform: 'ashby', category: 'fintech' },
-  { name: 'PostHog', slug: 'posthog', platform: 'ashby', category: 'infra_devtools' },
-  { name: 'PlanetScale', slug: 'planetscale', platform: 'ashby', category: 'infra_devtools' },
-  { name: 'Mistral AI', slug: 'mistralai', platform: 'ashby', category: 'ai_ml' },
+  { name: 'PostHog', slug: 'posthog', platform: 'ashby', category: 'remote_first' },
   { name: 'Synthesia', slug: 'synthesia', platform: 'ashby', category: 'ai_ml' },
 
-  // Greenhouse Platforms
+  // Greenhouse
   { name: 'Stripe', slug: 'stripe', platform: 'greenhouse', category: 'fintech' },
+  { name: 'Coinbase', slug: 'coinbase', platform: 'greenhouse', category: 'fintech' },
+  { name: 'Brex', slug: 'brex', platform: 'greenhouse', category: 'fintech' },
+  { name: 'Monzo', slug: 'monzo', platform: 'greenhouse', category: 'fintech' },
+  { name: 'Mercury', slug: 'mercury', platform: 'greenhouse', category: 'fintech' },
   { name: 'GitLab', slug: 'gitlab', platform: 'greenhouse', category: 'remote_first' },
-  { name: 'Remote', slug: 'remotecom', platform: 'greenhouse', category: 'remote_first' },
-  { name: 'Figma', slug: 'figma', platform: 'greenhouse', category: 'saas_cloud' },
+  { name: 'Grafana Labs', slug: 'grafanalabs', platform: 'greenhouse', category: 'remote_first' },
+  { name: 'PlanetScale', slug: 'planetscale', platform: 'greenhouse', category: 'infra_devtools' },
+  { name: 'Vercel', slug: 'vercel', platform: 'greenhouse', category: 'infra_devtools' },
+  { name: 'Cloudflare', slug: 'cloudflare', platform: 'greenhouse', category: 'infra_devtools' },
   { name: 'Datadog', slug: 'datadog', platform: 'greenhouse', category: 'infra_devtools' },
-  { name: 'Retool', slug: 'retool', platform: 'greenhouse', category: 'infra_devtools' },
-  { name: 'Zapier', slug: 'zapier', platform: 'greenhouse', category: 'remote_first' },
-  { name: 'Sourcegraph', slug: 'sourcegraph', platform: 'greenhouse', category: 'infra_devtools' },
-  { name: 'dbt Labs', slug: 'dbtlabs', platform: 'greenhouse', category: 'infra_devtools' },
-  { name: 'Docker', slug: 'docker', platform: 'greenhouse', category: 'infra_devtools' },
-  { name: 'Grafana Labs', slug: 'grafanalabs', platform: 'greenhouse', category: 'infra_devtools' },
-
-  // Lever Platforms
-  { name: 'Anthropic', slug: 'anthropic', platform: 'lever', category: 'ai_ml' },
+  { name: 'Cockroach Labs', slug: 'cockroachlabs', platform: 'greenhouse', category: 'infra_devtools' },
+  { name: 'Sourcegraph', slug: 'sourcegraph91', platform: 'greenhouse', category: 'infra_devtools' },
+  { name: 'Figma', slug: 'figma', platform: 'greenhouse', category: 'saas_cloud' },
+  { name: 'Twilio', slug: 'twilio', platform: 'greenhouse', category: 'saas_cloud' },
+  { name: 'Anthropic', slug: 'anthropic', platform: 'greenhouse', category: 'ai_ml' },
 ];
 
 /**
@@ -127,8 +131,11 @@ export function normalizeGreenhouseJobs(
   for (const job of rawJson.jobs) {
     if (!job || !job.title || !job.id) continue;
 
-    const rawContent = typeof job.content === 'string' ? job.content : '';
-    const cleanSnippet = stripHtmlTags(rawContent).slice(0, 500);
+    // The list endpoint returns `content` entity-encoded (`&lt;p&gt;...`), so decode
+    // before stripping tags or every snippet shows raw markup.
+    const plainContent = stripHtmlTags(decodeHtmlEntities(typeof job.content === 'string' ? job.content : ''));
+    const cleanSnippet = plainContent.slice(0, 500);
+    const salary = extractSalaryFromDescription(plainContent);
 
     results.push({
       id: `gh_${job.id}`,
@@ -136,9 +143,9 @@ export function normalizeGreenhouseJobs(
       title: String(job.title).trim(),
       url: job.absolute_url || `https://boards.greenhouse.io/jobs/${job.id}`,
       locationText: job.location?.name?.trim() || 'Remote',
-      workplaceType: inferWorkplaceType(`${job.location?.name || ''} ${rawContent}`),
-      employmentType: inferEmploymentType(`${job.title} ${rawContent}`),
-      compensationText: undefined,
+      workplaceType: inferWorkplaceType(`${job.location?.name || ''} ${plainContent}`),
+      employmentType: inferEmploymentType(`${job.title} ${plainContent}`),
+      compensationText: salary?.rawMatch,
       sourcePlatform: 'greenhouse',
       postedAt: job.updated_at,
       department: job.departments?.[0]?.name,
@@ -164,10 +171,17 @@ export function normalizeAshbyJobs(
   for (const job of rawJson.jobs) {
     if (!job || !job.title || !job.id) continue;
 
-    const compensationText = job.compensation?.compensationSummary || undefined;
-    const cleanSnippet = typeof job.descriptionPlain === 'string'
-      ? job.descriptionPlain.slice(0, 500)
-      : stripHtmlTags(job.descriptionHtml || '').slice(0, 500);
+    // Ashby's public API names these compensationTierSummary ("$150K – $200K • Offers
+    // Equity") and scrapeableCompensationSalarySummary; there is no compensationSummary.
+    const compensationText =
+      job.compensation?.compensationTierSummary || job.compensation?.scrapeableCompensationSalarySummary || undefined;
+    const secondary = Array.isArray(job.secondaryLocations)
+      ? job.secondaryLocations
+          .map((entry: unknown) => (typeof entry === 'string' ? entry : (entry as { location?: string })?.location))
+          .filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim() !== '')
+      : [];
+    const descriptionText = job.descriptionPlain || stripHtmlTags(decodeHtmlEntities(job.descriptionHtml || ''));
+    const cleanSnippet = descriptionText.slice(0, 500);
 
     const jobUrl = job.jobUrl || (slug ? `https://jobs.ashbyhq.com/${slug}/${job.id}` : '');
 
@@ -176,9 +190,9 @@ export function normalizeAshbyJobs(
       employer: companyName,
       title: String(job.title).trim(),
       url: jobUrl,
-      locationText: job.location || (Array.isArray(job.secondaryLocations) ? job.secondaryLocations.join(', ') : 'Remote'),
-      workplaceType: inferWorkplaceType(`${job.location || ''} ${job.descriptionPlain || job.descriptionHtml || ''}`),
-      employmentType: inferEmploymentType(`${job.title} ${job.descriptionPlain || job.descriptionHtml || ''}`),
+      locationText: [job.location, ...secondary].filter(Boolean).join('; ') || 'Location not listed',
+      workplaceType: ASHBY_WORKPLACE[String(job.workplaceType)] ?? (job.isRemote === true ? 'remote' : inferWorkplaceType(`${job.location || ''} ${descriptionText}`)),
+      employmentType: ASHBY_EMPLOYMENT[String(job.employmentType)] ?? inferEmploymentType(`${job.title} ${descriptionText}`),
       compensationText,
       sourcePlatform: 'ashby',
       postedAt: job.publishedAt,
@@ -206,17 +220,21 @@ export function normalizeLeverJobs(
 
     const cleanSnippet = typeof job.descriptionPlain === 'string'
       ? job.descriptionPlain.slice(0, 500)
-      : stripHtmlTags(job.description || '').slice(0, 500);
+      : stripHtmlTags(decodeHtmlEntities(job.description || '')).slice(0, 500);
 
     results.push({
       id: `lever_${job.id}`,
       employer: companyName,
       title: String(job.text).trim(),
       url: job.hostedUrl || job.applyUrl || '',
-      locationText: job.categories?.location || 'Remote',
-      workplaceType: inferWorkplaceType(`${job.categories?.location || ''} ${job.descriptionPlain || job.description || ''}`),
-      employmentType: inferEmploymentType(`${job.text} ${job.descriptionPlain || job.description || ''}`),
-      compensationText: job.salaryDescription || undefined,
+      locationText:
+        (Array.isArray(job.categories?.allLocations) && job.categories.allLocations.length > 0
+          ? job.categories.allLocations.join('; ')
+          : job.categories?.location) || 'Location not listed',
+      // Lever states the arrangement explicitly; text inference is only a fallback.
+      workplaceType: LEVER_WORKPLACE[String(job.workplaceType)] ?? inferWorkplaceType(`${job.categories?.location || ''} ${job.descriptionPlain || ''}`),
+      employmentType: inferEmploymentType(`${job.categories?.commitment || ''} ${job.text} ${job.descriptionPlain || ''}`),
+      compensationText: job.salaryDescriptionPlain || (typeof job.salaryDescription === 'string' ? decodeHtmlEntities(job.salaryDescription.replace(/<[^>]+>/g, ' ')).trim() : undefined) || formatLeverSalary(job.salaryRange) || undefined,
       sourcePlatform: 'lever',
       postedAt: job.createdAt ? new Date(job.createdAt).toISOString() : undefined,
       department: job.categories?.department || job.categories?.team,
@@ -340,7 +358,47 @@ export function screenSourcedOpportunities(
  * Strips HTML tags from raw job board descriptions.
  */
 function stripHtmlTags(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return decodeHtmlEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '-', ndash: '-', hellip: '...',
+  rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', bull: '•', middot: '·', pound: '£', euro: '€',
+};
+
+/**
+ * Decodes HTML entities without a DOM (the service worker has none). Unknown named
+ * entities are left as written rather than guessed.
+ */
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
+  });
+}
+
+const ASHBY_WORKPLACE: Record<string, WorkplaceType> = { Remote: 'remote', Hybrid: 'hybrid', OnSite: 'onsite', Onsite: 'onsite' };
+const ASHBY_EMPLOYMENT: Record<string, JobPostingEmploymentType> = {
+  FullTime: 'full_time',
+  PartTime: 'part_time',
+  Contract: 'contract',
+  Intern: 'internship',
+  Temporary: 'contract',
+};
+const LEVER_WORKPLACE: Record<string, WorkplaceType> = { remote: 'remote', hybrid: 'hybrid', onsite: 'onsite' };
+
+/** Formats Lever's structured `salaryRange` ({min, max, currency, interval}). */
+function formatLeverSalary(range: unknown): string | undefined {
+  if (!range || typeof range !== 'object') return undefined;
+  const { min, max, currency, interval } = range as Record<string, unknown>;
+  if (typeof min !== 'number' && typeof max !== 'number') return undefined;
+  const fmt = (n: unknown) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
+  const span = [fmt(min), fmt(max)].filter(Boolean).join(' - ');
+  const per = typeof interval === 'string' ? ` ${interval.replace(/-/g, ' ')}` : '';
+  return `${typeof currency === 'string' ? `${currency} ` : ''}${span}${per}`.trim();
 }
 
 function inferWorkplaceType(text: string): WorkplaceType | undefined {
